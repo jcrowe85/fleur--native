@@ -1,3 +1,5 @@
 import '../global.css';  
 import { Stack } from 'expo-router';
-export default function Root() { return <Stack screenOptions={{ headerShown:false }} /> }
+import { SafeAreaProvider } from "react-native-safe-area-context";
+export default function Root() { return <SafeAreaProvider><Stack screenOptions={{ headerShown:false }} /></SafeAreaProvider>}
+

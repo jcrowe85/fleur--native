@@ -18,5 +18,5 @@
     "src",
     "global.d.ts",
     "nativewind-env.d.ts"
-  ]
+, "app/index.tsx"  ]
 }
