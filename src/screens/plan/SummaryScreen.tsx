@@ -219,7 +219,7 @@ export default function Summary() {
     <View className="flex-1 bg-brand-bg">
       {/* Background */}
       <ImageBackground
-        source={require("../../assets/dashboard.png")}
+        source={require("../../../assets/dashboard.png")}
         resizeMode="cover"
         className="absolute inset-0"
       >
@@ -230,8 +230,6 @@ export default function Summary() {
           className="absolute inset-0"
         />
       </ImageBackground>
-
-      <StatusBar style="light" translucent backgroundColor="transparent" />
 
       <SafeAreaView className="flex-1" edges={["top", "left", "right"]}>
         <ScrollView
@@ -311,7 +309,7 @@ export default function Summary() {
 
             {/* Single CTA → Routine page */}
             <Pressable
-                onPress={() => router.push("/routine")}
+                onPress={() => router.push("/routine-overview")}
                 className="w-full rounded-full bg-white items-center py-3 active:opacity-90"
                 >
                 <Text className="text-brand-bg font-semibold">View Routine</Text>

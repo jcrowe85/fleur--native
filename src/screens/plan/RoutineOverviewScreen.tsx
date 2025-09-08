@@ -57,7 +57,7 @@ export default function RoutineOverview() {
     <View className="flex-1 bg-brand-bg">
       {/* Background */}
       <ImageBackground
-        source={require("../../assets/dashboard.png")}
+        source={require("../../../assets/dashboard.png")}
         resizeMode="cover"
         className="absolute inset-0"
       >
@@ -68,9 +68,7 @@ export default function RoutineOverview() {
           className="absolute inset-0"
         />
       </ImageBackground>
-
-      <StatusBar style="light" translucent backgroundColor="transparent" />
-
+      
       <SafeAreaView className="flex-1" edges={["top", "left", "right"]}>
         <ScrollView
           className="flex-1"
