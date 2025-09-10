@@ -7,42 +7,62 @@ import {
   Pressable,
   Animated,
   Easing,
-  ActivityIndicator,
-  Dimensions
+  Dimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"; // ← add hook
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { CustomButton } from "../components/UI/CustomButton";
+
+// 🔹 NEW: bring in your plan client + store
+import { fetchPlan } from "@/services/planClient";
+import { usePlanStore } from "@/state/planStore";
 
 /** ================================================================
  * PHASE CONTROLLER
  * ================================================================ */
 type Phase = "questions" | "auth" | "setup";
 
+// 🔹 Type used for server input
+type PlanInput = {
+  persona: "menopause" | "postpartum" | "general";
+  hairType: string;     // e.g., "fine-straight"
+  washFreq: string;     // e.g., "2x/week"
+  goals: string[];      // e.g., ["reduce shedding"]
+  constraints?: string; // optional, semicolon-joined tags
+};
+
 export default function OnboardingScreen() {
-  const insets = useSafeAreaInsets(); // ← read device insets
+  const insets = useSafeAreaInsets();
 
   const [phase, setPhase] = useState<Phase>("questions");
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [authForm, setAuthForm] = useState<{ email?: string; password?: string }>({});
 
+  // 🔹 NEW: hold the derived plan input used by SetupSequence
+  const [planInput, setPlanInput] = useState<PlanInput | null>(null);
+
   const goToAuth = useCallback(() => setPhase("auth"), []);
-  const startSetup = useCallback(() => setPhase("setup"), []);
+
+  // 🔹 Compute planInput when moving into setup (from your current answers)
+  const startSetup = useCallback(() => {
+    const input = answersToPlanInput(answers);
+    setPlanInput(input);
+    setPhase("setup");
+  }, [answers]);
 
   return (
     <View className="flex-1 bg-black">
       <Background />
       <StatusBar style="light" translucent backgroundColor="transparent" />
 
-      {/* Safe area: top/left/right via edges, bottom via explicit padding */}
       <SafeAreaView
         className="flex-1 px-6 pt-2"
         edges={["top", "left", "right"]}
-        style={{ paddingBottom: Math.max(insets.bottom, 16) }} // ← protects bottom content
+        style={{ paddingBottom: Math.max(insets.bottom, 16) }}
       >
         {phase === "questions" && (
           <Questionnaire
@@ -62,7 +82,8 @@ export default function OnboardingScreen() {
 
         {phase === "setup" && (
           <SetupSequence
-            onDone={() => router.replace("/summary")}
+            planInput={planInput}                          // 👈 pass the derived input
+            onDone={() => router.replace("/(plan)/summary")}
           />
         )}
       </SafeAreaView>
@@ -91,7 +112,7 @@ function Background() {
 }
 
 /** ================================================================
- * TEXTS — your exact, personable copy
+ * TEXTS — (unchanged)
  * ================================================================ */
 const TEXTS = {
   q1_concern: {
@@ -218,7 +239,7 @@ const TEXTS = {
 } as const;
 
 /** ================================================================
- * QUESTION CONFIG
+ * QUESTION CONFIG (unchanged)
  * ================================================================ */
 type Option = { id: string; label: string };
 type Question = {
@@ -260,10 +281,88 @@ const QUESTIONS: Question[] = [
   { id: "q10_treatments", title: TEXTS.q10_treatments.title, subtitle: TEXTS.q10_treatments.subtitle, options: toOptions(TEXTS.q10_treatments.options), singleSelect: true },
 ];
 
-const GOALS_QUESTION_ID: Question["id"] = "q7_goal";
+/** ================================================================
+ * Answers → PlanInput (server payload)
+ * ================================================================ */
+function answersToPlanInput(ans: Record<string, string[]>): PlanInput {
+  // Persona
+  const life = ans["q2_lifestage"] || [];
+  const persona: PlanInput["persona"] =
+    life.includes("opt_menopause") ? "menopause" :
+    life.includes("opt_postpartum") ? "postpartum" : "general";
+
+  // Hair type (texture + type)
+  const typeMap: Record<string, string> = {
+    opt_straight: "straight",
+    opt_wavy: "wavy",
+    opt_curly: "curly",
+    opt_coily: "coily",
+  };
+  const textureMap: Record<string, string> = {
+    opt_fine: "fine",
+    opt_medium: "medium",
+    opt_coarse: "coarse",
+  };
+  const typeStr = typeMap[(ans["q3_type"] || [])[0]] || "unknown";
+  const textureStr = textureMap[(ans["q4_texture"] || [])[0]] || "unknown";
+  const hairType = `${textureStr}-${typeStr}`;
+
+  // Wash frequency
+  const washMap: Record<string, string> = {
+    opt_daily: "daily",
+    opt_every_2_3: "every 2–3 days",
+    opt_twice_week: "2x/week",
+    opt_once_week_or_less: "1x/week or less",
+  };
+  const washFreq = washMap[(ans["q6_wash"] || [])[0]] || "unknown";
+
+  // Single goal
+  const goalMap: Record<string, string> = {
+    opt_goal_regrow: "increase thickness",
+    opt_goal_reduce_shedding: "reduce shedding",
+    opt_goal_scalp_health: "improve scalp health",
+    opt_goal_strengthen: "strengthen strands",
+    opt_goal_shine: "add shine & softness",
+    opt_goal_wellness: "long-term wellness",
+  };
+  const goals = [goalMap[(ans["q7_goal"] || [])[0]] || "general improvement"];
+
+  // Optional constraints/tags
+  const tags: string[] = [];
+
+  const colorId = (ans["q8_color"] || [])[0];
+  if (colorId === "opt_color_regularly") tags.push("color-treated: regularly");
+  else if (colorId === "opt_color_occasionally") tags.push("color-treated: occasionally");
+
+  const heatMap: Record<string, string> = {
+    opt_heat_daily: "heat: daily",
+    opt_heat_few_per_week: "heat: few times per week",
+    opt_heat_rare: "heat: rarely",
+    opt_heat_never: "heat: never",
+  };
+  const heatId = (ans["q9_heat"] || [])[0];
+  if (heatMap[heatId]) tags.push(heatMap[heatId]);
+
+  const txId = (ans["q10_treatments"] || [])[0];
+  if (txId === "opt_tx_daily_supp") tags.push("daily supplements");
+  else if (txId === "opt_tx_rx") tags.push("prescriptions (e.g., minoxidil)");
+
+  const menoStage = (ans["q2b_menopause_details"] || [])[0];
+  const ppWindow = (ans["q2a_postpartum_details"] || [])[0];
+  if (menoStage) tags.push(`menopause-stage: ${menoStage}`);
+  if (ppWindow) tags.push(`postpartum-window: ${ppWindow}`);
+
+  return {
+    persona,
+    hairType,
+    washFreq,
+    goals,
+    constraints: tags.length ? tags.join("; ") : undefined,
+  };
+}
 
 /** ================================================================
- * QUESTIONNAIRE COMPONENT
+ * QUESTIONNAIRE (unchanged UI)
  * ================================================================ */
 function Questionnaire({
   answers,
@@ -427,7 +526,7 @@ function Questionnaire({
 }
 
 /** ================================================================
- * AUTH STEP (placeholder)
+ * AUTH STEP (unchanged visuals)
  * ================================================================ */
 function AuthStep({
   authForm,
@@ -454,9 +553,15 @@ function AuthStep({
 }
 
 /** ================================================================
- * SETUP SEQUENCE — single-line, animated current step only
+ * SETUP SEQUENCE — runs animation + plan fetch in parallel
  * ================================================================ */
-function SetupSequence({ onDone }: { onDone: () => void }) {
+function SetupSequence({
+  planInput,
+  onDone,
+}: {
+  planInput: PlanInput | null;
+  onDone: () => void;
+}) {
   const MIN_STEP_MS = 3000;
   const FINAL_PAUSE_MS = 700;
 
@@ -469,64 +574,91 @@ function SetupSequence({ onDone }: { onDone: () => void }) {
   ] as const;
 
   const [active, setActive] = useState(0);
-
-  // Position headline ~25% down the screen to match questionnaire vibe
   const { height: H } = Dimensions.get("window");
   const TOP_OFFSET = Math.max(24, Math.round(H * 0.25));
 
-  // Pulse animation for the CURRENT line
   const pulse = useRef(new Animated.Value(0)).current;
   const loopRef = useRef<Animated.CompositeAnimation | null>(null);
 
-  // Drive the sequence
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
+  const setPlan = usePlanStore((s) => s.setPlan);
+
+  // Step animation as a promise
+  function runSteps(): Promise<void> {
+    return new Promise(async (resolve) => {
       for (let i = 0; i < steps.length; i++) {
-        if (cancelled) return;
         setActive(i);
         await new Promise((r) => setTimeout(r, MIN_STEP_MS));
       }
-      if (cancelled) return;
       await new Promise((r) => setTimeout(r, FINAL_PAUSE_MS));
-      onDone();
-    })();
-    return () => { cancelled = true; };
-  }, [onDone]);
+      resolve();
+    });
+  }
 
-  // Restart pulse on each step
+  // Fetch plan (with graceful fallback if planInput is null)
+  async function buildPlan(): Promise<void> {
+    try {
+      if (!planInput) throw new Error("Missing planInput");
+      const plan = await fetchPlan(planInput);
+      setPlan(plan);
+    } catch (e) {
+      console.warn("plan build failed, using fallback:", e);
+      setPlan({
+        summary: {
+          headline: "Personalizing your routine",
+          subhead: "We’ll refine details shortly.",
+          why: ["Hydration", "Gentle cleansing", "Heat protection"],
+        },
+        routine: {
+          weeklyPillars: [
+            { text: "Cleanse 2×/week" },
+            { text: "Nightly scalp massage" },
+            { text: "Use heat protectant" },
+            { text: "Low-tension styles" },
+          ],
+          notes: ["Stay hydrated", "Silk pillowcase helps reduce friction"],
+        },
+        recommendations: [],
+      } as any);
+    }
+  }
+
+  // Drive both in parallel; finish when BOTH are complete
   useEffect(() => {
-    loopRef.current?.stop?.();
-    pulse.setValue(0);
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    loopRef.current = loop;
-    return () => loop.stop();
-  }, [active, pulse]);
+    let cancelled = false;
 
-  const opacity = pulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.45, 1],
-  });
+    const startPulse = () => {
+      loopRef.current?.stop?.();
+      pulse.setValue(0);
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+          Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        ])
+      );
+      loop.start();
+      loopRef.current = loop;
+    };
+
+    (async () => {
+      startPulse();
+      await Promise.all([runSteps(), buildPlan()]);
+      if (!cancelled) onDone();
+    })();
+
+    return () => {
+      cancelled = true;
+      loopRef.current?.stop?.();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] });
 
   return (
     <View className="flex-1 px-6">
-      {/* Headline */}
       <View style={{ marginTop: TOP_OFFSET, marginBottom: 24 }}>
-        <Text
-          className="w-full text-white text-2xl font-semibold text-center leading-snug"
-          style={{ includeFontPadding: false }}
-        >
-          {/* Personalizing Your{"\n"}Hair Care Routine */}
-        </Text>
+        <Text className="w-full text-white text-2xl font-semibold text-center leading-snug" />
       </View>
 
-      {/* Single current step */}
       <View className="w-full items-center">
         <Animated.Text
           style={{
@@ -540,16 +672,8 @@ function SetupSequence({ onDone }: { onDone: () => void }) {
         >
           {steps[active]}
         </Animated.Text>
-
-        {/* Optional tiny sublabel for context */}
-        <Text
-          className="text-white/60 mt-8"
-          style={{ fontSize: 12, includeFontPadding: false as any }}
-        >
-          {/* Step {active + 1} of {steps.length} */}
-        </Text>
+        <Text className="text-white/60 mt-8" style={{ fontSize: 12, includeFontPadding: false as any }} />
       </View>
     </View>
   );
 }
-

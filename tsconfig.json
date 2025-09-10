@@ -4,8 +4,9 @@
     "strict": true,
     "jsx": "react-jsx",
     "types": [
-      "nativewind/types", "react", "react-native"
+      "nativewind/types", "react", "react-native", "node",
     ],
+    "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
       "@/*": [

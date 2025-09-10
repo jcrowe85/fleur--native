@@ -3,6 +3,7 @@ import { SafeAreaView, View, ImageBackground, Text, Animated, Easing } from 'rea
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { CustomButton } from '../../src/components/UI/CustomButton';
+import { API_BASE } from '@/config/env';
 
 const SCROLL_TEXT =
   'Peptide Science     Natural Wellness     Personal Care     '.repeat(6);
@@ -30,6 +31,13 @@ export default function Welcome() {
     anim.start();
     return () => anim.stop();
   }, [textW, translateX]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/health`)
+      .then(r => r.json())
+      .then(j => console.log("health:", j))
+      .catch(e => console.warn("health error:", e));
+  }, []);
 
   return (
     <SafeAreaView className="flex-1 bg-brand-bg">

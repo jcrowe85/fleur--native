@@ -35,3 +35,9 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+
+# Ignore env files anywhere
+.env
+.env.*
+**/.env
+**/.env.*
