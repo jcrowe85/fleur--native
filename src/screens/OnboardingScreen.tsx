@@ -511,7 +511,10 @@ function Questionnaire({
           <View className="w-[85%] rounded-full overflow-hidden">
             <BlurView intensity={25} tint="light" className="absolute inset-0" />
             <View className="h-14 px-8 rounded-full items-center justify-center border border-white/25">
-              <Text className="text-white/80 font-semibold">Continue</Text>
+              <View className="flex-row items-center">
+                <Text className="text-white/60 font-semibold">Continue</Text>
+                <Feather name="arrow-right" size={18} color="rgba(255,255,255,0.6)" style={{ marginLeft: 14 }} />
+              </View>
             </View>
           </View>
         ) : (
