@@ -10,11 +10,6 @@ const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json({ limit: "1mb" }));
 
-app.get("/health", (_req, res) => {
-  console.log("health check");
-  res.json({ status: "ok", uptime: process.uptime(), ts: new Date().toISOString() })
-});
-
 app.use("/api/plan", planRouter);
 
 const port = Number(process.env.PORT) || 3000;

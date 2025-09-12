@@ -116,8 +116,8 @@ function Background() {
  * ================================================================ */
 const TEXTS = {
   q1_concern: {
-    title: "My biggest hair concern is:",
-    subtitle: "Choose one option.",
+    title: "My biggest hair concerns are:",
+    subtitle: "Select all that apply.", // was: "Choose one option."
     options: {
       opt_crown_temples: "Thinning at crown / temples",
       opt_excess_shedding: "Excess shedding",
@@ -197,8 +197,8 @@ const TEXTS = {
     },
   },
   q7_goal: {
-    title: "My main hair goal is:",
-    subtitle: "Choose one option.",
+    title: "My main hair goals are:",
+    subtitle: "Select all that apply.", // was: "Choose one option."
     options: {
       opt_goal_regrow: "Regrow / thicken",
       opt_goal_reduce_shedding: "Reduce shedding",
@@ -254,7 +254,7 @@ const toOptions = (o: Record<string, string>): Option[] =>
   Object.entries(o).map(([id, label]) => ({ id, label }));
 
 const QUESTIONS: Question[] = [
-  { id: "q1_concern", title: TEXTS.q1_concern.title, subtitle: TEXTS.q1_concern.subtitle, options: toOptions(TEXTS.q1_concern.options), singleSelect: true },
+  { id: "q1_concern", title: TEXTS.q1_concern.title, subtitle: TEXTS.q1_concern.subtitle, options: toOptions(TEXTS.q1_concern.options), singleSelect: false },
   { id: "q2_lifestage", title: TEXTS.q2_lifestage.title, subtitle: TEXTS.q2_lifestage.subtitle, options: toOptions(TEXTS.q2_lifestage.options), singleSelect: false },
   {
     id: "q2a_postpartum_details",
@@ -275,7 +275,7 @@ const QUESTIONS: Question[] = [
   { id: "q4_texture", title: TEXTS.q4_texture.title, subtitle: TEXTS.q4_texture.subtitle, options: toOptions(TEXTS.q4_texture.options), singleSelect: true },
   { id: "q5_scalp", title: TEXTS.q5_scalp.title, subtitle: TEXTS.q5_scalp.subtitle, options: toOptions(TEXTS.q5_scalp.options), singleSelect: true },
   { id: "q6_wash", title: TEXTS.q6_wash.title, subtitle: TEXTS.q6_wash.subtitle, options: toOptions(TEXTS.q6_wash.options), singleSelect: true },
-  { id: "q7_goal", title: TEXTS.q7_goal.title, subtitle: TEXTS.q7_goal.subtitle, options: toOptions(TEXTS.q7_goal.options), singleSelect: true },
+  { id: "q7_goal", title: TEXTS.q7_goal.title, subtitle: TEXTS.q7_goal.subtitle, options: toOptions(TEXTS.q7_goal.options), singleSelect: false },
   { id: "q8_color", title: TEXTS.q8_color.title, subtitle: TEXTS.q8_color.subtitle, options: toOptions(TEXTS.q8_color.options), singleSelect: true },
   { id: "q9_heat", title: TEXTS.q9_heat.title, subtitle: TEXTS.q9_heat.subtitle, options: toOptions(TEXTS.q9_heat.options), singleSelect: true },
   { id: "q10_treatments", title: TEXTS.q10_treatments.title, subtitle: TEXTS.q10_treatments.subtitle, options: toOptions(TEXTS.q10_treatments.options), singleSelect: true },
@@ -316,7 +316,7 @@ function answersToPlanInput(ans: Record<string, string[]>): PlanInput {
   };
   const washFreq = washMap[(ans["q6_wash"] || [])[0]] || "unknown";
 
-  // Single goal
+  // Map multiple goals (q7)
   const goalMap: Record<string, string> = {
     opt_goal_regrow: "increase thickness",
     opt_goal_reduce_shedding: "reduce shedding",
@@ -325,7 +325,24 @@ function answersToPlanInput(ans: Record<string, string[]>): PlanInput {
     opt_goal_shine: "add shine & softness",
     opt_goal_wellness: "long-term wellness",
   };
-  const goals = [goalMap[(ans["q7_goal"] || [])[0]] || "general improvement"];
+  const selectedGoalIds = ans["q7_goal"] || [];
+  const mappedGoals = selectedGoalIds.map((id) => goalMap[id]).filter(Boolean);
+
+  // Optionally fold “concerns” (q1) into goals for extra signal
+  const concernToGoals: Record<string, string[]> = {
+    opt_crown_temples: ["increase thickness"],
+    opt_excess_shedding: ["reduce shedding"],
+    opt_breakage_dryness: ["repair damage", "strengthen strands"],
+    opt_lack_volume: ["increase thickness"],
+    opt_scalp_irritation: ["improve scalp health"],
+    opt_other: [],
+  };
+  const selectedConcernIds = ans["q1_concern"] || [];
+  const impliedFromConcerns = selectedConcernIds.flatMap((id) => concernToGoals[id] || []);
+
+  // De-dupe
+  const goalsSet = new Set<string>([...mappedGoals, ...impliedFromConcerns]);
+  const goals = goalsSet.size ? Array.from(goalsSet) : ["general improvement"];
 
   // Optional constraints/tags
   const tags: string[] = [];

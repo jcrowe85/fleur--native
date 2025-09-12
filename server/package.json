@@ -13,9 +13,11 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@types/node-fetch": "2.6.13",
     "cors": "^2.8.5",
     "dotenv": "^17.2.2",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "node-fetch": "2.7.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

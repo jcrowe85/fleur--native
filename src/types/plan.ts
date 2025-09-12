@@ -1,4 +1,4 @@
-// src/types/plan.ts
+// src/types/plans.ts
 
 /** Icons allowed by the schema for summary + routine */
 export type SummaryIcon =
@@ -9,13 +9,39 @@ export type RoutineIcon =
   | SummaryIcon
   | "list" | "bookmark" | "info";
 
-/** Optional: input you POST to /api/plan/build */
+/** Optional enrichment for the prompt only (not validated/returned by the server) */
+export type HairThickness = "fine" | "medium" | "coarse";
+export type HairTexture = "straight" | "wavy" | "curly" | "coily";
+export type HairPorosity = "low" | "medium" | "high" | "unknown";
+
+export type WashFrequencyCode =
+  | "1x/week" | "2x/week" | "3x/week" | "4x/week" | "5x/week" | "6x/week" | "daily";
+
+export type PlanInputDetail = {
+  hairTypeDetail?: {
+    thickness: HairThickness;
+    texture: HairTexture;
+    porosity: HairPorosity;
+  };
+  washFreqDetail?: {
+    raw: string;             // e.g., "every other day"
+    perWeek: number | null;  // e.g., 3.5 for QOD
+  };
+  goalsDetail?: Array<{
+    raw: string;
+    emphasis?: string;       // e.g., "short-term shedding", "bond/strength"
+  }>;
+  constraintsDetail?: Record<string, string | boolean>; // e.g., { colorTreated: true, heat: "3x/week", lifestyleSwim: true }
+};
+
+/** Input you POST to /api/plan/build (schema-friendly + optional __detail for prompt) */
 export type PlanInput = {
   persona: "menopause" | "postpartum" | "general";
   hairType: string;     // e.g., "fine-straight"
-  washFreq: string;     // e.g., "2x/week"
+  washFreq: WashFrequencyCode | string; // allow "2x/week" etc.
   goals: string[];      // e.g., ["reduce shedding"]
   constraints?: string; // e.g., "color-treated: regularly; heat: few times per week"
+  __detail?: PlanInputDetail; // prompt-only enrichment (ignored by server schema)
 };
 
 /** Full plan object returned by the server */

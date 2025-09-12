@@ -1,43 +1,56 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { SafeAreaView, View, ImageBackground, Text, Animated, Easing } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { SafeAreaView, View, ImageBackground, Text } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { CustomButton } from '../../src/components/UI/CustomButton';
-import { API_BASE } from '@/config/env';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withRepeat,
+  cancelAnimation,
+  Easing as ReEasing,
+} from 'react-native-reanimated';
 
 const SCROLL_TEXT =
   'Peptide Science     Natural Wellness     Personal Care     '.repeat(6);
 
+// Feel tuning — adjust if you want
+const PX_PER_SEC = 60;       // constant speed (px/sec)
+const MIN_LOOP_MS = 12000;   // never faster than this per loop
+
 export default function Welcome() {
-  const translateX = useRef(new Animated.Value(0)).current;
-  const [textW, setTextW] = useState(0);
+  const x = useSharedValue(0);
+  const [textW, setTextW] = useState<number | null>(null);
+
+  // Measure the intrinsic width of one copy of the text without impacting layout
+  const handleMeasure = (e: any) => {
+    const lines = e?.nativeEvent?.lines;
+    // lines[0].width is the *intrinsic* width of the single line (not clamped by container)
+    const wFromLines = Array.isArray(lines) && lines[0]?.width ? Math.ceil(lines[0].width) : 0;
+    if (wFromLines > 0 && wFromLines !== textW) setTextW(wFromLines);
+  };
 
   useEffect(() => {
     if (!textW) return;
-    translateX.setValue(0);
+    cancelAnimation(x);
+    x.value = 0;
 
-    // Constant speed regardless of length
-    const PX_PER_SEC = 10; // adjust speed here
-    const duration = Math.ceil(textW / PX_PER_SEC) * 1000;
+    const duration = Math.max(MIN_LOOP_MS, Math.round((textW / PX_PER_SEC) * 1000));
 
-    const anim = Animated.loop(
-      Animated.timing(translateX, {
-        toValue: -textW,          // move exactly one text-width
-        duration,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      })
+    // move exactly one text-width, loop forever
+    x.value = withRepeat(
+      withTiming(-textW, { duration, easing: ReEasing.linear }),
+      -1, // infinite
+      false
     );
-    anim.start();
-    return () => anim.stop();
-  }, [textW, translateX]);
 
-  useEffect(() => {
-    fetch(`${API_BASE}/health`)
-      .then(r => r.json())
-      .then(j => console.log("health:", j))
-      .catch(e => console.warn("health error:", e));
-  }, []);
+    return () => cancelAnimation(x);
+  }, [textW]);
+
+  const trackStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: x.value }],
+  }));
 
   return (
     <SafeAreaView className="flex-1 bg-brand-bg">
@@ -59,7 +72,7 @@ export default function Welcome() {
       <View className="flex-1 items-center justify-center px-6 py-12">
         <View className="w-full max-w-md items-center">
           {/* Logo */}
-          <View className="">
+          <View>
             <ImageBackground
               source={require('../../assets/logo.png')}
               resizeMode="contain"
@@ -67,22 +80,28 @@ export default function Welcome() {
             />
           </View>
 
+          {/* Invisible measuring copy (on-screen, absolutely positioned, no layout impact) */}
+          <Text
+            numberOfLines={1}
+            onTextLayout={handleMeasure}
+            style={{
+              position: 'absolute',
+              opacity: 0,   // keeps it laid out but invisible
+              left: 0,
+              top: 0,
+            }}
+            accessible={false}
+            pointerEvents="none"
+          >
+            {SCROLL_TEXT}
+          </Text>
+
           {/* Scrolling text bar – seamless, single-line, no gap */}
-          <View className="relative py-40 w-full">
-            {textW === 0 ? (
-              // First render: measure width of one copy
-              <Text
-                className="text-white/80 text-sm font-medium"
-                numberOfLines={1}
-                ellipsizeMode="clip"
-                onLayout={(e) => setTextW(e.nativeEvent.layout.width)}
-              >
-                {SCROLL_TEXT}
-              </Text>
-            ) : (
+          <View className="relative py-40 w-full" style={{ overflow: 'hidden' }}>
+            {textW ? (
               <Animated.View
-                style={{ transform: [{ translateX }] }}
-                className="flex-row"
+                key={textW} // clean reset on width changes (rotation/font-scale)
+                style={[{ flexDirection: 'row' }, trackStyle]}
               >
                 <Text
                   className="text-white/80 text-sm font-medium"
@@ -99,11 +118,20 @@ export default function Welcome() {
                   {SCROLL_TEXT}
                 </Text>
               </Animated.View>
+            ) : (
+              // Initial render to preserve your spacing while we measure
+              <Text
+                className="text-white/80 text-sm font-medium"
+                numberOfLines={1}
+                ellipsizeMode="clip"
+              >
+                {SCROLL_TEXT}
+              </Text>
             )}
           </View>
 
           {/* CTAs */}
-          <View className=" w-full items-center">
+          <View className="w-full items-center">
             <CustomButton
               variant="wellness"
               fleurSize="lg"
