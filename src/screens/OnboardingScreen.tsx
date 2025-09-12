@@ -316,7 +316,7 @@ function answersToPlanInput(ans: Record<string, string[]>): PlanInput {
   };
   const washFreq = washMap[(ans["q6_wash"] || [])[0]] || "unknown";
 
-  // Map multiple goals (q7)
+  // Goals (multi-select)
   const goalMap: Record<string, string> = {
     opt_goal_regrow: "increase thickness",
     opt_goal_reduce_shedding: "reduce shedding",
@@ -328,7 +328,7 @@ function answersToPlanInput(ans: Record<string, string[]>): PlanInput {
   const selectedGoalIds = ans["q7_goal"] || [];
   const mappedGoals = selectedGoalIds.map((id) => goalMap[id]).filter(Boolean);
 
-  // Optionally fold “concerns” (q1) into goals for extra signal
+  // Concerns (multi-select) → also used to imply goals
   const concernToGoals: Record<string, string[]> = {
     opt_crown_temples: ["increase thickness"],
     opt_excess_shedding: ["reduce shedding"],
@@ -340,11 +340,11 @@ function answersToPlanInput(ans: Record<string, string[]>): PlanInput {
   const selectedConcernIds = ans["q1_concern"] || [];
   const impliedFromConcerns = selectedConcernIds.flatMap((id) => concernToGoals[id] || []);
 
-  // De-dupe
+  // De-dupe normalized goals
   const goalsSet = new Set<string>([...mappedGoals, ...impliedFromConcerns]);
   const goals = goalsSet.size ? Array.from(goalsSet) : ["general improvement"];
 
-  // Optional constraints/tags
+  // Constraints/tags
   const tags: string[] = [];
 
   const colorId = (ans["q8_color"] || [])[0];
@@ -369,13 +369,49 @@ function answersToPlanInput(ans: Record<string, string[]>): PlanInput {
   if (menoStage) tags.push(`menopause-stage: ${menoStage}`);
   if (ppWindow) tags.push(`postpartum-window: ${ppWindow}`);
 
+  // Build a rich __detail so the server/LLM can personalize more
+  const __detail = {
+    concerns: selectedConcernIds,        // raw IDs
+    goalsRaw: selectedGoalIds,           // raw IDs
+    hairTypeDetail: {
+      texture: textureStr,               // "fine" | "medium" | "coarse" | "unknown"
+      curlPattern: typeStr,              // "straight" | "wavy" | "curly" | "coily" | "unknown"
+      porosity: undefined,               // placeholder if you add later
+    },
+    scalpType: (ans["q5_scalp"] || [])[0] || undefined,
+    colorFrequency: colorId || undefined,
+    heatUsage: heatId || undefined,
+    menopauseStage: menoStage || undefined,
+    postpartumWindow: ppWindow || undefined,
+    washFreqDetail: {
+      label: (ans["q6_wash"] || [])[0] || undefined,
+      perWeek: washFreqToNumber((ans["q6_wash"] || [])[0]),
+    },
+    constraintsDetail: {
+      dryScalp: (ans["q5_scalp"] || [])[0] === "opt_dry" || undefined,
+      oilyScalp: (ans["q5_scalp"] || [])[0] === "opt_oily" || undefined,
+    },
+  };
+
   return {
     persona,
     hairType,
     washFreq,
     goals,
     constraints: tags.length ? tags.join("; ") : undefined,
-  };
+    __detail, // <- new, richer context
+  } as PlanInput;
+}
+
+function washFreqToNumber(id?: string): number | undefined {
+  if (!id) return undefined;
+  switch (id) {
+    case "opt_daily": return 7;
+    case "opt_every_2_3": return 3; // ~2–3 days cadence
+    case "opt_twice_week": return 2;
+    case "opt_once_week_or_less": return 1;
+    default: return undefined;
+  }
 }
 
 /** ================================================================

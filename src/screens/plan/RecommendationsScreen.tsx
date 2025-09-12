@@ -7,6 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { CustomButton } from "@/components/UI/CustomButton";
 
 import { usePlanStore } from "@/state/planStore";
 import type { FleurPlan } from "@/types/plans";
@@ -337,12 +338,22 @@ export default function Recommendations() {
           </View>
 
           {/* Single Add Kit CTA (20% off) */}
+          <View className="flex-col gap-3">
           <Pressable
             onPress={addKitToBag}
-            className="w-full rounded-full bg-white items-center py-3 active:opacity-90"
+            className="flex-1 rounded-full bg-white items-center py-3 active:opacity-90"
           >
             <Text className="text-brand-bg font-semibold">Add Kit to Bag — 20% off</Text>
           </Pressable>
+          <Pressable
+              onPress={() => router.push("/recommendations")}
+              className="flex-1 rounded-full border border-white/40 bg-white/10 items-center py-3 active:opacity-90"
+            >
+              <Text className="text-white font-semibold">
+                I have everything I need
+              </Text>
+            </Pressable>
+            </View>
         </ScrollView>
       </SafeAreaView>
     </View>

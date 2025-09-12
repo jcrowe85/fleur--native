@@ -7,7 +7,7 @@ import { fleurPlanSchema } from "./schema.plan";
 const router = express.Router();
 
 /** Bump this any time schema/prompt shape or post-processing changes */
-const SCHEMA_VERSION = "v7";
+const SCHEMA_VERSION = "v11";
 
 const cache = new Map<string, unknown>();
 
@@ -43,94 +43,104 @@ router.post("/build", async (req, res) => {
   const flags = deriveFlags({ persona, hairType, washFreq, goals, constraints, detail: __detail });
 
   const system =
-    "You are Fleur’s hair-care planner.\n" +
-    "Write concise, brand-safe guidance for women’s hair. No medical claims. Use plain language.\n" +
-    "Return JSON that EXACTLY matches the provided JSON schema (no extra fields).\n" +
-    "\n" +
-    "VARIETY & DEDUPING:\n" +
-    "- Avoid repeating the same canonical tips across users.\n" +
-    "- Only include 'scalp massage' if shedding/postpartum/scalp flags are present; otherwise do not use it.\n" +
-    "- Vary verbs and anchors (e.g., 'set a 3-min timer', 'make Wed the mask day').\n" +
-    "\n" +
-    "PRODUCT HINTS POLICY (Summary/Routine only):\n" +
-    "- Hint at product *categories* (NOT brands/SKUs/links/prices).\n" +
-    "- Allowed: cleanse, condition, treat, protect, scalp, style, other. (Do not use 'oil' category.)\n" +
-    "- Keep hints brief; place inside quickWins, headsUp, overview, whyThisWorks, or weekly step notes.\n" +
-    "- Reserve full product details ('Kit') for the Recommendations page (not returned here).\n" +
-    "\n" +
-    "DEDUPING AGAINST CORE CATALOG:\n" +
-    "- Do NOT recommend or mention peptide hair serum or derma stamp in recommendations.\n" +
-    "- Do NOT recommend any hair oil products or use the 'oil' category.";
+  "You are Fleur’s hair-care planner.\n" +
+  "Write concise, brand-safe guidance for women’s hair. No medical claims. Use plain language.\n" +
+  "Return JSON that EXACTLY matches the provided JSON schema (no extra fields).\n" +
+  "\n" +
+  "VARIETY & DEDUPING:\n" +
+  "- Avoid repeating the same canonical tips across users.\n" +
+  "- Only include 'scalp massage' if shedding/postpartum/scalp flags are present; otherwise do not use it.\n" +
+  "- Vary verbs and anchors (e.g., 'set a 3-min timer', 'make Wed the mask day').\n" +
+  "\n" +
+  "PRODUCT HINTS POLICY (Summary/Routine only):\n" +
+  "- Hint at product *categories* (NOT brands/SKUs/links/prices).\n" +
+  "- Allowed: cleanse, condition, treat, protect, scalp, style, other. (Do not use 'oil' category.)\n" +
+  "- Keep hints brief; place inside quickWins, headsUp, overview, whyThisWorks, or weekly step notes.\n" +
+  "- Reserve full product details ('Kit') for the Recommendations page (not returned here).\n" +
+  "\n" +
+  "RECOMMENDATION PRIORITY (for the Recommendations array):\n" +
+  "- If goals/concerns include shedding, density or crown/temple thinning → prefer a Peptide Scalp Serum with nightly or near-nightly use.\n" +
+  "- If thinning is chronic (temples/crown) and user is comfortable with tools → consider a Derma Stamp (microneedling) 1–2×/wk; avoid on irritated scalp; pair with serum on non-stamp nights.\n" +
+  "- Keep the total to a focused set (typically 3–5 items) prioritizing: cleanse, condition/leave-in, treat (mask or bond), peptide scalp serum, protect (heat).\n" +
+  "- Use plain category/naming (e.g., 'Peptide Scalp Serum', 'Derma Stamp Tool'). No brands/SKUs/links/prices are implied beyond the provided fields.";
+
 
   // add a readable context block so the model can anchor specifics
   const contextLines = [
     "Context:",
     `- persona: ${persona}`,
-    `- hair: ${hairType} | porosity: ${flags.porosity}`,
-    `- wash: ${washFreq}${flags.washPerWeek ? ` (~${flags.washPerWeek}x/week)` : ""}`,
-    `- goals: ${goals.join(", ")}`,
+    `- hair: ${hairType}`,
+    flags.porosity ? `- porosity: ${flags.porosity}` : null,
+    `- wash: ${washFreq}${flags.washPerWeek ? ` (~${flags.washPerWeek}×/wk)` : ""}`,
+    `- normalized goals: ${goals.join(", ")}`,
     constraints ? `- constraints: ${constraints}` : null,
+    // raw detail (when present)
+    __detail?.concerns?.length ? `- concerns(ids): ${__detail.concerns.join(", ")}` : null,
+    __detail?.goalsRaw?.length ? `- goals(ids): ${__detail.goalsRaw.join(", ")}` : null,
+    __detail?.scalpType ? `- scalpType: ${__detail.scalpType}` : null,
+    __detail?.colorFrequency ? `- colorFrequency: ${__detail.colorFrequency}` : null,
+    __detail?.heatUsage ? `- heatUsage: ${__detail.heatUsage}` : null,
+    __detail?.menopauseStage ? `- menopauseStage: ${__detail.menopauseStage}` : null,
+    __detail?.postpartumWindow ? `- postpartumWindow: ${__detail.postpartumWindow}` : null,
+    __detail?.washFreqDetail?.perWeek ? `- washPerWeek: ${__detail.washFreqDetail.perWeek}` : null,
     `- flags: menopause=${flags.personaMenopause}, postpartum=${flags.personaPostpartum}, fine=${flags.fine}, curlyOrCoily=${flags.curlyOrCoily}, colorTreated=${flags.colorTreated}, heatOften=${flags.heatOften}, swims=${flags.lifestyleSwim}, gym=${flags.lifestyleGym}, hardWater=${flags.hardWater}, dryScalp=${flags.dryScalp}, oilyScalp=${flags.oilyScalp}`,
   ].filter(Boolean).join("\n");
+  
 
   const prompt = [
     contextLines,
     "",
-    "Fill these sections as if for a UI with 4 cards:",
+    "Fill these sections for a UI with 4 cards. Keep outputs concise and specific to this user.",
     "",
-    // —— Summary: make it specific, expectation-setting, and human
+    // — Summary
     "1) summary.primary",
     "   - title: diagnosis-style headline (≤ 75 chars).",
-    "   - paragraph: 1–2 friendly, human-sounding lines that include specifics:",
-    "     • hair type/porosity (e.g., fine + medium porosity)",
-    "     • wash cadence (e.g., ~3–4×/week) if known",
-    "     • constraints that shape care (e.g., color-treated, frequent heat, chlorine)",
-    "     • a realistic horizon (e.g., first changes ~6–8 weeks)",
-    "     • what to expect (e.g., fewer strands in brush, baby hairs along part)",
-    "   - Use plain, natural phrasing instead of clinical tone (e.g., 'We’ll help your strands feel softer and stronger over the next 6–8 weeks').",
+    "   - paragraph: 1–2 human lines that MUST mention:",
+    "     • the user’s hair type in natural words (e.g., 'fine straight', 'wavy medium')",
+    "     • wash cadence OR styling cadence (e.g., '2×/wk' or 'daily heat')",
+    "     • at least ONE selected goal verbatim (e.g., 'reduce shedding', 'strengthen strands')",
+    "     • at least ONE relevant constraint (e.g., 'color-treated', 'hard water', 'daily heat') when present",
+    "     • a realistic horizon (e.g., 'first changes ~6–8 weeks')",
+    "   - If persona is postpartum and a postpartumWindow is provided, reference it plainly (e.g., '3–6 months postpartum').",
+    "   - If scalp type is provided (dry/oily/sensitive), include one clause that adapts care to that scalp type.",
     "   - confidence: one of Low | Medium | High",
     "",
-    "2) summary.drivers: up to 3 short chips (icon+label) tied to persona/constraints/goals.",
+
+    // — Drivers
+    "2) summary.drivers: up to 3 chips tied to persona/constraints/goals. Prefer including one environmental chip when relevant (e.g., 'Hard water', 'Frequent heat').",
     "   Allowed icons: [heart, zap, droplet, activity, coffee, feather, thermometer, moon, shield, star].",
-    "   Examples: {icon:'heart',label:'Post-partum window'}, {icon:'zap',label:'Frequent heat'}, {icon:'droplet',label:'High porosity care'}",
+    "   Use user-specific anchors (e.g., 'Frequent heat', 'High porosity care', 'Hard water').",
     "",
-    // —— Quick Wins: slot recipe + rules to diversify and keep single-line
+    // — Quick Wins
     "3) summary.quickWins: 3–5 bullets for the next 2 weeks.",
-    "   FORM: each bullet ≤ 60 chars, one clause, minimal punctuation; prefer symbols (×, wk, min, →, sec); no parentheses unless essential.",
-    "   SLOT recipe (pick 3–5 total, no duplicates):",
-    "   - Technique (rinse/detangle/application method; avoid 'scalp massage' unless shedding/postpartum/scalp flags).",
-    "   - Product category hint (cleanse/condition/treat/protect/scalp/style/other) — subtle, no brands/SKUs/links/prices; do not use 'oil'.",
-    "   - Habit/Measurement (frequency, dwell time, timer, day-of-week anchor)",
-    "   - Avoid/Limit (what to reduce or swap)",
-    "",
-    "   RULES (tie to flags & goals):",
-    "   - Include at least 1 goal-specific win (e.g., shedding → scalp focus; damage → bond care; curls → leave-in + plop).",
-    "   - Include at least 1 constraint-specific win (e.g., colorTreated → bond/treat + lower heat; heatOften → protect every style; hardWater → clarify monthly).",
-    "   - If fine hair → lightweight conditioner; avoid heavy oils at roots.",
-    "   - If curlyOrCoily → emphasize hydration, leave-in, gel/curl cream techniques; avoid over-cleansing.",
-    "   - If porosity=low → lighter layers, longer rinse; if high → richer conditioner and seal mid→ends.",
-    "   - If washPerWeek ≤ 2 → weekly/twice-weekly anchors; if ≥ 4 → keep steps lighter per wash.",
-    "   - Make each bullet measurable/time-bound (e.g., '3 min, 4×/wk', '1×/wk', '10–15 sec cool rinse').",
-    "   - At least one win must NOT involve the scalp.",
-    "",
-    "   Examples (illustrative, single-line):",
+    "   FORM: ≤ 60 chars, one clause, minimal punctuation; prefer symbols (×, wk, min, →, sec).",
+    "   RECIPE (mix without duplicates):",
+    "   - Technique (rinse/detangle/app method; include 'scalp massage' ONLY if shedding/postpartum/scalp flags).",
+    "   - Product category hint (cleanse/condition/treat/protect/scalp/style/other) — no brands/SKUs/links/prices.",
+    "   - Habit/Measurement (frequency, dwell time, timer, day-of-week anchor).",
+    "   - Avoid/Limit (reduce or swap behavior).",
+    "   RULES:",
+    "   - Include ≥1 goal-specific win (e.g., shedding → scalp; damage → bond mask; curls → leave-in + plop).",
+    "   - Include ≥1 constraint-specific win (e.g., color → bond/treat + lower heat; heat → protect each style; hard water → clarify monthly).",
+    "   - If fine hair → lightweight conditioner; avoid heavy roots.",
+    "   - If curly/coily → hydration + leave-in/gel techniques; avoid over-cleansing.",
+    "   - Use the user's washPerWeek to set realistic cadence.",
+    "   Examples:",
     "   - Heat protectant every style; keep temps medium.",
-    "   - Balancing shampoo on wash days; no double-wash.",
+    "   - Balancing sham. on wash days; avoid double-wash.",
     "   - Bond mask 1×/wk, 7–10 min, mid→ends.",
     "   - Cool rinse 10–15 sec; detangle ends upward.",
     "",
-    "4) summary.headsUp: one concise caution tailored to flags (e.g., color/chemical processing + dryness → prioritize bond care, lower heat).",
+    // — Heads up
+    "4) summary.headsUp: one concise caution tailored to flags (e.g., color/chemical + dryness → prioritize bond care, lower heat).",
     "",
-    // —— Keep subtle category hints throughout (no new keys)
-    "5) Hints (no new fields): Weave subtle product *category* hints into existing text of Summary and Routine.",
-    "   - Allowed categories: cleanse, condition, treat, protect, scalp, style, other. (Do not use 'oil'.)",
-    "   - Where to hint:",
-    "     • summary.quickWins",
-    "     • summary.headsUp",
-    "     • routine.overview / whyThisWorks",
-    "     • routine weekly step notes",
-    "   - Keep hints compact: 1–4 total across Summary + Routine. Avoid over-selling.",
-  ].filter(Boolean).join("\n");
+    // — Subtle category hints
+    "5) Hints (no new fields): Weave subtle product CATEGORY hints across Summary and Routine.",
+    "   - Allowed: cleanse, condition, treat, protect, scalp, style, other. Do NOT use 'oil'.",
+    "   - Where: quickWins, headsUp, routine.overview/why, weekly notes.",
+    "   - Keep hints compact: 1–4 total across Summary + Routine.",
+  ].join("\n");
+  
 
   try {
     const r = await fetch("https://api.openai.com/v1/responses", {
@@ -145,7 +155,7 @@ router.post("/build", async (req, res) => {
           { role: "system", content: [{ type: "input_text", text: system }] },
           { role: "user", content: [{ type: "input_text", text: prompt }] },
         ],
-        temperature: 0.5,
+        temperature: 0.6,
         max_output_tokens: 800, // allow richer Summary/Routine
         text: {
           format: {
@@ -259,6 +269,7 @@ function deriveFlags(input: {
 }
 
 /** Remove oils and core-duplicate items from recommendations */
+/** Optionally remove hair oils from recommendations; allow serum & derma stamp */
 function sanitizeRecommendations(plan: any) {
   if (!plan) return plan;
   if (!Array.isArray(plan.recommendations)) return plan;
@@ -283,14 +294,14 @@ function sanitizeRecommendations(plan: any) {
       rec?.slot === "oil" ||
       rec?.category === "oil";
 
-    const isSerumOrStamp = /(serum|derma\s*stamp|microneedl)/i.test(text);
-
-    return !isOil && !isSerumOrStamp;
+    return !isOil;
   });
 
   plan.recommendations = filtered;
   return plan;
 }
+
+
 
 function diversifyQuickWins(plan: any, flags: ReturnType<typeof deriveFlags>) {
   if (!plan?.summary?.quickWins || !Array.isArray(plan.summary.quickWins)) return plan;

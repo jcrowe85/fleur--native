@@ -4,6 +4,7 @@ import * as SplashScreen from "expo-splash-screen";
 import OnboardingScreen from "../src/screens/OnboardingScreen"; // adjust path if needed
 import WelcomeScreen from "../src/screens/WelcomeScreen"; // adjust path if needed
 import SummaryScreen from "../src/screens/plan/SummaryScreen";
+import RecommendationsScreen from "../src/screens/plan/RecommendationsScreen";
 
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
