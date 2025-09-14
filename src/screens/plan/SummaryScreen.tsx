@@ -9,9 +9,7 @@ import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { usePlanStore } from "@/state/planStore";
 
-/* -------------------------------------------------------------
-   Coercion layer: normalize any incoming summary shape
-------------------------------------------------------------- */
+/* ----------------- Coercion ----------------- */
 type Confidence = "Low" | "Medium" | "High";
 type SummaryIcon =
   | "heart" | "zap" | "droplet" | "activity" | "coffee"
@@ -26,7 +24,6 @@ type SummaryCoerced = {
 
 const FEATHER_ICONS = new Set([
   "heart","zap","droplet","activity","coffee","feather","thermometer","moon","shield","star",
-  // extras you use for headers
   "bookmark","map-pin","zap","alert-triangle","clock"
 ]);
 
@@ -40,7 +37,6 @@ function asIcon(v: any, fallback: SummaryIcon = "star"): SummaryIcon {
 function coerceSummary(raw: any): SummaryCoerced | null {
   if (!raw) return null;
 
-  // New server schema (recommended)
   if (raw.primary || raw.quickWins || raw.drivers || raw.headsUp) {
     const title = String(raw?.primary?.title ?? "Your Hair Summary");
     const paragraph = String(
@@ -50,10 +46,7 @@ function coerceSummary(raw: any): SummaryCoerced | null {
 
     const drivers = Array.isArray(raw?.drivers)
       ? raw.drivers
-          .map((d: any) => ({
-            icon: asIcon(d?.icon, "star"),
-            label: String(d?.label ?? "").trim(),
-          }))
+          .map((d: any) => ({ icon: asIcon(d?.icon, "star"), label: String(d?.label ?? "").trim() }))
           .filter((d) => d.label.length)
       : [];
 
@@ -63,40 +56,33 @@ function coerceSummary(raw: any): SummaryCoerced | null {
 
     const headsUp = raw?.headsUp ? String(raw.headsUp) : "";
 
-    return {
-      primary: { title, paragraph, confidence },
-      drivers,
-      quickWins,
-      headsUp,
-    };
+    return { primary: { title, paragraph, confidence }, drivers, quickWins, headsUp };
   }
 
-  // Older demo schema (headline/subhead/why)
   if (raw.headline || raw.subhead || raw.why) {
     const title = String(raw.headline ?? "Your Hair Summary");
-    const paragraph = String(
-      raw.subhead ?? "Your personalized summary will appear here once it’s ready."
-    );
+    const paragraph = String(raw.subhead ?? "Your personalized summary will appear here once it’s ready.");
     const quickWins = Array.isArray(raw?.why) ? raw.why.map((q: any) => String(q)).filter(Boolean) : [];
-    return {
-      primary: { title, paragraph, confidence: "Medium" },
-      drivers: [],
-      quickWins,
-      headsUp: "",
-    };
+    return { primary: { title, paragraph, confidence: "Medium" }, drivers: [], quickWins, headsUp: "" };
   }
 
   return null;
 }
 
-/* -------------------------------------------------------------
-   Screen
-------------------------------------------------------------- */
+/* Title limiter (no ellipsis) */
+function limitTitle(input: string, maxWords = 8, maxChars = 72): string {
+  if (!input) return "";
+  const words = input.trim().split(/\s+/).slice(0, maxWords);
+  let s = words.join(" ");
+  if (s.length > maxChars) s = s.slice(0, maxChars).trim();
+  return s;
+}
+
+/* ----------------- Screen ----------------- */
 export default function Summary() {
   const insets = useSafeAreaInsets();
   const plan = usePlanStore((s) => s.plan);
 
-  // Normalize whatever is in the store
   const s = React.useMemo(() => coerceSummary(plan?.summary), [plan]);
 
   return (
@@ -131,7 +117,7 @@ export default function Summary() {
             </View>
           </View>
 
-          {/* If nothing useful yet, show friendly helper */}
+          {/* Loading / fallback */}
           {!s ? (
             <GlassCard className="p-5 mb-6">
               <SectionHeader icon="clock" title="Preparing your plan…" />
@@ -149,7 +135,7 @@ export default function Summary() {
             <>
               {/* Primary insight */}
               <GlassCard className="p-5 mb-6">
-                <SectionHeader icon="bookmark" title={s.primary.title} />
+                <SectionHeader icon="bookmark" title={limitTitle(s.primary.title, 8, 72)} />
                 <Text className="text-white/90 leading-snug mb-3">{s.primary.paragraph}</Text>
                 <ConfidenceBar level={s.primary.confidence} />
               </GlassCard>
@@ -182,7 +168,6 @@ export default function Summary() {
                 </View>
               </GlassCard>
 
-              {/* Heads up */}
               {!!s.headsUp && (
                 <GlassCard className="p-5 mb-6">
                   <SectionHeader icon="alert-triangle" title="Heads up" />
@@ -190,13 +175,19 @@ export default function Summary() {
                 </GlassCard>
               )}
 
-              {/* CTA → Routine */}
+              {/* CTAs: proceed through onboarding flow */}
               <Pressable
                 onPress={() => router.push("/routine-overview")}
-                className="w-full rounded-full bg-white items-center py-3 active:opacity-90"
+                className="w-full rounded-full bg-white items-center py-3 active:opacity-90 mb-3"
               >
                 <Text className="text-brand-bg font-semibold">View Routine</Text>
               </Pressable>
+              {/* <Pressable
+                onPress={() => router.push("/recommendations")}
+                className="w-full rounded-full border border-white/40 bg-white/10 items-center py-3 active:opacity-90"
+              >
+                <Text className="text-white font-semibold">See My Kit</Text>
+              </Pressable> */}
             </>
           )}
         </ScrollView>
@@ -216,9 +207,11 @@ function GlassCard({ children, className }: { children: React.ReactNode; classNa
 }
 function SectionHeader({ icon, title }: { icon: keyof typeof Feather.glyphMap; title: string }) {
   return (
-    <View className="flex-row items-center mb-3">
-      <Feather name={icon} size={18} color="#fff" style={{ marginRight: 8 }} />
-      <Text className="text-white font-semibold">{title}</Text>
+    <View className="flex-row items-start mb-3">
+      <Feather name={icon} size={18} color="#fff" style={{ marginRight: 8, marginTop: 2 }} />
+      <Text className="text-white font-semibold" style={{ flex: 1, flexShrink: 1, paddingRight: 4, lineHeight: 20 }}>
+        {title}
+      </Text>
     </View>
   );
 }

@@ -43,27 +43,26 @@ router.post("/build", async (req, res) => {
   const flags = deriveFlags({ persona, hairType, washFreq, goals, constraints, detail: __detail });
 
   const system =
-  "You are Fleur’s hair-care planner.\n" +
-  "Write concise, brand-safe guidance for women’s hair. No medical claims. Use plain language.\n" +
-  "Return JSON that EXACTLY matches the provided JSON schema (no extra fields).\n" +
-  "\n" +
-  "VARIETY & DEDUPING:\n" +
-  "- Avoid repeating the same canonical tips across users.\n" +
-  "- Only include 'scalp massage' if shedding/postpartum/scalp flags are present; otherwise do not use it.\n" +
-  "- Vary verbs and anchors (e.g., 'set a 3-min timer', 'make Wed the mask day').\n" +
-  "\n" +
-  "PRODUCT HINTS POLICY (Summary/Routine only):\n" +
-  "- Hint at product *categories* (NOT brands/SKUs/links/prices).\n" +
-  "- Allowed: cleanse, condition, treat, protect, scalp, style, other. (Do not use 'oil' category.)\n" +
-  "- Keep hints brief; place inside quickWins, headsUp, overview, whyThisWorks, or weekly step notes.\n" +
-  "- Reserve full product details ('Kit') for the Recommendations page (not returned here).\n" +
-  "\n" +
-  "RECOMMENDATION PRIORITY (for the Recommendations array):\n" +
-  "- If goals/concerns include shedding, density or crown/temple thinning → prefer a Peptide Scalp Serum with nightly or near-nightly use.\n" +
-  "- If thinning is chronic (temples/crown) and user is comfortable with tools → consider a Derma Stamp (microneedling) 1–2×/wk; avoid on irritated scalp; pair with serum on non-stamp nights.\n" +
-  "- Keep the total to a focused set (typically 3–5 items) prioritizing: cleanse, condition/leave-in, treat (mask or bond), peptide scalp serum, protect (heat).\n" +
-  "- Use plain category/naming (e.g., 'Peptide Scalp Serum', 'Derma Stamp Tool'). No brands/SKUs/links/prices are implied beyond the provided fields.";
-
+    "You are Fleur’s hair-care planner.\n" +
+    "Write concise, brand-safe guidance for women’s hair. No medical claims. Use plain language.\n" +
+    "Return JSON that EXACTLY matches the provided JSON schema (no extra fields).\n" +
+    "\n" +
+    "VARIETY & DEDUPING:\n" +
+    "- Avoid repeating the same canonical tips across users.\n" +
+    "- Only include 'scalp massage' if shedding/postpartum/scalp flags are present; otherwise do not use it.\n" +
+    "- Vary verbs and anchors (e.g., 'set a 3-min timer', 'make Wed the mask day').\n" +
+    "\n" +
+    "PRODUCT HINTS POLICY (Summary/Routine only):\n" +
+    "- Hint at product *categories* (NOT brands/SKUs/links/prices).\n" +
+    "- Allowed: cleanse, condition, treat, protect, scalp, style, other. (Do not use 'oil' category.)\n" +
+    "- Keep hints brief; place inside quickWins, headsUp, overview, whyThisWorks, or weekly step notes.\n" +
+    "- Reserve full product details ('Kit') for the Recommendations page (not returned here).\n" +
+    "\n" +
+    "DEDUPING AGAINST CORE CATALOG:\n" +
+    "- Do NOT recommend any hair oil products or use the 'oil' category.\n" +
+    "\n" +
+    // Allow generic category mentions in Summary/Routine
+    "When thinning/density is a driver (menopause, postpartum, or thickness/shedding goals), it is OK to *mention* generic 'peptide scalp serum' and 'derma stamp' as categories (no brands/SKUs/links/prices).\n";
 
   // add a readable context block so the model can anchor specifics
   const contextLines = [
@@ -74,7 +73,6 @@ router.post("/build", async (req, res) => {
     `- wash: ${washFreq}${flags.washPerWeek ? ` (~${flags.washPerWeek}×/wk)` : ""}`,
     `- normalized goals: ${goals.join(", ")}`,
     constraints ? `- constraints: ${constraints}` : null,
-    // raw detail (when present)
     __detail?.concerns?.length ? `- concerns(ids): ${__detail.concerns.join(", ")}` : null,
     __detail?.goalsRaw?.length ? `- goals(ids): ${__detail.goalsRaw.join(", ")}` : null,
     __detail?.scalpType ? `- scalpType: ${__detail.scalpType}` : null,
@@ -83,9 +81,8 @@ router.post("/build", async (req, res) => {
     __detail?.menopauseStage ? `- menopauseStage: ${__detail.menopauseStage}` : null,
     __detail?.postpartumWindow ? `- postpartumWindow: ${__detail.postpartumWindow}` : null,
     __detail?.washFreqDetail?.perWeek ? `- washPerWeek: ${__detail.washFreqDetail.perWeek}` : null,
-    `- flags: menopause=${flags.personaMenopause}, postpartum=${flags.personaPostpartum}, fine=${flags.fine}, curlyOrCoily=${flags.curlyOrCoily}, colorTreated=${flags.colorTreated}, heatOften=${flags.heatOften}, swims=${flags.lifestyleSwim}, gym=${flags.lifestyleGym}, hardWater=${flags.hardWater}, dryScalp=${flags.dryScalp}, oilyScalp=${flags.oilyScalp}`,
+    `- flags: menopause=${flags.personaMenopause}, postpartum=${flags.personaPostpartum}, fine=${flags.fine}, curlyOrCoily=${flags.curlyOrCoily}, colorTreated=${flags.colorTreated}, heatOften=${flags.heatOften}, swims=${flags.lifestyleSwim}, gym=${flags.lifestyleGym}, hardWater=${flags.hardWater}, dryScalp=${flags.dryScalp}, oilyScalp=${flags.oilyScalp}, noHeat=${flags.noHeat}`,
   ].filter(Boolean).join("\n");
-  
 
   const prompt = [
     contextLines,
@@ -93,8 +90,8 @@ router.post("/build", async (req, res) => {
     "Fill these sections for a UI with 4 cards. Keep outputs concise and specific to this user.",
     "",
     // — Summary
-    "1) summary.primary",
-    "   - title: diagnosis-style headline (≤ 75 chars).",
+ "1) summary.primary",
+"   - title: diagnosis-style headline (≤ 36 chars or ≤ 6 words).",
     "   - paragraph: 1–2 human lines that MUST mention:",
     "     • the user’s hair type in natural words (e.g., 'fine straight', 'wavy medium')",
     "     • wash cadence OR styling cadence (e.g., '2×/wk' or 'daily heat')",
@@ -105,7 +102,6 @@ router.post("/build", async (req, res) => {
     "   - If scalp type is provided (dry/oily/sensitive), include one clause that adapts care to that scalp type.",
     "   - confidence: one of Low | Medium | High",
     "",
-
     // — Drivers
     "2) summary.drivers: up to 3 chips tied to persona/constraints/goals. Prefer including one environmental chip when relevant (e.g., 'Hard water', 'Frequent heat').",
     "   Allowed icons: [heart, zap, droplet, activity, coffee, feather, thermometer, moon, shield, star].",
@@ -140,7 +136,6 @@ router.post("/build", async (req, res) => {
     "   - Where: quickWins, headsUp, routine.overview/why, weekly notes.",
     "   - Keep hints compact: 1–4 total across Summary + Routine.",
   ].join("\n");
-  
 
   try {
     const r = await fetch("https://api.openai.com/v1/responses", {
@@ -156,7 +151,7 @@ router.post("/build", async (req, res) => {
           { role: "user", content: [{ type: "input_text", text: prompt }] },
         ],
         temperature: 0.6,
-        max_output_tokens: 800, // allow richer Summary/Routine
+        max_output_tokens: 800,
         text: {
           format: {
             type: "json_schema",
@@ -184,14 +179,13 @@ router.post("/build", async (req, res) => {
       });
     }
 
-    // 0) Sanitize recommendation set against core/banned categories
+    // ---------- Post-processing pipeline ----------
     plan = sanitizeRecommendations(plan as any);
-
-    // 1) Keep scalp massage only when context supports it
     plan = diversifyQuickWins(plan as any, flags);
-
-    // 2) Make bullets punchy, single-line, phone-friendly
     plan = punchifyQuickWins(plan as any);
+    plan = swapHeatProtectantIfNoHeat(plan as any, flags);
+    plan = injectScalpToolsPillars(plan as any, flags);
+    plan = ensurePriorityRecs(plan as any, flags);
 
     cache.set(key, plan);
 
@@ -235,7 +229,7 @@ function deriveFlags(input: {
   const lifestyleGym = /gym|sweat|workout/i.test(constraints);
   const hardWater = /hard\s*water/i.test(constraints);
 
-  // Optional scalp-type flags if you decide to send them in __detail later
+  // Optional scalp-type flags
   const dryScalp = !!detail?.constraintsDetail?.dryScalp || /dry\s*scalp/i.test(constraints);
   const oilyScalp = !!detail?.constraintsDetail?.oilyScalp || /oily\s*scalp/i.test(constraints);
 
@@ -246,6 +240,13 @@ function deriveFlags(input: {
 
   const porosity = detail?.hairTypeDetail?.porosity ?? "unknown";
   const washPerWeek = detail?.washFreqDetail?.perWeek ?? undefined;
+
+  const noHeat =
+    /heat:\s*never/i.test(constraints) ||
+    detail?.heatUsage === "opt_heat_never" ||
+    false;
+
+  const heatUsage = detail?.heatUsage;
 
   return {
     personaMenopause,
@@ -265,11 +266,12 @@ function deriveFlags(input: {
     goalsDefineCurls,
     porosity,
     washPerWeek,
+    noHeat,
+    heatUsage,
   };
 }
 
-/** Remove oils and core-duplicate items from recommendations */
-/** Optionally remove hair oils from recommendations; allow serum & derma stamp */
+/** Remove oils from recommendations */
 function sanitizeRecommendations(plan: any) {
   if (!plan) return plan;
   if (!Array.isArray(plan.recommendations)) return plan;
@@ -300,8 +302,6 @@ function sanitizeRecommendations(plan: any) {
   plan.recommendations = filtered;
   return plan;
 }
-
-
 
 function diversifyQuickWins(plan: any, flags: ReturnType<typeof deriveFlags>) {
   if (!plan?.summary?.quickWins || !Array.isArray(plan.summary.quickWins)) return plan;
@@ -339,8 +339,6 @@ function punchifyQuickWins(plan: any) {
 
   const mapAbbrev = (s: string) => {
     let out = s;
-
-    // Common expansions → abbreviations
     out = out.replace(/\bminutes?\b/gi, "min");
     out = out.replace(/\bseconds?\b/gi, "sec");
     out = out.replace(/\bper week\b/gi, "/wk");
@@ -355,18 +353,14 @@ function punchifyQuickWins(plan: any) {
     out = out.replace(/\bdouble[- ]wash(ing)?\b/gi, "double-wash");
     out = out.replace(/\bconditioner\b/gi, "cond.");
     out = out.replace(/\bshampoo\b/gi, "sham.");
-    out = out.replace(/\bprotectant\b/gi, "protectant"); // keep as-is
-    out = out.replace(/;?\s*\(.*?\)\s*$/g, ""); // drop trailing parentheses
+    out = out.replace(/;?\s*\(.*?\)\s*$/g, "");
     out = out.replace(/\s{2,}/g, " ").trim();
-
-    // Keep one clause; replace semicolons with short breaks
     out = out.replace(/;\s*/g, "; ");
 
-    // Hard cap 60 chars; keep it readable
     const MAX = 60;
     if (out.length > MAX) {
       out = out.slice(0, MAX - 1).trim();
-      if (!/[.!?]$/.test(out)) out = out.replace(/[;,]?\s*$/,"") + "…";
+      if (!/[.!?]$/.test(out)) out = out.replace(/[;,]?\s*$/, "") + "…";
     }
     return out;
   };
@@ -384,6 +378,183 @@ function dedupeWins(arr: string[]): string[] {
     if (!seen.has(key)) {
       seen.add(key);
       out.push(s);
+    }
+  }
+  return out;
+}
+
+/** If user *never* uses heat, swap 'heat protectant' cues for UV/friction cues */
+function swapHeatProtectantIfNoHeat(plan: any, flags: ReturnType<typeof deriveFlags>) {
+  const noHeat = flags?.noHeat === true;
+
+  if (!noHeat) return plan;
+
+  const swap = (line: string) =>
+    line
+      .replace(/heat\s*protectant[^;,.]*/gi, "UV shield on sunny days")
+      .replace(/before\s*heat[^;,.]*/gi, "reduce friction")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+
+  if (Array.isArray(plan?.summary?.quickWins)) {
+    plan.summary.quickWins = (plan.summary.quickWins as string[]).map(swap);
+  }
+  if (Array.isArray(plan?.routine?.weeklyPillars)) {
+    plan.routine.weeklyPillars = plan.routine.weeklyPillars.map((p: any) => ({ ...p, text: swap(p.text) }));
+  }
+  if (typeof plan?.summary?.headsUp === "string") {
+    plan.summary.headsUp = swap(plan.summary.headsUp);
+  }
+  return plan;
+}
+
+/** Density focus = true → inject serum/stamp pillars if missing */
+function injectScalpToolsPillars(plan: any, flags: ReturnType<typeof deriveFlags>) {
+  if (!Array.isArray(plan?.routine?.weeklyPillars)) return plan;
+
+  const densityFocus =
+    flags?.goalsThicker ||
+    flags?.goalsReduceShedding ||
+    flags?.personaMenopause ||
+    flags?.personaPostpartum;
+
+  if (!densityFocus) return plan;
+
+  const pillars = [...plan.routine.weeklyPillars] as Array<{ text: string; icon: string }>;
+
+  const hasSerum = pillars.some((p) => /serum/i.test(p.text));
+  const hasStamp = pillars.some((p) => /(derma\s*stamp|micro-?needle|microneedl)/i.test(p.text));
+
+  const needed: Array<{ text: string; icon: string }> = [];
+  if (!hasSerum) needed.push({ text: "Peptide scalp serum — nightly (scalp)", icon: "droplet" });
+  if (!hasStamp) needed.push({ text: "Derma stamp 2–3×/wk before serum", icon: "activity" });
+
+  if (needed.length) {
+    const insertAt = Math.min(1, pillars.length);
+    pillars.splice(insertAt, 0, ...needed);
+    plan.routine.weeklyPillars = pillars.slice(0, 6);
+  }
+
+  return plan;
+}
+
+/** Ensure serum + derma stamp appear in recs for density/shedding personas/goals */
+function ensurePriorityRecs(plan: any, flags: ReturnType<typeof deriveFlags>) {
+  if (!Array.isArray(plan?.recommendations)) return plan;
+
+  const recs = [...plan.recommendations];
+
+  const hasSerum = recs.some(r =>
+    includesAny([r?.title, r?.product?.name], /serum|peptide/i)
+  );
+
+  const hasStamp = recs.some(r =>
+    includesAny([r?.title, r?.product?.name], /derma\s*stamp|microneedl/i)
+  );
+
+  const serumIndicated =
+    flags.goalsReduceShedding || flags.goalsThicker || flags.personaPostpartum || flags.colorTreated || flags.oilyScalp;
+
+  const stampIndicated =
+    (flags.goalsThicker || flags.goalsReduceShedding || flags.personaMenopause || flags.personaPostpartum) &&
+    !flags.dryScalp; // avoid if irritated
+
+  if (serumIndicated && !hasSerum) {
+    recs.unshift(makeSerumRec());
+  }
+
+  if (stampIndicated && !hasStamp) {
+    recs.splice(1, 0, makeStampRec()); // after serum if both added
+  }
+
+  const trimmed = prioritizeAndTrim(recs, 6);
+  plan.recommendations = trimmed.map(normalizeRecTitles);
+  return plan;
+}
+
+function makeSerumRec() {
+  return {
+    title: "Peptide Scalp Serum",
+    why: "Targets shedding and density at the root with consistent use.",
+    howToUse: "Apply nightly to scalp; part hair, 2–3 drops per section; do not rinse.",
+    product: {
+      sku: "SERUM-001",
+      name: "Peptide Scalp Serum",
+      url: "https://example.com/serum",
+      price: "$48",
+      imageUrl: "https://example.com/serum.jpg"
+    }
+  };
+}
+
+function makeStampRec() {
+  return {
+    title: "Derma Stamp Tool",
+    why: "Micro-stimulation supports thicker-looking growth signals over time.",
+    howToUse: "Use 1–2×/wk on clean scalp; light, even presses at crown/temples; avoid irritated skin.",
+    product: {
+      sku: "STAMP-001",
+      name: "Derma Stamp Tool",
+      url: "https://example.com/stamp",
+      price: "$32",
+      imageUrl: "https://example.com/stamp.jpg"
+    }
+  };
+}
+
+function prioritizeAndTrim(list: any[], max: number) {
+  const score = (r: any) => {
+    const text = [r?.title, r?.product?.name].filter(Boolean).join(" ").toLowerCase();
+    if (/serum/.test(text)) return 100;
+    if (/derma\s*stamp|microneedl/.test(text)) return 95;
+    if (/protect|heat/.test(text)) return 80;
+    if (/mask|bond|treat/.test(text)) return 70;
+    if (/cleanse|sham/.test(text)) return 60;
+    if (/condition/.test(text)) return 55;
+    return 10;
+  };
+
+  const deduped = dedupeByKey(list, (r) => (r?.product?.sku || r?.product?.name || r?.title || "").toLowerCase());
+  return deduped.sort((a, b) => score(b) - score(a)).slice(0, max);
+}
+
+function normalizeRecTitles(r: any) {
+  const text = [r?.title, r?.product?.name].filter(Boolean).join(" ").toLowerCase();
+  const out = { ...r };
+
+  if (/serum|peptide/.test(text)) {
+    out.title = "Peptide Scalp Serum";
+    out.product = out.product || {};
+    out.product.name = out.product.name || "Peptide Scalp Serum";
+  } else if (/stamp|microneedl/.test(text)) {
+    out.title = "Derma Stamp Tool";
+    out.product = out.product || {};
+    out.product.name = out.product.name || "Derma Stamp Tool";
+  } else if (/mask|bond|repair/.test(text)) {
+    out.title = "Bond Repair Mask";
+  } else if (/cleanse|sham/.test(text)) {
+    out.title = "Gentle Cleanser";
+  } else if (/condition|leave/.test(text)) {
+    out.title = "Lightweight Conditioner";
+  } else if (/protect|heat/.test(text)) {
+    out.title = "Heat Protectant Spray";
+  }
+  return out;
+}
+
+function includesAny(fields: any[], re: RegExp) {
+  return fields.some((f) => (typeof f === "string" ? re.test(f) : false));
+}
+
+function dedupeByKey<T>(arr: T[], keyFn: (t: T) => string) {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of arr) {
+    const k = keyFn(item);
+    if (!k) { out.push(item); continue; }
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(item);
     }
   }
   return out;

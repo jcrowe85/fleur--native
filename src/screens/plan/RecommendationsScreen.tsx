@@ -7,19 +7,21 @@ import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { CustomButton } from "@/components/UI/CustomButton";
 
+import { CustomButton } from "@/components/UI/CustomButton";
 import { usePlanStore } from "@/state/planStore";
 import type { FleurPlan } from "@/types/plans";
 
 import {
   categorize,
-  pickKit,
-  labelForSlot,
-  iconForSlot,
+  labelForSlot as libLabelForSlot,
+  iconForSlot as libIconForSlot,
   preferredKitOrder,
   ProductCategory,
 } from "@/lib/products";
+
+// 🔹 shared cart store (now with addBySku)
+import { useCartStore } from "@/state/cartStore";
 
 /** Limit to these 4 slots for the kit view */
 type Slot = Extract<ProductCategory, "cleanse" | "condition" | "treat" | "protect">;
@@ -51,13 +53,14 @@ const CORE_PRODUCTS = {
     product: {
       sku: "fleur-serum",
       name: "Fleur Peptide Hair Serum",
-      imageUrl: undefined, // keep fallback serum.png
+      imageUrl: undefined,
     },
     title: "Daily follicle support",
     why: "Lightweight peptide blend for stronger, fuller-looking hair.",
   },
   dermaStamp: {
-    slot: "protect" as const, // fits the 4-card layout; usage badge clarifies cadence
+    // keep slot 'protect' for 1-per-slot layout; label will read "Treat"
+    slot: "protect" as const,
     product: {
       sku: "fleur-derma-stamp",
       name: "Derma Stamp (Scalp Tool)",
@@ -71,22 +74,18 @@ const CORE_PRODUCTS = {
 /** Badges next to slot label (usage + need-to-know) */
 function badgesFor(slot: Slot, sku?: string, plan?: FleurPlan | null): string[] {
   const badges: string[] = [];
-
-  // Usage defaults by slot
   if (slot === "treat") badges.push("Daily PM");
   if (slot === "condition") badges.push("2×/wk");
   if (slot === "cleanse") badges.push("Wash days");
-  if (slot === "protect") badges.push("1×/wk");
+  if (slot === "protect") badges.push("1–2×/wk");
 
-  // SKU-specific tweaks
   if (sku === "fleur-serum") {
     badges.splice(0, badges.length, "Daily PM", "Dry/clean scalp");
   }
   if (sku === "fleur-derma-stamp") {
-    badges.splice(0, badges.length, "1×/wk", "Patch test");
+    badges.splice(0, badges.length, "1–2×/wk", "Patch test");
   }
 
-  // Very light plan-aware nudge (only if info exists)
   const heatOften =
     (plan as any)?.profile?.heatUse === true ||
     /heat/i.test((plan?.summary?.drivers || []).map((d: any) => d?.label).join(" "));
@@ -94,7 +93,34 @@ function badgesFor(slot: Slot, sku?: string, plan?: FleurPlan | null): string[] 
     badges.push("Heat care");
   }
 
-  return badges.slice(0, 3); // keep compact
+  return badges.slice(0, 3);
+}
+
+/** Localized slot label/icon: show stamp as Treat visually */
+function slotLabelFor(item: { slot: Slot; product?: { sku?: string } }): string {
+  if (item?.product?.sku === "fleur-derma-stamp") return "Treat";
+  return libLabelForSlot(item.slot);
+}
+function slotIconFor(item: { slot: Slot; product?: { sku?: string } }): any {
+  if (item?.product?.sku === "fleur-derma-stamp") return libIconForSlot("treat" as Slot);
+  return libIconForSlot(item.slot);
+}
+
+/** Enforce canonical order so serum always renders */
+function coerceOrder(base: Slot[] | null | undefined): Slot[] {
+  const canonical: Slot[] = ["cleanse", "condition", "treat", "protect"];
+  if (!Array.isArray(base) || base.length === 0) return canonical;
+  const seen = new Set<string>();
+  const cleaned = base.filter((s): s is Slot => {
+    if (!["cleanse", "condition", "treat", "protect"].includes(String(s))) return false;
+    if (seen.has(String(s))) return false;
+    seen.add(String(s));
+    return true;
+  });
+  const withPinned = Array.from(new Set<Slot>([..."cleanse,condition,treat,protect".split(",") as any]))
+    .filter((s) => cleaned.includes(s))
+    .concat(canonical.filter((s) => !cleaned.includes(s)));
+  return canonical.filter((s) => withPinned.includes(s));
 }
 
 /** Small pill badge */
@@ -122,13 +148,11 @@ export default function Recommendations() {
 
   const kit = useMemo(() => buildKitFromPlan(plan), [plan]);
 
-  // naive local cart state (stub) — replace with your cart store later
+  // 🔹 Cart store (shared)
+  const { items: cartItems, addBySku, remove, addSkusQuick } = useCartStore();
+
+  // For the “Owned” toggle only (local)
   const [alreadyHave, setAlreadyHave] = useState<Set<string>>(new Set());
-  const [pendingCart, setPendingCart] = useState<Set<string>>(new Set());
-  const [cartSkus, setCartSkus] = useState<Set<string>>(new Set());
-
-  const cartCount = cartSkus.size;
-
   const toggleHave = (sku: string) => {
     setAlreadyHave((prev) => {
       const next = new Set(prev);
@@ -137,44 +161,33 @@ export default function Recommendations() {
     });
   };
 
-  const toggleItemInBag = (sku: string) => {
-    const inCart = cartSkus.has(sku);
-    setPendingCart((prev) => new Set(prev).add(sku));
+  const cartQty = useMemo(() => cartItems.reduce((sum, it) => sum + it.qty, 0), [cartItems]);
+  const inCartSet = useMemo(() => new Set(cartItems.map((it) => it.sku)), [cartItems]);
 
-    setTimeout(() => {
-      setPendingCart((prev) => {
-        const next = new Set(prev);
-        next.delete(sku);
-        return next;
-      });
-
-      setCartSkus((prev) => {
-        const next = new Set(prev);
-        if (inCart) next.delete(sku);
-        else next.add(sku);
-        return next;
-      });
-    }, 120);
+  // 🔹 Add whole kit to cart & go to cart
+  const addKitToBag = () => {
+    const skus = kit.map((k) => k.product.sku).filter(Boolean);
+    if (skus.length === 0) return;
+    addSkusQuick(skus);
+    router.push("/cart");
   };
 
-  const addKitToBag = () => {
-    // NOTE: In real cart logic, apply a 20% discount promo/bundle here.
-    const skus = kit.map((k) => k.product.sku);
-    if (skus.length === 0) return;
-    setCartSkus((prev) => {
-      const next = new Set(prev);
-      skus.forEach((s) => next.add(s));
-      return next;
-    });
+  // 🔹 Per-item add/remove (now using addBySku to guarantee price/variant)
+  const toggleItemInBag = (sku: string) => {
+    if (inCartSet.has(sku)) {
+      remove(sku);
+    } else {
+      addBySku(sku, 1);
+    }
   };
 
   const goCart = () => router.push("/cart");
+  const goDashboard = () => router.replace("/dashboard");
 
   return (
     <View className="flex-1 bg-brand-bg">
       <StatusBar style="light" translucent backgroundColor="transparent" />
 
-      {/* Background (kept as in your file) */}
       <ImageBackground
         source={require("../../../assets/dashboard.png")}
         resizeMode="cover"
@@ -189,20 +202,10 @@ export default function Recommendations() {
       </ImageBackground>
 
       <SafeAreaView className="flex-1" edges={["top", "left", "right"]}>
-        {/* Header: back left, title center, cart right */}
+        {/* Header */}
         <View className="flex-row items-center justify-between px-4 pt-2 pb-3">
-          {/* Back button on the left */}
-          <Pressable
-            onPress={() => router.back()}
-            className="p-2 rounded-full active:opacity-80"
-            hitSlop={8}
-          >
-            <Feather
-              name="arrow-right"
-              size={22}
-              color="#fff"
-              style={{ transform: [{ scaleX: -1 }] }} // left
-            />
+          <Pressable onPress={() => router.back()} className="p-2 rounded-full active:opacity-80" hitSlop={8}>
+            <Feather name="arrow-right" size={22} color="#fff" style={{ transform: [{ scaleX: -1 }] }} />
           </Pressable>
 
           <View style={{ flex: 1, alignItems: "center" }}>
@@ -210,15 +213,9 @@ export default function Recommendations() {
             <Text className="text-white/80 text-xs mt-1">Matched to your Routine</Text>
           </View>
 
-          {/* Cart button on the right */}
-          <Pressable
-            onPress={goCart}
-            hitSlop={8}
-            className="p-2 rounded-full active:opacity-80"
-            style={{ position: "relative" }}
-          >
+          <Pressable onPress={goCart} hitSlop={8} className="p-2 rounded-full active:opacity-80" style={{ position: "relative" }}>
             <Feather name="shopping-bag" size={22} color="#fff" />
-            {cartCount > 0 && (
+            {cartQty > 0 && (
               <View
                 style={{
                   position: "absolute",
@@ -233,9 +230,7 @@ export default function Recommendations() {
                   justifyContent: "center",
                 }}
               >
-                <Text style={{ color: "#0b0b0b", fontSize: 11, fontWeight: "700" }}>
-                  {cartCount}
-                </Text>
+                <Text style={{ color: "#0b0b0b", fontSize: 11, fontWeight: "700" }}>{cartQty}</Text>
               </View>
             )}
           </Pressable>
@@ -250,34 +245,24 @@ export default function Recommendations() {
             paddingBottom: insets.bottom + 28,
           }}
         >
-          {/* Cards */}
+          {/* Kit cards */}
           <View className="gap-4 mb-6">
             {kit.map((item) => {
               const slot = item.slot as Slot;
               const have = alreadyHave.has(item.product.sku);
-              const loading = pendingCart.has(item.product.sku);
-              const inCart = cartSkus.has(item.product.sku);
-
+              const inCart = inCartSet.has(item.product.sku);
               const headerBadges = badgesFor(slot, item.product.sku, plan);
 
               return (
-                <GlassCard key={item.product.sku} className="p-5">
-                  {/* Header: icon + slot + badges */}
+                <GlassCard key={item.product.sku || `${item.slot}-${item.title}`} className="p-5">
+                  {/* Header */}
                   <View className="flex-row items-center mb-3">
                     <View className="p-1.5 rounded-full bg-white/15 mr-2">
-                      <Feather name={iconForSlot(slot)} size={16} color="#fff" />
+                      <Feather name={slotIconFor(item)} size={16} color="#fff" />
                     </View>
-
-                    {/* Slot label */}
-                    <Text
-                      className="text-white font-semibold"
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                    >
-                      {labelForSlot(slot)}
+                    <Text className="text-white font-semibold" numberOfLines={1} ellipsizeMode="tail">
+                      {slotLabelFor(item)}
                     </Text>
-
-                    {/* Badges (inline, right after label) */}
                     <View style={{ flexDirection: "row", flexShrink: 1, minWidth: 0, marginLeft: 8 }}>
                       {headerBadges.map((b) => (
                         <Badge key={b} label={b} />
@@ -285,7 +270,7 @@ export default function Recommendations() {
                     </View>
                   </View>
 
-                  {/* Image + content row */}
+                  {/* Image + body */}
                   <View className="flex-row gap-4 items-center">
                     <ProductImage uri={item.product.imageUrl} slot={slot} />
                     <View style={{ flex: 1, minWidth: 0 }}>
@@ -301,7 +286,7 @@ export default function Recommendations() {
                     </View>
                   </View>
 
-                  {/* CTAs (toggle add/remove) */}
+                  {/* CTAs per item */}
                   <View className="flex-row gap-3 mt-4">
                     <Pressable
                       onPress={() => toggleItemInBag(item.product.sku)}
@@ -310,7 +295,7 @@ export default function Recommendations() {
                       }`}
                     >
                       <Text className={inCart ? "text-white font-semibold" : "text-brand-bg font-semibold"}>
-                        {loading ? (inCart ? "Removing…" : "Adding…") : inCart ? "Remove from Bag" : "Add to Bag"}
+                        {inCart ? "Remove from Bag" : "Add to Bag"}
                       </Text>
                     </Pressable>
 
@@ -326,34 +311,58 @@ export default function Recommendations() {
                 </GlassCard>
               );
             })}
-
-            {/* Fallback if no kit */}
-            {kit.length === 0 && (
-              <GlassCard className="p-5">
-                <Text className="text-white/90">
-                  We’re preparing a focused 4-item kit for your routine. Check back soon.
-                </Text>
-              </GlassCard>
-            )}
           </View>
 
-          {/* Single Add Kit CTA (20% off) */}
-          <View className="flex-col gap-3">
-          <Pressable
-            onPress={addKitToBag}
-            className="flex-1 rounded-full bg-white items-center py-3 active:opacity-90"
-          >
-            <Text className="text-brand-bg font-semibold">Add Kit to Bag — 20% off</Text>
-          </Pressable>
-          <Pressable
-              onPress={() => router.push("/recommendations")}
-              className="flex-1 rounded-full border border-white/40 bg-white/10 items-center py-3 active:opacity-90"
-            >
-              <Text className="text-white font-semibold">
-                I have everything I need
-              </Text>
-            </Pressable>
-            </View>
+          {/* Bottom CTA stack — adapts to whether the bag is empty */}
+          <View className="gap-3">
+            {cartQty > 0 ? (
+              <>
+                <Pressable
+                  onPress={goCart}
+                  className="rounded-full bg-white items-center py-4 active:opacity-90"
+                >
+                  <View className="flex-row items-center">
+                    <Text className="text-brand-bg font-semibold">Go to Bag</Text>
+                    <Feather name="arrow-right" size={18} color="#0b0b0b" style={{ marginLeft: 10 }} />
+                  </View>
+                </Pressable>
+
+                <Pressable
+                  onPress={addKitToBag}
+                  className="rounded-full border border-white/35 bg-white/10 items-center py-4 active:opacity-90"
+                >
+                  <Text className="text-white font-semibold">Add Kit — 20% off</Text>
+                </Pressable>
+
+                <Pressable onPress={goDashboard} className="items-center mt-1">
+                  <Text className="text-white/70 text-xs underline">Continue without kit</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Pressable
+                  onPress={goDashboard}
+                  className="rounded-full bg-white items-center py-4 active:opacity-90"
+                >
+                  <View className="flex-row items-center">
+                    <Text className="text-brand-bg font-semibold">Continue to Dashboard</Text>
+                    <Feather name="arrow-right" size={18} color="#0b0b0b" style={{ marginLeft: 10 }} />
+                  </View>
+                </Pressable>
+
+                <Pressable
+                  onPress={addKitToBag}
+                  className="rounded-full border border-white/35 bg-white/10 items-center py-4 active:opacity-90"
+                >
+                  <Text className="text-white font-semibold">Add Kit — 20% off</Text>
+                </Pressable>
+
+                <Pressable onPress={goCart} className="items-center mt-1">
+                  <Text className="text-white/70 text-xs underline">Review bag (0)</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
         </ScrollView>
       </SafeAreaView>
     </View>
@@ -364,130 +373,119 @@ export default function Recommendations() {
  * Helpers
  * ---------------------------------------------------------------- */
 function buildKitFromPlan(plan: FleurPlan | null) {
-  // Build a candidate list from model + ensure core products are present.
-  const fromModelRaw = plan?.recommendations?.length ? (pickKit(plan.recommendations as any) as any[]) : [];
-
-  // Client-side safety filter: drop oils and any serum/derma-stamp-like items to avoid duplicates/banned cats.
-  const fromModel = fromModelRaw.filter((rec) => {
-    const text =
-      [
-        rec?.slot,
-        rec?.category,
-        rec?.title,
-        rec?.name,
-        rec?.product?.name,
-        rec?.product?.title,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toString()
-        .toLowerCase() || "";
-
-    const isOil = /(^|[^a-z])oil(s)?([^a-z]|$)/i.test(text) || rec?.slot === "oil" || rec?.category === "oil";
-    const isSerumOrStamp = /(serum|derma\s*stamp|microneedl)/i.test(text);
-    return !isOil && !isSerumOrStamp;
-  });
-
-  // Start with core items occupying their target slots
+  // Always pin these 2 core items
   const bySlot: Partial<Record<Slot, any>> = {
     treat: CORE_PRODUCTS.serum,
     protect: CORE_PRODUCTS.dermaStamp,
   };
 
-  // Compute preferred order (may swap scalp in for treat; we'll still pin cores)
-  const order = (preferredKitOrder(plan as any, plan?.recommendations as any) as Slot[]) || [
-    "cleanse",
-    "condition",
-    "treat",
-    "protect",
-  ];
+  // Gather candidates from model recs
+  const all = Array.isArray(plan?.recommendations) ? (plan!.recommendations as any[]) : [];
 
-  // Fill remaining slots from filtered model recs, respecting categorize + not overwriting the cores
-  for (const rec of fromModel) {
-    const slot = (categorize(rec) as Slot) || "other";
-    if (!["cleanse", "condition", "treat", "protect"].includes(slot)) continue;
-    if (bySlot[slot]) continue; // skip if core filled it
-    bySlot[slot] = rec;
-  }
+  // Safety filter + dedupe + remove serum/stamp to avoid duplicates
+  const seen = new Set<string>();
+  const candidates = all.filter((rec) => {
+    const text = [
+      rec?.slot,
+      rec?.category,
+      rec?.title,
+      rec?.name,
+      rec?.product?.name,
+      rec?.product?.title,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
 
-  // If still missing cleanse/condition, scan all recs to backfill with same safety filter
-  if (plan?.recommendations?.length) {
-    for (const rec of plan.recommendations) {
+    const isOil =
+      /(^|[^a-z])oil(s)?([^a-z]|$)/i.test(text) ||
+      rec?.slot === "oil" ||
+      rec?.category === "oil";
+    if (isOil) return false;
+
+    // drop any serum/stamp-like items (we pin our own)
+    if (/\b(serum|peptide)\b/i.test(text)) return false;
+    if (/\b(derma\s*stamp|microneedl)\b/i.test(text)) return false;
+
+    const key = (rec?.product?.sku || rec?.product?.name || rec?.title || "").toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // Score candidates based on likely usefulness + hints in summary drivers/wins
+  const driverText = (plan?.summary?.drivers || [])
+    .map((d: any) => `${d?.label || ""}`.toLowerCase())
+    .join(" ");
+  const winsText = (plan?.summary?.quickWins || []).join(" ").toLowerCase();
+
+  const isHeat = /heat/.test(driverText) || /heat/.test(winsText);
+  const isColor = /color/.test(driverText) || /bond|mask/.test(winsText);
+  const isScalpOily = /oily/.test(driverText) || /scalp/.test(winsText);
+  const isHardWater = /hard water/.test(driverText) || /clarify|chelate/.test(winsText);
+
+  const score = (rec: any) => {
+    const t = [rec?.title, rec?.product?.name].filter(Boolean).join(" ").toLowerCase();
+    const slot = (categorize(rec) as ProductCategory) || "other";
+
+    // base category scores
+    let s = 0;
+    if (/mask|bond|repair/.test(t) || slot === "treat") s = Math.max(s, 80); // treatment mask
+    if (/protect|heat/.test(t) || (slot === "protect" && !/stamp/.test(t))) s = Math.max(s, 70); // heat protectant
+    if (/cleanse|sham/.test(t) || slot === "cleanse") s = Math.max(s, 60);
+    if (/condition|leave/.test(t) || slot === "condition") s = Math.max(s, 55);
+
+    // context boosts
+    if (isHeat && (/protect|heat/.test(t) || slot === "protect")) s += 20;
+    if (isColor && (/mask|bond|repair/.test(t) || slot === "treat")) s += 15;
+    if (isScalpOily && (/cleanse|balanc|clarif|scalp/.test(t) || slot === "cleanse")) s += 10;
+    if (isHardWater && (/clarif|chelate/.test(t) || slot === "cleanse")) s += 10;
+
+    return s;
+  };
+
+  const ordered = candidates.sort((a, b) => score(b) - score(a));
+
+  // Prefer cleanse + condition as the 2 non-core items
+  if (!bySlot.cleanse || !bySlot.condition) {
+    for (const rec of ordered) {
       const slot = (categorize(rec) as Slot) || "other";
-      if (!["cleanse", "condition", "treat", "protect"].includes(slot)) continue;
-
-      // Apply same safety filter
-      const text =
-        [
-          rec?.slot,
-          rec?.category,
-          rec?.title,
-          rec?.name,
-          rec?.product?.name,
-          rec?.product?.title,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toString()
-          .toLowerCase() || "";
-
-      const isOil = /(^|[^a-z])oil(s)?([^a-z]|$)/i.test(text) || rec?.slot === "oil" || rec?.category === "oil";
-      const isSerumOrStamp = /(serum|derma\s*stamp|microneedl)/i.test(text);
-      if (isOil || isSerumOrStamp) continue;
-
+      if (!["cleanse", "condition"].includes(slot)) continue;
       if (!bySlot[slot]) bySlot[slot] = rec;
+      if (bySlot.cleanse && bySlot.condition) break;
     }
   }
 
-  // Build ordered array and trim to 4
-  const ordered = order
+  // Backfill generics if missing so we ALWAYS render 4
+  if (!bySlot.cleanse) bySlot.cleanse = makeGenericCleanser();
+  if (!bySlot.condition) bySlot.condition = makeGenericConditioner();
+
+  // Assemble final 4 in enforced order
+  const suggestedOrder = preferredKitOrder(plan as any, plan?.recommendations as any) as Slot[] | undefined;
+  const order = coerceOrder(suggestedOrder);
+  const kit = order
     .map((s) => (bySlot[s] ? { slot: s, ...(bySlot[s] as any) } : null))
     .filter(Boolean) as Array<{ slot: Slot } & any>;
 
-  // Ensure exactly 4 items (fill with any remaining unique recs if needed)
-  if (ordered.length < 4 && plan?.recommendations?.length) {
-    const have = new Set(ordered.map((x) => x.slot));
-    for (const rec of plan.recommendations) {
-      const slot = (categorize(rec) as Slot) || "other";
-      if (!["cleanse", "condition", "treat", "protect"].includes(slot)) continue;
+  return kit.slice(0, 4);
+}
 
-      // Apply safety filter again
-      const text =
-        [
-          rec?.slot,
-          rec?.category,
-          rec?.title,
-          rec?.name,
-          rec?.product?.name,
-          rec?.product?.title,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toString()
-          .toLowerCase() || "";
+function makeGenericCleanser() {
+  return {
+    slot: "cleanse" as const,
+    product: { sku: "fleur-cleanser-generic", name: "Gentle Cleanser", imageUrl: undefined },
+    title: "Low-stripping wash",
+    why: "Cleanses without over-drying; balances scalp on wash days.",
+  };
+}
 
-      const isOil = /(^|[^a-z])oil(s)?([^a-z]|$)/i.test(text) || rec?.slot === "oil" || rec?.category === "oil";
-      const isSerumOrStamp = /(serum|derma\s*stamp|microneedl)/i.test(text);
-      if (isOil || isSerumOrStamp) continue;
-
-      if (!have.has(slot as Slot)) {
-        ordered.push({ slot, ...rec } as any);
-        have.add(slot as Slot);
-      }
-      if (ordered.length >= 4) break;
-    }
-  }
-
-  // Final safeguard: keep cores present even if model data was empty
-  const mustHave = new Set<Slot>(["treat", "protect"]);
-  const haveSlots = new Set(ordered.map((o) => o.slot));
-  for (const s of mustHave) {
-    if (!haveSlots.has(s)) {
-      ordered.push({ slot: s, ...(s === "treat" ? CORE_PRODUCTS.serum : CORE_PRODUCTS.dermaStamp) } as any);
-    }
-  }
-
-  return ordered.slice(0, 4);
+function makeGenericConditioner() {
+  return {
+    slot: "condition" as const,
+    product: { sku: "fleur-conditioner-generic", name: "Lightweight Conditioner", imageUrl: undefined },
+    title: "Daily slip & softness",
+    why: "Detangles and softens mid→ends without weighing roots down.",
+  };
 }
 
 function fitLineForSlot(slot: Slot): string {
@@ -530,7 +528,6 @@ function ProductImage({ uri, slot }: { uri?: string; slot: ProductCategory }) {
         style={{ width: 80, height: 80, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.06)" }}
         resizeMode="cover"
       />
-      {/* Icon overlay removed by request */}
     </View>
   );
 }

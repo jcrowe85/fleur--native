@@ -1,12 +1,10 @@
 // app/OnboardingScreen.tsx
-import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
   ImageBackground,
   Pressable,
-  Animated,
-  Easing,
   Dimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -17,37 +15,50 @@ import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { CustomButton } from "../components/UI/CustomButton";
 
-// 🔹 NEW: bring in your plan client + store
+// plan client + stores
 import { fetchPlan } from "@/services/planClient";
 import { usePlanStore } from "@/state/planStore";
+import { useOnboardingStore } from "@/state/onboardingStore";
+
+// Reanimated (aliased as Animated component + hooks)
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withRepeat,
+  cancelAnimation,
+  Easing as REasing,
+} from "react-native-reanimated";
 
 /** ================================================================
- * PHASE CONTROLLER
+ * PHASE CONTROLLER (auth removed)
  * ================================================================ */
-type Phase = "questions" | "auth" | "setup";
+type Phase = "questions" | "setup";
 
-// 🔹 Type used for server input
+// Type used for server input
 type PlanInput = {
   persona: "menopause" | "postpartum" | "general";
   hairType: string;     // e.g., "fine-straight"
   washFreq: string;     // e.g., "2x/week"
   goals: string[];      // e.g., ["reduce shedding"]
   constraints?: string; // optional, semicolon-joined tags
+  __detail?: any;       // richer context allowed
 };
 
 export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
 
   const [phase, setPhase] = useState<Phase>("questions");
-  const [answers, setAnswers] = useState<Record<string, string[]>>({});
-  const [authForm, setAuthForm] = useState<{ email?: string; password?: string }>({});
 
-  // 🔹 NEW: hold the derived plan input used by SetupSequence
+  // ✅ persisted onboarding answers (replace local useState)
+  const answers = useOnboardingStore((s) => s.answers);
+  const setAnswersMerge = useOnboardingStore((s) => s.setAnswers);
+  const resetOnboarding = useOnboardingStore((s) => s.reset);
+
+  // Derived plan input used by SetupSequence
   const [planInput, setPlanInput] = useState<PlanInput | null>(null);
 
-  const goToAuth = useCallback(() => setPhase("auth"), []);
-
-  // 🔹 Compute planInput when moving into setup (from your current answers)
+  // Compute planInput when moving into setup (from your current answers)
   const startSetup = useCallback(() => {
     const input = answersToPlanInput(answers);
     setPlanInput(input);
@@ -67,23 +78,19 @@ export default function OnboardingScreen() {
         {phase === "questions" && (
           <Questionnaire
             answers={answers}
-            setAnswers={setAnswers}
-            onComplete={goToAuth}
-          />
-        )}
-
-        {phase === "auth" && (
-          <AuthStep
-            authForm={authForm}
-            setAuthForm={setAuthForm}
-            onContinue={startSetup}
+            setAnswers={(nextPatch) => setAnswersMerge(nextPatch)} // merge patch into store
+            onComplete={startSetup} // ⬅️ go straight to setup (auth removed)
           />
         )}
 
         {phase === "setup" && (
           <SetupSequence
-            planInput={planInput}                          // 👈 pass the derived input
-            onDone={() => router.replace("/(plan)/summary")}
+            planInput={planInput}
+            onDone={() => {
+              // clear onboarding answers after we’ve created a plan
+              resetOnboarding();
+              router.replace("/(plan)/summary");
+            }}
           />
         )}
       </SafeAreaView>
@@ -371,12 +378,12 @@ function answersToPlanInput(ans: Record<string, string[]>): PlanInput {
 
   // Build a rich __detail so the server/LLM can personalize more
   const __detail = {
-    concerns: selectedConcernIds,        // raw IDs
-    goalsRaw: selectedGoalIds,           // raw IDs
+    concerns: selectedConcernIds,
+    goalsRaw: selectedGoalIds,
     hairTypeDetail: {
-      texture: textureStr,               // "fine" | "medium" | "coarse" | "unknown"
-      curlPattern: typeStr,              // "straight" | "wavy" | "curly" | "coily" | "unknown"
-      porosity: undefined,               // placeholder if you add later
+      texture: textureStr,
+      curlPattern: typeStr,
+      porosity: undefined,
     },
     scalpType: (ans["q5_scalp"] || [])[0] || undefined,
     colorFrequency: colorId || undefined,
@@ -399,7 +406,7 @@ function answersToPlanInput(ans: Record<string, string[]>): PlanInput {
     washFreq,
     goals,
     constraints: tags.length ? tags.join("; ") : undefined,
-    __detail, // <- new, richer context
+    __detail,
   } as PlanInput;
 }
 
@@ -415,15 +422,15 @@ function washFreqToNumber(id?: string): number | undefined {
 }
 
 /** ================================================================
- * QUESTIONNAIRE (unchanged UI)
+ * QUESTIONNAIRE (Reanimated progress)
  * ================================================================ */
 function Questionnaire({
   answers,
-  setAnswers,
+  setAnswers,   // merges a patch: Record<string, string[]>
   onComplete,
 }: {
   answers: Record<string, string[]>;
-  setAnswers: React.Dispatch<React.SetStateAction<Record<string, string[]>>>;
+  setAnswers: (patch: Record<string, string[]>) => void;
   onComplete: () => void;
 }) {
   const visibleIds = useMemo(
@@ -441,43 +448,49 @@ function Questionnaire({
   const current = QUESTIONS.find((q) => q.id === currentId)!;
   const selected = answers[current.id as string] || [];
 
-  // progress
+  // progress (Reanimated width)
   const total = visibleIds.length || 1;
-  const progressAnim = useRef(new Animated.Value(0)).current;
-  const pct = useMemo(() => ((stepIdx + 1) / total) * 100, [stepIdx, total]);
+  const [trackW, setTrackW] = useState(1);
+  const progress = useSharedValue((stepIdx + 1) / total);
 
   useEffect(() => {
-    Animated.timing(progressAnim, {
-      toValue: pct,
+    progress.value = withTiming((stepIdx + 1) / total, {
       duration: 300,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [pct, progressAnim]);
+      easing: REasing.out(REasing.cubic),
+    });
+  }, [stepIdx, total, progress]);
+
+  const progressStyle = useAnimatedStyle(() => {
+    return { width: trackW * progress.value };
+  });
 
   const toggle = (question: Question, optionId: string) => {
-    setAnswers((prev) => {
-      const prevArr = prev[question.id as string] || [];
-      let nextArr: string[];
+    // compute next for this question
+    const prevArr = answers[question.id as string] || [];
+    let nextArr: string[];
 
-      if (question.singleSelect) {
-        nextArr = prevArr.includes(optionId) ? [] : [optionId];
-      } else {
-        const set = new Set(prevArr);
-        set.has(optionId) ? set.delete(optionId) : set.add(optionId);
-        nextArr = Array.from(set);
-      }
+    if (question.singleSelect) {
+      nextArr = prevArr.includes(optionId) ? [] : [optionId];
+    } else {
+      const set = new Set(prevArr);
+      set.has(optionId) ? set.delete(optionId) : set.add(optionId);
+      nextArr = Array.from(set);
+    }
 
-      const next = { ...prev, [question.id as string]: nextArr };
+    // Build a patch object (we merge in store)
+    const patch: Record<string, string[]> = {
+      [question.id as string]: nextArr,
+    };
 
-      if (question.id === "q2_lifestage") {
-        const hasPP = nextArr.includes("opt_postpartum");
-        const hasMeno = nextArr.includes("opt_menopause");
-        if (!hasPP && next["q2a_postpartum_details"]) delete next["q2a_postpartum_details"];
-        if (!hasMeno && next["q2b_menopause_details"]) delete next["q2b_menopause_details"];
-      }
-      return next;
-    });
+    // Handle dependent visibility by setting empty arrays (instead of deleting keys)
+    if (question.id === "q2_lifestage") {
+      const hasPP = nextArr.includes("opt_postpartum");
+      const hasMeno = nextArr.includes("opt_menopause");
+      if (!hasPP) patch["q2a_postpartum_details"] = [];
+      if (!hasMeno) patch["q2b_menopause_details"] = [];
+    }
+
+    setAnswers(patch);
   };
 
   const goNext = () => {
@@ -507,18 +520,13 @@ function Questionnaire({
         <View className="w-8" />
       </View>
 
-      {/* Progress */}
+      {/* Progress (Reanimated width) */}
       <View className="mb-8">
-        <View className="h-2 bg-white/20 rounded-full overflow-hidden">
-          <Animated.View
-            className="h-full bg-white"
-            style={{
-              width: progressAnim.interpolate({
-                inputRange: [0, 100],
-                outputRange: ["0%", "100%"],
-              }),
-            }}
-          />
+        <View
+          className="h-2 bg-white/20 rounded-full overflow-hidden"
+          onLayout={(e) => setTrackW(e.nativeEvent.layout.width)}
+        >
+          <Animated.View className="h-full bg-white" style={progressStyle} />
         </View>
       </View>
 
@@ -582,34 +590,7 @@ function Questionnaire({
 }
 
 /** ================================================================
- * AUTH STEP (unchanged visuals)
- * ================================================================ */
-function AuthStep({
-  authForm,
-  setAuthForm,
-  onContinue,
-}: {
-  authForm: { email?: string; password?: string };
-  setAuthForm: React.Dispatch<React.SetStateAction<{ email?: string; password?: string }>>;
-  onContinue: () => void;
-}) {
-  return (
-    <View className="flex-1 justify-center">
-      <Text className="text-white text-3xl font-semibold leading-tight mb-8 text-center">
-        Create your account
-      </Text>
-      <View className="items-center">
-        <CustomButton variant="wellness" fleurSize="lg" className="w-[85%]" onPress={onContinue}>
-          Continue
-        </CustomButton>
-        <Text className="text-white/60 text-xs mt-3">We'll personalize your routine next.</Text>
-      </View>
-    </View>
-  );
-}
-
-/** ================================================================
- * SETUP SEQUENCE — runs animation + plan fetch in parallel
+ * SETUP SEQUENCE — simple fade between steps (Reanimated)
  * ================================================================ */
 function SetupSequence({
   planInput,
@@ -618,39 +599,39 @@ function SetupSequence({
   planInput: PlanInput | null;
   onDone: () => void;
 }) {
-  const MIN_STEP_MS = 3000;
-  const FINAL_PAUSE_MS = 700;
+  // ── Tunables ────────────────────────────────────────────────────
+  const TOTAL_MIN_MS = 12000;  // overall minimum load time (>= 12s as requested)
+  const PULSE_MS = 1000;       // half-cycle of the fade (slower = larger)
+  const MIN_OPACITY = 0.42;    // dimmest point in the fade loop
+  const FINAL_PAUSE_MS = 500;  // small pause before navigating
 
+  // Steps aligned to Summary → Routine → Recommendations
   const steps = [
     "Analyzing your answers",
-    "Identifying your hair concerns",
-    "Building your daily routine",
-    "Recommending key products",
-    "Setting up progress tracking",
+    "Modeling your hair + scalp profile",
+    "Crafting your summary & drivers",
+    "Designing your weekly routine pillars",
+    "Selecting recommendations & your kit",
   ] as const;
 
-  const [active, setActive] = useState(0);
+  // Compute per-step dwell time so N * dwell ≥ TOTAL_MIN_MS
+  const STEP_VISIBLE_MS = Math.ceil(TOTAL_MIN_MS / steps.length);
+
+  // ── State & layout ─────────────────────────────────────────────
+  const [active, setActive] = React.useState(0);
   const { height: H } = Dimensions.get("window");
   const TOP_OFFSET = Math.max(24, Math.round(H * 0.25));
 
-  const pulse = useRef(new Animated.Value(0)).current;
-  const loopRef = useRef<Animated.CompositeAnimation | null>(null);
+  // Opacity fade loop
+  const fade = useSharedValue(MIN_OPACITY);
+  const textStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
 
   const setPlan = usePlanStore((s) => s.setPlan);
 
-  // Step animation as a promise
-  function runSteps(): Promise<void> {
-    return new Promise(async (resolve) => {
-      for (let i = 0; i < steps.length; i++) {
-        setActive(i);
-        await new Promise((r) => setTimeout(r, MIN_STEP_MS));
-      }
-      await new Promise((r) => setTimeout(r, FINAL_PAUSE_MS));
-      resolve();
-    });
-  }
+  // JS wait helper
+  const wait = React.useCallback((ms: number) => new Promise<void>((r) => setTimeout(r, ms)), []);
 
-  // Fetch plan (with graceful fallback if planInput is null)
+  // Build plan (unchanged)
   async function buildPlan(): Promise<void> {
     try {
       if (!planInput) throw new Error("Missing planInput");
@@ -678,36 +659,48 @@ function SetupSequence({
     }
   }
 
-  // Drive both in parallel; finish when BOTH are complete
-  useEffect(() => {
+  React.useEffect(() => {
     let cancelled = false;
 
-    const startPulse = () => {
-      loopRef.current?.stop?.();
-      pulse.setValue(0);
-      const loop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-          Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        ])
+    const orchestrate = async () => {
+      const start = Date.now();
+      const planPromise = buildPlan();
+
+      // Start continuous fade loop once; it runs across all steps
+      fade.value = MIN_OPACITY;
+      fade.value = withRepeat(
+        withTiming(1, { duration: PULSE_MS, easing: REasing.inOut(REasing.quad) }),
+        -1,     // infinite
+        true    // reverse back to MIN_OPACITY
       );
-      loop.start();
-      loopRef.current = loop;
+
+      // Walk through steps with steady dwell time
+      for (let i = 0; i < steps.length; i++) {
+        if (cancelled) return;
+        setActive(i);
+        await wait(STEP_VISIBLE_MS);
+      }
+
+      // Ensure plan is done, then enforce the overall minimum time
+      await planPromise;
+      const elapsed = Date.now() - start;
+      const remaining = Math.max(0, TOTAL_MIN_MS - elapsed);
+      if (remaining > 0) await wait(remaining);
+
+      // Small polish pause, then navigate
+      await wait(FINAL_PAUSE_MS);
+      if (!cancelled) onDone();
     };
 
-    (async () => {
-      startPulse();
-      await Promise.all([runSteps(), buildPlan()]);
-      if (!cancelled) onDone();
-    })();
+    orchestrate();
 
     return () => {
       cancelled = true;
-      loopRef.current?.stop?.();
+      cancelAnimation(fade);
+      fade.value = 1;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planInput]);
 
   return (
     <View className="flex-1 px-6">
@@ -717,18 +710,19 @@ function SetupSequence({
 
       <View className="w-full items-center">
         <Animated.Text
-          style={{
-            textAlign: "center",
-            fontSize: 16,
-            fontWeight: "300",
-            color: "#ffffff",
-            includeFontPadding: false as any,
-            opacity,
-          }}
+          style={[
+            {
+              textAlign: "center",
+              fontSize: 16,
+              fontWeight: "300",
+              color: "#ffffff",
+            },
+            textStyle,
+          ]}
         >
           {steps[active]}
         </Animated.Text>
-        <Text className="text-white/60 mt-8" style={{ fontSize: 12, includeFontPadding: false as any }} />
+        <Text className="text-white/60 mt-8" style={{ fontSize: 12 }} />
       </View>
     </View>
   );
