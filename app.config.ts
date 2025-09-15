@@ -14,7 +14,7 @@ const config: ExpoConfig = {
     resizeMode: "contain",
   },
 
-  plugins: ["expo-router"],
+  plugins: ["expo-router", "expo-secure-store"],
   web: { bundler: "metro" },
 
   android: {

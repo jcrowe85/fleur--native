@@ -1,16 +1,57 @@
 // app/(app)/_layout.tsx
-import React from "react";
+import React, { useEffect } from "react";
 import { Tabs, router } from "expo-router";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
-import { Platform, Pressable, View, StyleSheet } from "react-native";
+import {
+  Platform,
+  Pressable,
+  View,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+  Text,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
+import { resetLocalData } from "@/dev/resetLocalData";
+import { CommentsSheetProvider } from "../../src/features/community/commentsSheet";
+
+// 🔹 Silent auth bootstrap
+import { useAuthStore } from "@/state/authStore";
+
+// 🔹 NEW: Pick-Handle sheet provider (enables ensureHandleOrPrompt to open the sheet)
+import { PickHandleSheetProvider } from "@/features/community/pickHandleSheet";
 
 function ProfileButton() {
   return (
     <Pressable
       onPress={() => router.push("/(app)/profile")}
+      onLongPress={
+        __DEV__
+          ? () => {
+              Alert.alert(
+                "Reset local data?",
+                "This will clear your plan and onboarding answers stored on this device.",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Reset",
+                    style: "destructive",
+                    onPress: async () => {
+                      try {
+                        await resetLocalData();
+                      } catch (e) {
+                        console.warn("Reset failed:", e);
+                      }
+                    },
+                  },
+                ]
+              );
+            }
+          : undefined
+      }
+      delayLongPress={600}
       hitSlop={10}
       style={styles.headerBtn}
     >
@@ -20,26 +61,69 @@ function ProfileButton() {
 }
 
 export default function AppLayout() {
+  const { bootstrap, loading, error } = useAuthStore();
+
+  // Kick off guest auth once
+  useEffect(() => {
+    bootstrap();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Glass loader while we establish the Supabase session
+  if (loading) {
+    return (
+      <View style={styles.centerWrap}>
+        <View style={styles.cardShadow}>
+          <BlurView intensity={90} tint="dark" style={styles.centerCard}>
+            <View style={StyleSheet.absoluteFillObject as any} />
+            <ActivityIndicator />
+            <Text style={styles.centerText}>Preparing your space…</Text>
+          </BlurView>
+        </View>
+      </View>
+    );
+  }
+
+  // Friendly retry if bootstrap failed (e.g., network hiccup)
+  if (error) {
+    return (
+      <View style={styles.centerWrap}>
+        <View style={styles.cardShadow}>
+          <BlurView intensity={90} tint="dark" style={styles.centerCard}>
+            <Text style={styles.errorText}>Couldn’t connect. Please try again.</Text>
+            <Pressable onPress={bootstrap} style={styles.retryBtn}>
+              <Text style={styles.retryText}>Retry</Text>
+            </Pressable>
+          </BlurView>
+        </View>
+      </View>
+    );
+  }
+
   return (
-    <Tabs
-      screenOptions={{
-        headerTransparent: true,
-        headerTitle: "",
-        headerTintColor: "#fff",
-        headerShadowVisible: false,
-        headerStyle: { backgroundColor: "transparent" },
-        headerRight: () => <ProfileButton />,
-        headerLeft: () => null,
-        tabBarShowLabel: false,
-      }}
-      tabBar={(props) => <FleurTabBar {...props} />}
-    >
-      <Tabs.Screen name="dashboard" options={{ title: "Dashboard", tabBarIcon: () => null }} />
-      <Tabs.Screen name="routine"   options={{ title: "Routine",   tabBarIcon: () => null }} />
-      <Tabs.Screen name="shop"      options={{ title: "Shop",      tabBarIcon: () => null }} />
-      <Tabs.Screen name="learn"     options={{ title: "Learn",     tabBarIcon: () => null }} />
-      <Tabs.Screen name="community" options={{ title: "Community", tabBarIcon: () => null }} />
-    </Tabs>
+    <PickHandleSheetProvider>
+      <CommentsSheetProvider>
+      <Tabs
+        screenOptions={{
+          headerTransparent: true,
+          headerTitle: "",
+          headerTintColor: "#fff",
+          headerShadowVisible: false,
+          headerStyle: { backgroundColor: "transparent" },
+          headerRight: () => <ProfileButton />,
+          headerLeft: () => null,
+          tabBarShowLabel: false,
+        }}
+        tabBar={(props) => <FleurTabBar {...props} />}
+      >
+        <Tabs.Screen name="dashboard" options={{ title: "Dashboard", tabBarIcon: () => null }} />
+        <Tabs.Screen name="routine"   options={{ title: "Routine",   tabBarIcon: () => null }} />
+        <Tabs.Screen name="shop"      options={{ title: "Shop",      tabBarIcon: () => null }} />
+        <Tabs.Screen name="learn"     options={{ title: "Learn",     tabBarIcon: () => null }} />
+          <Tabs.Screen name="community" options={{ title: "Community", tabBarIcon: () => null }} />
+        </Tabs>
+      </CommentsSheetProvider>
+    </PickHandleSheetProvider>
   );
 }
 
@@ -68,10 +152,9 @@ function FleurTabBar({ state, navigation }: BottomTabBarProps) {
           tint="dark"
           style={styles.pill}
         >
-          {/* dark matte so content underneath doesn't show through too much */}
           <View
             pointerEvents="none"
-            style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(10,10,10,0.10)" }]}
+            style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(10,10,10,0.22)" }]}
           />
           <View style={styles.row}>
             {state.routes.map((route, index) => {
@@ -110,12 +193,61 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.12)",
   },
 
+  // ----- glass loader / error -----
+  centerWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    backgroundColor: "rgba(0,0,0,0.6)",
+  },
+  cardShadow: {
+    width: "86%",
+    maxWidth: 420,
+    borderRadius: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 14,
+  },
+  centerCard: {
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  centerText: {
+    marginTop: 10,
+    color: "rgba(255,255,255,0.9)",
+    fontWeight: "600",
+  },
+  errorText: {
+    color: "rgba(255,255,255,0.95)",
+    fontWeight: "700",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  retryBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.35)",
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  retryText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+
+  // ----- tab bar -----
   wrap: {
     position: "absolute",
     left: 0, right: 0, bottom: 0,
     alignItems: "center",
   },
-
   pillShadow: {
     width: "92%",
     maxWidth: 460,
@@ -126,12 +258,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 14,
   },
-
   pill: {
     borderRadius: 24,
     overflow: "hidden",
   },
-
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -139,12 +269,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 6,
   },
-
   iconBtn: {
     paddingHorizontal: 8,
     paddingVertical: 6,
   },
-
   iconSlot: {
     width: 44,
     height: 44,
@@ -152,12 +280,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   focusBg: {
     position: "absolute",
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.14)",
   },
 });
