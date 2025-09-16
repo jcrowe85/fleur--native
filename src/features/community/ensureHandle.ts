@@ -1,42 +1,68 @@
 // src/features/community/ensureHandle.ts
-import { getMyProfile, upsertMyProfile, validateDisplayName } from "@/services/profile";
+import { supabase } from "@/services/supabase";
 import { useProfileStore } from "@/state/profileStore";
+import { ensureSession } from "./ensureSession"; // ✅ shared helper
 
-function isPlaceholder(h?: string | null) {
-  return !h || /^anonymous-/i.test(h);
-}
+// Single-flight to avoid multiple prompts at once
+let inflight: Promise<void> | null = null;
 
 export async function ensureHandleOrPrompt(
-  showSheet?: () => Promise<{ handle?: string; avatarUrl?: string | null; display_name: string }>
-): Promise<string> {
-  const server = await getMyProfile();
-  if (server?.display_name && !isPlaceholder(server.handle)) return server.handle!;
+  openPickSheet: () => Promise<void> // your PickHandleSheet open()
+) {
+  if (inflight) return inflight;
 
-  const local = useProfileStore.getState();
-  if (local.hasPickedHandle && local.handle && local.avatarUrl != null) {
-    // if you already stored a local pick previously, trust it as display name
-    const nameErr = validateDisplayName(local.handle); // treat stored "handle" as name from old flow
-    if (!nameErr) {
-      const { handle } = await upsertMyProfile({ display_name: local.handle, avatar_url: local.avatarUrl });
-      return handle;
-    } else {
-      useProfileStore.getState().reset();
+  const run = async () => {
+    // 0) Ensure we actually have a session (fixes RLS edge cases on iOS)
+    const uid = await ensureSession();
+
+    // 1) Local check
+    const local = useProfileStore.getState().profile as
+      | { user_id?: string; handle?: string; [k: string]: any }
+      | null
+      | undefined;
+
+    if (local?.handle) return;
+
+    // 2) Remote check (Supabase)
+    const { data: prof, error: profErr } = await supabase
+      .from("profiles")
+      .select("user_id, handle, avatar_url, display_name")
+      .eq("user_id", uid)
+      .maybeSingle();
+
+    // PGRST116 = no rows found for maybeSingle (not an error)
+    if (profErr && profErr.code !== "PGRST116") {
+      console.log("[ensureHandle] profile fetch error:", profErr);
     }
-  }
 
-  if (!showSheet) throw new Error("Name required"); // in practice we pass the sheet
+    if (prof?.handle) {
+      // ✅ Persist to local store using Zustand's setState
+      useProfileStore.setState((s: any) => ({
+        profile: { ...(s.profile ?? { user_id: uid }), ...prof },
+      }));
+      return;
+    }
 
-  const picked = await showSheet(); // now returns display_name
-  const nameErr = validateDisplayName(picked.display_name);
-  if (nameErr) throw new Error(nameErr);
+    // 3) Prompt once — your sheet will create/reserve the handle server-side
+    await openPickSheet();
 
-  const { handle } = await upsertMyProfile({ display_name: picked.display_name, avatar_url: picked.avatarUrl ?? null });
+    // 4) Re-fetch & persist so subsequent actions don’t re-prompt
+    const { data: prof2 } = await supabase
+      .from("profiles")
+      .select("user_id, handle, avatar_url, display_name")
+      .eq("user_id", uid)
+      .single();
 
-  useProfileStore.getState().setLocalProfile({
-    handle: picked.display_name,             // store the friendly name locally
-    avatarUrl: picked.avatarUrl ?? null,
-    hasPickedHandle: true,
+    if (prof2?.handle) {
+      useProfileStore.setState((s: any) => ({
+        profile: { ...(s.profile ?? { user_id: uid }), ...prof2 },
+      }));
+    }
+  };
+
+  inflight = run().finally(() => {
+    inflight = null;
   });
 
-  return handle;
+  return inflight;
 }

@@ -1,4 +1,3 @@
-// src/features/community/commentsSheet.tsx
 import React, {
   createContext,
   useCallback,
@@ -18,6 +17,7 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -25,7 +25,11 @@ import { useCommentsService } from "./comments.service";
 import type { CommentItem } from "./types";
 
 type ResolveFn = () => void;
-type Ctx = { open: (postId: string) => Promise<void> };
+
+// open accepts an optional onAdded callback so the opener (PostCard) can bump its count immediately
+type Ctx = {
+  open: (postId: string, opts?: { onAdded?: (n: number) => void }) => Promise<void>;
+};
 
 const Ctx = createContext<Ctx | null>(null);
 
@@ -37,46 +41,54 @@ export function useCommentsSheet() {
 
 function timeAgo(iso: string) {
   const s = Math.max(1, (Date.now() - new Date(iso).getTime()) / 1000);
-  const m = s / 60,
-    h = m / 60,
-    d = h / 24;
+  const m = s / 60, h = m / 60, d = h / 24;
   if (s < 60) return `${Math.floor(s)}s`;
-  if (m < 60) return `${Math.floor(m)}m`;
-  if (h < 24) return `${Math.floor(h)}h`;
+  if (m < 60)  return `${Math.floor(m)}m`;
+  if (h < 24)  return `${Math.floor(h)}h`;
   return `${Math.floor(d)}d`;
 }
 
 export function CommentsSheetProvider({ children }: { children: React.ReactNode }) {
   const [visible, setVisible] = useState(false);
   const [postId, setPostId] = useState<string | null>(null);
+
   const [text, setText] = useState("");
   const [items, setItems] = useState<CommentItem[]>([]);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [composerH, setComposerH] = useState(56); // dynamic bottom padding
+  const [composerH, setComposerH] = useState(56);
+
   const resolver = useRef<ResolveFn | null>(null);
+  const onAddedRef = useRef<((n: number) => void) | null>(null);
+
   const insets = useSafeAreaInsets();
   const { listPageForPost, create } = useCommentsService();
 
-  const open = useCallback(async (id: string) => {
-    setPostId(id);
-    setItems([]);
-    setPage(0);
-    setHasMore(true);
-    setText("");
-    setError(null);
-    setVisible(true);
-    return new Promise<void>((resolve) => {
-      resolver.current = resolve;
-    });
-  }, []);
+  const open = useCallback(
+    async (id: string, opts?: { onAdded?: (n: number) => void }) => {
+      onAddedRef.current = opts?.onAdded ?? null;
+      setPostId(id);
+      setItems([]);
+      setPage(0);
+      setHasMore(true);
+      setText("");
+      setError(null);
+      setVisible(true);
+      return new Promise<void>((resolve) => {
+        resolver.current = resolve;
+      });
+    },
+    []
+  );
 
   const close = useCallback(() => {
     const r = resolver.current;
     resolver.current = null;
+    onAddedRef.current = null;
     setVisible(false);
     r?.();
   }, []);
@@ -114,13 +126,17 @@ export function CommentsSheetProvider({ children }: { children: React.ReactNode 
 
   async function onSend() {
     const body = text.trim();
-    if (!body || !postId) return;
+    if (!body || !postId || sending) return;
+    setSending(true);
     setText("");
     try {
       await create({ postId, body });
-      await onRefresh();
-    } catch (e) {
-      setError("Couldn't send. Check your connection.");
+      onAddedRef.current?.(1); // bump count in the opener
+      await onRefresh();       // refresh the list in the sheet
+    } catch (e: any) {
+      setError(e?.message ?? "Couldn't send. Check your connection.");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -158,8 +174,8 @@ export function CommentsSheetProvider({ children }: { children: React.ReactNode 
                 keyboardShouldPersistTaps="handled"
                 onEndReachedThreshold={0.3}
                 onEndReached={() => hasMore && !loading && load(false)}
-                refreshing={refreshing}
-                onRefresh={onRefresh}
+                // refreshing={refreshing}
+                // onRefresh={onRefresh}
                 renderItem={({ item }) => (
                   <View style={styles.commentRow}>
                     <View style={styles.commentAvatar} />
@@ -174,7 +190,9 @@ export function CommentsSheetProvider({ children }: { children: React.ReactNode 
                     </View>
                   </View>
                 )}
-                ListFooterComponent={loading ? <Text style={styles.footer}>Loading…</Text> : null}
+                ListFooterComponent={
+                  loading ? <Text style={styles.footer}>Loading…</Text> : null
+                }
               />
 
               <View
@@ -189,8 +207,12 @@ export function CommentsSheetProvider({ children }: { children: React.ReactNode 
                   style={styles.input}
                   multiline
                 />
-                <Pressable onPress={onSend} style={styles.sendBtn}>
-                  <Text style={styles.sendText}>Send</Text>
+                <Pressable
+                  onPress={onSend}
+                  style={[styles.sendBtn, sending && { opacity: 0.6 }]}
+                  disabled={sending}
+                >
+                  {sending ? <ActivityIndicator /> : <Text style={styles.sendText}>Send</Text>}
                 </Pressable>
               </View>
             </BlurView>
@@ -240,7 +262,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.22)",
   },
   closeText: { color: "#fff", fontWeight: "600" },
-  error: { color: "#ffb4b4", paddingHorizontal: 12, paddingBottom: 6 },
+  error: { color: "rgba(255,180,180,1)", paddingHorizontal: 12, paddingBottom: 6 },
   commentRow: { flexDirection: "row", gap: 10, paddingHorizontal: 12, paddingVertical: 8 },
   commentAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.18)" },
   commentHeader: { flexDirection: "row", alignItems: "center", marginBottom: 2, flexWrap: "wrap" },

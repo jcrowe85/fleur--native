@@ -1,4 +1,3 @@
-// src/features/community/PostCard.tsx
 import React, { useState } from "react";
 import { View, Text, Image, StyleSheet, Pressable, Platform } from "react-native";
 import { BlurView } from "expo-blur";
@@ -18,39 +17,41 @@ function timeAgo(iso: string) {
 function initials(name?: string | null) {
   if (!name) return "AN";
   const parts = name.trim().split(/\s+/).slice(0, 2);
-  return parts.map(p => p[0]?.toUpperCase() ?? "").join("") || "AN";
+  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "AN";
 }
 
 export function PostCard({ post }: { post: PostItem }) {
   const display = post.author?.display_name ?? post.author?.handle ?? "Anonymous User";
   const { toggle } = useLikesService();
   const { open } = useCommentsSheet();
+
   const [liked, setLiked] = useState(!!post.liked_by_me);
+  const [count, setCount] = useState(post.comments_count ?? 0); // initial from DB
+  const likeCount = (post as any).likes_count as number | undefined; // show if your query returns it
 
   async function onToggleLike() {
     const prev = liked;
-    setLiked(!prev);
+    setLiked(!prev);               // optimistic
     try {
       const nowLiked = await toggle(post.id);
       setLiked(nowLiked);
     } catch {
-      setLiked(prev);
+      setLiked(prev);              // revert on error
     }
   }
 
   return (
     <View style={styles.shadow}>
-      {/* Wrapper does the rounding/clip/border. Blur is absolutely-filled inside. */}
       <View style={styles.cardWrap}>
         <BlurView
           intensity={Platform.OS === "ios" ? 24 : 14}
           tint="light"
-          style={StyleSheet.absoluteFill}
+          style={StyleSheet.absoluteFillObject}
         />
-        {/* warm glass tint ON THE WRAPPER (not on BlurView) */}
         <View style={styles.glassTint} />
 
         <View style={styles.inner}>
+          {/* Header */}
           <View style={styles.headerRow}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>{initials(display)}</Text>
@@ -59,31 +60,38 @@ export function PostCard({ post }: { post: PostItem }) {
               <Text style={styles.handle}>{display}</Text>
               <Text style={styles.meta}>{timeAgo(post.created_at)}</Text>
             </View>
-            <Pressable style={styles.iconBtn} onPress={() => { /* TODO share */ }}>
-              <Feather name="share-2" size={16} color="rgba(255,255,255,0.9)" />
-            </Pressable>
+            {/* Share/download removed by request */}
           </View>
 
+          {/* Body */}
           {post.body ? <Text style={styles.body}>{post.body}</Text> : null}
+
+          {/* Media */}
           {post.media_url ? (
             <Image source={{ uri: post.media_url }} style={styles.media} resizeMode="cover" />
           ) : null}
 
+          {/* Actions — compact icons, no glass chips */}
           <View style={styles.actions}>
-            <Pressable onPress={onToggleLike} style={styles.chip}>
-              <Feather name="heart" size={16} color={liked ? "#fff" : "rgba(255,255,255,0.85)"} />
-              <Text style={[styles.chipText, liked && { color: "#fff", fontWeight: "700" }]}>
-                {liked ? "Liked" : "Like"}
-              </Text>
+            <Pressable onPress={onToggleLike} style={styles.iconRow}>
+              <Feather
+                name="heart"
+                size={18}
+                color={liked ? "#fff" : "rgba(255,255,255,0.9)"}
+              />
+              {typeof likeCount === "number" ? (
+                <Text style={styles.iconText}>{likeCount}</Text>
+              ) : null}
             </Pressable>
 
-            <Pressable onPress={() => open(post.id)} style={styles.chip}>
-              <Feather name="message-circle" size={16} color="rgba(255,255,255,0.85)" />
-              <Text style={styles.chipText}>
-                {typeof post.comments_count === "number" && post.comments_count > 0
-                  ? `Comment (${post.comments_count})`
-                  : "Comment"}
-              </Text>
+            <Pressable
+              onPress={() =>
+                open(post.id, { onAdded: (n) => setCount((c) => c + n) })
+              }
+              style={styles.iconRow}
+            >
+              <Feather name="message-circle" size={18} color="rgba(255,255,255,0.9)" />
+              <Text style={styles.iconText}>{count}</Text>
             </Pressable>
           </View>
         </View>
@@ -104,41 +112,57 @@ const styles = StyleSheet.create({
     elevation: 16,
     marginBottom: 14,
   },
-  // The wrapper provides the rounded clip and border (fixes Android square artifact).
   cardWrap: {
     borderRadius: RADIUS,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.22)",
-    backgroundColor: "rgba(255,255,255,0.04)", // subtle base so glass feels warm
+    backgroundColor: "rgba(255,255,255,0.04)",
   },
   glassTint: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255,255,255,0.06)", // warm haze
+    backgroundColor: "rgba(255,255,255,0.06)",
   },
   inner: { padding: 16 },
+
   headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+
+  // Glass avatar w/ centered initials
   avatar: {
-    width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center",
-    marginRight: 10, backgroundColor: "rgba(255,255,255,0.16)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.25)",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
   },
   avatarText: { color: "#fff", fontWeight: "700", fontSize: 12 },
+
   handle: { color: "#fff", fontWeight: "700" },
   meta: { color: "rgba(255,255,255,0.75)", fontSize: 12 },
-  iconBtn: {
-    padding: 8, borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.18)", marginLeft: 8,
-  },
+
   body: { color: "rgba(255,255,255,0.98)", marginTop: 6, marginBottom: 10, lineHeight: 20 },
-  media: { width: "100%", height: 190, borderRadius: 14, marginTop: 6, borderWidth: 1, borderColor: "rgba(255,255,255,0.18)" },
-  actions: { flexDirection: "row", gap: 10, paddingTop: 10 },
-  chip: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.10)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.22)",
+
+  media: {
+    width: "100%",
+    height: 190,
+    borderRadius: 14,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
   },
-  chipText: { color: "rgba(255,255,255,0.9)", fontWeight: "600" },
+
+  actions: {
+    flexDirection: "row",
+    gap: 18,
+    paddingTop: 10,
+    alignItems: "center",
+  },
+
+  // compact icon + number (no chip bg)
+  iconRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6 },
+  iconText: { color: "rgba(255,255,255,0.9)", fontWeight: "600" },
 });

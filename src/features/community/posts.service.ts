@@ -1,9 +1,8 @@
-// src/features/community/posts.service.ts
+import { useCallback, useMemo } from "react";
 import { supabase } from "@/services/supabase";
 import { usePickHandleSheet } from "./pickHandleSheet";
 import { ensureHandleOrPrompt } from "./ensureHandle";
 import type { PostItem } from "./types";
-import { getCommentCounts } from "./comments.service";
 
 const PAGE_SIZE = 10;
 
@@ -16,7 +15,7 @@ async function getUserId() {
 export function usePostsService() {
   const { open } = usePickHandleSheet();
 
-  const create = async (input: {
+  const create = useCallback(async (input: {
     body: string;
     mediaUrl?: string | null;
     category?: "hair_journeys" | "tips_tricks" | "before_after";
@@ -30,21 +29,29 @@ export function usePostsService() {
       category: input.category ?? "tips_tricks",
     });
     if (error) throw error;
-  };
+  }, [open]);
 
-  const listPage = async (page = 0): Promise<{ items: PostItem[]; hasMore: boolean }> => {
+  const listPage = useCallback(async (page = 0): Promise<{ items: PostItem[]; hasMore: boolean }> => {
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
 
-    // Embed author via the FK name to avoid ambiguity
     const { data, error, count } = await supabase
       .from("posts")
       .select(
-        "id, user_id, body, media_url, created_at, author:profiles!posts_user_id_fkey(display_name, handle, avatar_url)",
+        [
+          "id",
+          "user_id",
+          "body",
+          "media_url",
+          "created_at",
+          "comments_count", // 👈 pull precomputed count
+          "author:profiles!posts_user_id_fkey(display_name, handle, avatar_url)",
+        ].join(", "),
         { count: "exact" }
       )
       .order("created_at", { ascending: false })
       .range(from, to);
+
     if (error) throw error;
 
     const items: PostItem[] = (data ?? []).map((row: any) => ({
@@ -53,6 +60,7 @@ export function usePostsService() {
       body: row.body,
       media_url: row.media_url,
       created_at: row.created_at,
+      comments_count: typeof row.comments_count === "number" ? row.comments_count : 0,
       author: row.author
         ? {
             display_name: row.author.display_name,
@@ -60,16 +68,14 @@ export function usePostsService() {
             avatar_url: row.author.avatar_url,
           }
         : null,
-      liked_by_me: false,   // filled below
-      comments_count: 0,    // filled below
+      liked_by_me: false,
     }));
 
-    const ids = items.map((p) => p.id);
-
-    // Mark which of these posts I liked
+    // Mark which posts I liked
     const { data: u } = await supabase.auth.getUser();
     const uid = u?.user?.id;
-    if (uid && ids.length) {
+    if (uid && items.length) {
+      const ids = items.map((p) => p.id);
       const { data: mine, error: likeErr } = await supabase
         .from("likes")
         .select("post_id")
@@ -80,20 +86,10 @@ export function usePostsService() {
       for (const p of items) if (likedSet.has(p.id)) p.liked_by_me = true;
     }
 
-    // Attach comment counts
-    try {
-      if (ids.length) {
-        const counts = await getCommentCounts(ids);
-        for (const p of items) p.comments_count = counts.get(p.id) ?? 0;
-      }
-    } catch {
-      // ignore count errors; leave defaults
-    }
-
     const total = count ?? 0;
     const hasMore = to + 1 < total;
     return { items, hasMore };
-  };
+  }, []);
 
-  return { create, listPage };
+  return useMemo(() => ({ create, listPage }), [create, listPage]);
 }

@@ -1,24 +1,25 @@
 // src/state/profileStore.ts
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-type ProfileState = {
-  handle: string | null;
-  avatarUrl: string | null;
-  hasPickedHandle: boolean;
-  setLocalProfile: (p: Partial<ProfileState>) => void;
-  reset: () => void;
+type Profile = { user_id: string; handle?: string; display_name?: string; avatar_url?: string | null };
+
+type State = {
+  profile: Profile | null;
+  // actions optional; not required by the guard
+  setProfile?: (p: Partial<Profile>) => void;
+  clear?: () => void;
 };
 
-export const useProfileStore = create<ProfileState>()(
+export const useProfileStore = create<State>()(
   persist(
-    (set) => ({
-      handle: null,
-      avatarUrl: null,
-      hasPickedHandle: false,
-      setLocalProfile: (p) => set((s) => ({ ...s, ...p })),
-      reset: () => set({ handle: null, avatarUrl: null, hasPickedHandle: false }),
+    (set, get) => ({
+      profile: null,
+      // actions optional
+      setProfile: (p) => set({ profile: { ...(get().profile ?? {} as any), ...p } }),
+      clear: () => set({ profile: null }),
     }),
-    { name: "profile-store" }
+    { name: "profile", storage: createJSONStorage(() => AsyncStorage) }
   )
 );

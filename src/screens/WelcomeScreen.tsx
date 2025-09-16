@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { SafeAreaView, View, ImageBackground, Text } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { CustomButton } from '../components/UI/CustomButton';
+import { CustomButton } from '@/components/UI/CustomButton';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
