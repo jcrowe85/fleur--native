@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { View, Text, Image, StyleSheet, Pressable, Platform } from "react-native";
+import { View, Text, Image, StyleSheet, Pressable, Platform, ScrollView } from "react-native";
 import { BlurView } from "expo-blur";
-import { Feather } from "@expo/vector-icons";
+import { Feather, FontAwesome } from "@expo/vector-icons"; // ⬅️ add FontAwesome
 import type { PostItem } from "./types";
 import { useLikesService } from "./likes.service";
 import { useCommentsSheet } from "./commentsSheet";
@@ -26,17 +26,27 @@ export function PostCard({ post }: { post: PostItem }) {
   const { open } = useCommentsSheet();
 
   const [liked, setLiked] = useState(!!post.liked_by_me);
-  const [count, setCount] = useState(post.comments_count ?? 0); // initial from DB
-  const likeCount = (post as any).likes_count as number | undefined; // show if your query returns it
+  const [count, setCount] = useState(post.comments_count ?? 0);
+  const likeCount = (post as any).likes_count as number | undefined;
+
+  // Normalize media (always array)
+  const media: string[] = Array.isArray((post as any).media_urls)
+    ? (post as any).media_urls
+    : post.media_url
+    ? [post.media_url]
+    : [];
+
+  const [activeIndex, setActiveIndex] = useState(0);
+  const mainUrl = media[activeIndex] ?? null;
 
   async function onToggleLike() {
     const prev = liked;
-    setLiked(!prev);               // optimistic
+    setLiked(!prev);
     try {
       const nowLiked = await toggle(post.id);
       setLiked(nowLiked);
     } catch {
-      setLiked(prev);              // revert on error
+      setLiked(prev);
     }
   }
 
@@ -60,25 +70,63 @@ export function PostCard({ post }: { post: PostItem }) {
               <Text style={styles.handle}>{display}</Text>
               <Text style={styles.meta}>{timeAgo(post.created_at)}</Text>
             </View>
-            {/* Share/download removed by request */}
           </View>
 
           {/* Body */}
           {post.body ? <Text style={styles.body}>{post.body}</Text> : null}
 
-          {/* Media */}
-          {post.media_url ? (
-            <Image source={{ uri: post.media_url }} style={styles.media} resizeMode="cover" />
+          {/* Main Media (left-aligned, rounded via wrapper) */}
+          {mainUrl ? (
+            <View style={styles.mediaContainer}>
+              <Image
+                source={{ uri: mainUrl }}
+                style={styles.mainMedia}
+                resizeMode="cover"
+                accessibilityLabel="Post media"
+              />
+            </View>
           ) : null}
 
-          {/* Actions — compact icons, no glass chips */}
+          {/* Thumbnails */}
+          {media.length > 1 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.thumbRow}
+              contentContainerStyle={{ paddingTop: 8 }}
+            >
+              {media.map((uri, i) => (
+                <Pressable
+                  key={`${uri}-${i}`}
+                  onPress={() => setActiveIndex(i)}
+                  style={[styles.thumbWrap, i === activeIndex && styles.thumbActive]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Show image ${i + 1}`}
+                >
+                  <Image source={{ uri }} style={styles.thumb} resizeMode="cover" />
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+
+          {/* Actions */}
           <View style={styles.actions}>
-            <Pressable onPress={onToggleLike} style={styles.iconRow}>
-              <Feather
-                name="heart"
-                size={18}
-                color={liked ? "#fff" : "rgba(255,255,255,0.9)"}
-              />
+            <Pressable onPress={onToggleLike} style={styles.iconRow} hitSlop={8}>
+              <View style={styles.heartStack}>
+                {liked ? (
+                  <FontAwesome
+                    name="heart"
+                    size={18}
+                    color="#ff3b30"
+                    style={styles.heartFill}
+                  />
+                ) : null}
+                <Feather
+                  name="heart"
+                  size={18}
+                  color={liked ? "#ff3b30" : "rgba(255,255,255,0.9)"}
+                />
+              </View>
               {typeof likeCount === "number" ? (
                 <Text style={styles.iconText}>{likeCount}</Text>
               ) : null}
@@ -86,7 +134,10 @@ export function PostCard({ post }: { post: PostItem }) {
 
             <Pressable
               onPress={() =>
-                open(post.id, { onAdded: (n) => setCount((c) => c + n) })
+                open(post.id, {
+                  onAdded: (n) => setCount((c) => c + n),
+                  onDelta: (n) => setCount((c) => c + n),
+                })
               }
               style={styles.iconRow}
             >
@@ -119,15 +170,11 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.22)",
     backgroundColor: "rgba(255,255,255,0.04)",
   },
-  glassTint: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255,255,255,0.06)",
-  },
+  glassTint: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(255,255,255,0.06)" },
   inner: { padding: 16 },
 
   headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
 
-  // Glass avatar w/ centered initials
   avatar: {
     width: 36,
     height: 36,
@@ -146,23 +193,49 @@ const styles = StyleSheet.create({
 
   body: { color: "rgba(255,255,255,0.98)", marginTop: 6, marginBottom: 10, lineHeight: 20 },
 
-  media: {
-    width: "100%",
-    height: 190,
-    borderRadius: 14,
+  mediaContainer: {
     marginTop: 6,
+    borderRadius: 14,
+    overflow: "hidden",
+    alignSelf: "flex-start",
+  },
+
+  mainMedia: {
+    width: 280,
+    height: 280,
+  },
+
+  thumbRow: { marginTop: 4 },
+  thumbWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 10,
+    overflow: "hidden",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.18)",
+    marginRight: 8,
+    opacity: 0.85,
   },
+  thumbActive: { borderColor: "#fff", opacity: 1 },
+  thumb: { width: "100%", height: "100%" },
 
-  actions: {
-    flexDirection: "row",
-    gap: 18,
-    paddingTop: 10,
-    alignItems: "center",
-  },
-
-  // compact icon + number (no chip bg)
+  actions: { flexDirection: "row", gap: 18, paddingTop: 12, alignItems: "center" },
   iconRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6 },
   iconText: { color: "rgba(255,255,255,0.9)", fontWeight: "600" },
+
+  // heart overlay styles
+  heartStack: {
+    position: "relative",
+    width: 18,
+    height: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  heartFill: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  },
 });

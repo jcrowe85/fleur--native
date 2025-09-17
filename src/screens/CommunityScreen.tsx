@@ -7,37 +7,180 @@ import {
   StyleSheet,
   TextInput,
   Pressable,
+  ImageBackground,
+  Modal,
+  Image,
   KeyboardAvoidingView,
   Platform,
-  ImageBackground,
 } from "react-native";
-import { FlatList as HFlatList } from "react-native"; // horizontal list alias for categories
+import { FlatList as HFlatList } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useFeed } from "@/features/community/useFeed";
 import { PostCard } from "@/features/community/PostCard";
 import { usePostsService } from "@/features/community/posts.service";
+// 👇 NEW: bring in the uploader
+import { uploadFirstOrNull } from "@/features/community/upload.service";
+import { uploadAll } from "@/features/community/upload.service";
 
-const CATEGORIES = ["Hair Journeys", "Tips & Tricks", "Before & After"] as const;
+/** UI labels shown in header row */
+const CATEGORY_LABELS = ["Hair Journeys", "Tips & Tricks", "Before & After", "Questions"] as const;
+type CategoryLabel = (typeof CATEGORY_LABELS)[number];
+
+/** DB codes expected by posts.category CHECK constraint */
+type CategoryCode = "hair_journeys" | "tips_tricks" | "before_after" | "questions";
+const CATEGORY_CODE: Record<CategoryLabel, CategoryCode> = {
+  "Hair Journeys": "hair_journeys",
+  "Tips & Tricks": "tips_tricks",
+  "Before & After": "before_after",
+  "Questions": "questions",
+};
+
+/** De-dupe helper to avoid duplicate FlatList keys when refresh + realtime merge */
+function uniqById<T extends { id?: string | null }>(arr: T[]) {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const x of arr) {
+    const k = x.id ?? "";
+    if (!k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(x);
+  }
+  return out;
+}
 
 export default function CommunityScreen() {
   const { items, hasMore, loadMore, refresh, loading, error } = useFeed();
   const { create } = usePostsService();
-  const [text, setText] = useState("");
-  const [activeCat, setActiveCat] = useState<(typeof CATEGORIES)[number]>("Hair Journeys");
+
+  // Header category (just filters UI)
+  const [activeCat, setActiveCat] = useState<CategoryLabel>("Hair Journeys");
+
+  // Faux composer modal state
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerCat, setComposerCat] = useState<CategoryLabel | null>(null); // no default
+  const [composerText, setComposerText] = useState("");
+  const [catError, setCatError] = useState(false); // highlight category section on submit if missing
+  const [assets, setAssets] = useState<{ uri: string; width?: number; height?: number }[]>([]);
+  const maxChars = 500;
+  const maxAssets = 3;
+
   const insets = useSafeAreaInsets();
 
-  async function submit() {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    await create({ body: trimmed });
-    setText("");
-    await refresh();
+  async function openPicker() {
+    if (assets.length >= maxAssets) return;
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsMultipleSelection: true,
+      selectionLimit: Math.max(1, maxAssets - assets.length),
+      quality: 0.8,
+    });
+    if (!res.canceled) {
+      const picked = res.assets.map((a) => ({ uri: a.uri, width: a.width, height: a.height }));
+      setAssets((prev) => [...prev, ...picked].slice(0, maxAssets));
+    }
   }
 
-  // TODO: wire to real category when column exists
-  const filtered = useMemo(() => items, [items, activeCat]);
+  function resetComposer() {
+    setComposerOpen(false);
+    setComposerText("");
+    setAssets([]);
+    setComposerCat(null);
+    setCatError(false);
+  }
+
+  async function submitFromModal() {
+    const body = composerText.trim();
+    if (!body) return;
+  
+    if (!composerCat) {
+      setCatError(true);
+      return;
+    }
+  
+    try {
+      // Upload all selected images (up to 3)
+      const mediaUrls = await uploadAll(assets, 3);
+  
+      await create({
+        body,
+        category: CATEGORY_CODE[composerCat], // DB-safe code
+        mediaUrls,                            // 👈 pass array
+        mediaUrl: mediaUrls[0] ?? null,       // legacy compatibility (optional)
+      });
+  
+      resetComposer();
+      await refresh();
+    } catch (e: any) {
+      console.error("[create-post] failed:", e?.message ?? e);
+    }
+  }
+
+  // Feed data: de-dupe, then filter by active header category (if rows have `category`)
+  const deduped = useMemo(() => uniqById(items), [items]);
+  const activeCode = CATEGORY_CODE[activeCat];
+  const filtered = useMemo(
+    () => deduped.filter((p: any) => (p.category ? p.category === activeCode : true)),
+    [deduped, activeCode]
+  );
+
+  // Header (categories + faux composer) rendered inside the list
+  const ListHeader = (
+    <View>
+      {/* Centered header */}
+      <View style={styles.headerWrap}>
+        <Text style={styles.headerTitle}>Community</Text>
+        <Text style={styles.headerSub}>Share your hair journey</Text>
+      </View>
+
+      {/* Categories */}
+      <HFlatList
+        horizontal
+        data={CATEGORY_LABELS}
+        keyExtractor={(c) => c}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.catList}
+        style={styles.catListView}
+        renderItem={({ item }) => {
+          const active = item === activeCat;
+          return (
+            <Pressable onPress={() => setActiveCat(item)} style={styles.catBtn}>
+              <Text style={[styles.catText, active && styles.catTextActive]} numberOfLines={1}>
+                {item}
+              </Text>
+              <View style={[styles.catUnderline, active && styles.catUnderlineActive]} />
+            </Pressable>
+          );
+        }}
+        ListFooterComponent={<View style={{ width: 16 }} />}
+      />
+
+      {/* Faux composer (opens modal) */}
+      <View style={styles.fakeComposerShadow}>
+        <Pressable onPress={() => setComposerOpen(true)} style={styles.fakeComposer}>
+          <View style={styles.fakeLeft}>
+            <View style={styles.fakeAvatar}>
+              <Feather name="user" size={14} color="rgba(255,255,255,0.9)" />
+            </View>
+            <Text style={styles.fakePlaceholder}>Share your hair journey…</Text>
+          </View>
+          <View style={styles.fakeActions}>
+            <View style={styles.fakeIconBtn}>
+              <Feather name="camera" size={16} color="rgba(255,255,255,0.95)" />
+            </View>
+            <View style={styles.fakePostPill}>
+              <Text style={styles.fakePostPillText}>Post</Text>
+            </View>
+          </View>
+        </Pressable>
+      </View>
+
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+    </View>
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: "#120d0a" }}>
@@ -46,102 +189,158 @@ export default function CommunityScreen() {
         resizeMode="cover"
         style={StyleSheet.absoluteFillObject as any}
       />
-      <LinearGradient
+      {/* <LinearGradient
         colors={["rgba(0,0,0,0.10)", "rgba(0,0,0,0.35)", "rgba(0,0,0,0.70)"]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
         style={StyleSheet.absoluteFillObject as any}
-      />
+      /> */}
 
-      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
-          {/* Centered header */}
-          <View style={styles.headerWrap}>
-            <Text style={styles.headerTitle}>Community</Text>
-            <Text style={styles.headerSub}>Share your hair journey</Text>
-          </View>
+      <SafeAreaView style={styles.safeBody} edges={["top", "left", "right"]}>
+        {/* Scrollable feed with header at the top */}
+        <FlatList
+          style={styles.feedList}
+          data={filtered}
+          keyExtractor={(p) => String(p.id)}
+          ListHeaderComponent={ListHeader}
+          contentContainerStyle={[
+            styles.feedContent,
+            { paddingBottom: insets.bottom + 28 }, // bottom breathing room
+          ]}
+          renderItem={({ item }) => <PostCard post={item} />}
+          onEndReachedThreshold={0.4}
+          onEndReached={() => hasMore && loadMore()}
+          ListFooterComponent={loading ? <Text style={styles.footer}>Loading…</Text> : null}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        />
+      </SafeAreaView>
 
-          {/* Categories — horizontal FlatList + trailing spacer (prevents clipping) */}
-          <HFlatList
-            horizontal
-            data={CATEGORIES}
-            keyExtractor={(c) => c}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.catList}
-            style={styles.catListView}
-            renderItem={({ item }) => {
-              const active = item === activeCat;
-              return (
-                <Pressable onPress={() => setActiveCat(item)} style={styles.catBtn}>
-                  <Text
-                    style={[styles.catText, active && styles.catTextActive]}
-                    numberOfLines={1}
-                  >
-                    {item}
-                  </Text>
-                  <View style={[styles.catUnderline, active && styles.catUnderlineActive]} />
+      {/* Create Post Modal */}
+      <Modal
+        visible={composerOpen}
+        animationType="slide"
+        transparent
+        presentationStyle="overFullScreen"
+        onRequestClose={resetComposer}
+      >
+        <View style={styles.modalBackdrop}>
+          {/* KeyboardAvoidingView lifts the sheet above the iOS keyboard */}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            keyboardVerticalOffset={insets.top}
+            style={styles.kav}
+          >
+            <View style={[styles.modalSheet, { paddingBottom: 16 + insets.bottom }]}>
+              {/* Header */}
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Create New Post</Text>
+                <Pressable onPress={resetComposer} hitSlop={8} style={styles.closeBtn}>
+                  <Feather name="x" size={18} color="#6b5f5a" />
                 </Pressable>
-              );
-            }}
-            ListFooterComponent={<View style={{ width: 16 }} />}
-          />
+              </View>
 
-          {/* Composer */}
-          <View style={styles.composerShadow}>
-            <View style={styles.composer}>
+              {/* User row (placeholder initials) */}
+              <View style={styles.modalUserRow}>
+                <View style={styles.userAvatar}>
+                  <Text style={styles.userAvatarText}>JC</Text>
+                </View>
+                <View>
+                  <Text style={styles.userName}>Josh Crowe</Text>
+                  <Text style={styles.userSub}>Posting to Community</Text>
+                </View>
+              </View>
+
+              {/* Category chips (no default) */}
+              <Text style={[styles.sectionLabel, catError && styles.sectionLabelError]}>Category</Text>
+              {catError ? <Text style={styles.errorHint}>Please choose a category.</Text> : null}
+              <View style={[styles.catChipWrap, catError && styles.catChipWrapError]}>
+                <HFlatList
+                  horizontal
+                  data={CATEGORY_LABELS}
+                  keyExtractor={(c) => `modal-${c}`}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingVertical: 6, paddingHorizontal: 2 }}
+                  renderItem={({ item }) => {
+                    const active = item === composerCat;
+                    return (
+                      <Pressable
+                        onPress={() => {
+                          setComposerCat(item);
+                          if (catError) setCatError(false);
+                        }}
+                        style={[styles.catChip, active && styles.catChipActive]}
+                      >
+                        <Text style={[styles.catChipText, active && styles.catChipTextActive]}>{item}</Text>
+                      </Pressable>
+                    );
+                  }}
+                  ListFooterComponent={<View style={{ width: 8 }} />}
+                />
+              </View>
+
+              {/* Text area */}
               <TextInput
-                value={text}
-                onChangeText={setText}
-                placeholder="Share your hair journey…"
-                placeholderTextColor="rgba(255,255,255,0.7)"
-                style={styles.input}
+                value={composerText}
+                onChangeText={(t) => setComposerText(t.slice(0, maxChars))}
+                placeholder="Share your thoughts, tips, or questions..."
+                placeholderTextColor="rgba(0,0,0,0.45)"
                 multiline
+                style={styles.textArea}
+                maxLength={maxChars}
+                textAlignVertical="top"
               />
-              <View style={styles.composerActions}>
-                <Pressable
-                  onPress={() => {}}
-                  style={styles.iconBtn}
-                  accessibilityLabel="Add photo"
-                >
-                  <Feather name="camera" size={18} color="rgba(255,255,255,0.95)" />
+              <Text style={styles.counter}>
+                {composerText.length}/{maxChars} characters
+              </Text>
+
+              {/* Assets row */}
+              <Pressable onPress={openPicker} style={styles.assetRow}>
+                <Feather name="image" size={16} color="#413833" />
+                <Text style={styles.assetRowText}>Add Photos/Videos ({assets.length}/{maxAssets})</Text>
+              </Pressable>
+
+              {/* Image previews */}
+              {assets.length > 0 ? (
+                <HFlatList
+                  horizontal
+                  data={assets}
+                  keyExtractor={(a, i) => `${a.uri}-${i}`}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingVertical: 8 }}
+                  renderItem={({ item }) => <Image source={{ uri: item.uri }} style={styles.preview} />}
+                  ListFooterComponent={<View style={{ width: 8 }} />}
+                />
+              ) : null}
+
+              {/* Actions */}
+              <View style={styles.modalActions}>
+                <Pressable onPress={resetComposer} style={[styles.button, styles.btnGhost]}>
+                  <Text style={styles.btnGhostText}>Cancel</Text>
                 </Pressable>
-                <Pressable onPress={submit} style={styles.postBtn}>
-                  <Text style={styles.postBtnText}>Post</Text>
+                <Pressable
+                  onPress={submitFromModal}
+                  style={[styles.button, styles.btnPrimary, !composerText.trim() && { opacity: 0.4 }]}
+                  disabled={!composerText.trim()} // enabled by text; category validated on press
+                >
+                  <Text style={styles.btnPrimaryText}>Post</Text>
                 </Pressable>
               </View>
             </View>
-          </View>
-
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-
-          {/* Feed */}
-          <FlatList
-            data={filtered}
-            keyExtractor={(p) => p.id}
-            contentContainerStyle={{
-              paddingHorizontal: 16,
-              paddingTop: 12,
-              paddingBottom: insets.bottom + 28,
-            }}
-            renderItem={({ item }) => <PostCard post={item} />}
-            onEndReachedThreshold={0.4}
-            onEndReached={() => hasMore && loadMore()}
-            ListFooterComponent={loading ? <Text style={styles.footer}>Loading…</Text> : null}
-            showsVerticalScrollIndicator={false}
-          />
-        </KeyboardAvoidingView>
-      </SafeAreaView>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // Root body stacks from the top
+  safeBody: { flex: 1, justifyContent: "flex-start", alignItems: "stretch" },
+
   headerWrap: {
     paddingHorizontal: 16,
-    paddingTop: 4,
+    paddingTop: 24,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -149,18 +348,16 @@ const styles = StyleSheet.create({
   headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4 },
 
   // Categories (anti-clipping)
-  catListView: {
-    zIndex: 5,
-  },
+  catListView: { zIndex: 5 },
   catList: {
-    paddingLeft: 16, // left padding is respected on Android
-    paddingRight: 0, // trailing right padding is unreliable on some builds
-    paddingTop: 12,
-    paddingBottom: 6,
+    paddingLeft: 16,
+    paddingRight: 0,
+    paddingTop: 10,
+    paddingBottom: 4, // tight so the faux input hugs it
   },
   catBtn: {
     position: "relative",
-    height: 34, // real height prevents vertical crop
+    height: 34,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 14,
@@ -171,8 +368,8 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.78)",
     fontWeight: "600",
     fontSize: 14,
-    lineHeight: 19,           // slightly > fontSize to avoid top cut
-    includeFontPadding: true, // Android: keep font ascent/descent padding
+    lineHeight: 19,
+    includeFontPadding: true,
     textAlignVertical: "center",
   },
   catTextActive: { color: "#fff" },
@@ -185,51 +382,162 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: "transparent",
   },
-  catUnderlineActive: {
-    backgroundColor: "rgba(255,255,255,0.9)",
-  },
+  catUnderlineActive: { backgroundColor: "rgba(255,255,255,0.9)" },
 
-  // Composer (glass)
-  composerShadow: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 10,
+  // Faux composer (edge-to-edge + vertical space)
+  fakeComposerShadow: {
+    paddingHorizontal: 0,
+    paddingTop: 16,
+    paddingBottom: 16,
   },
-  composer: {
+  fakeComposer: {
+    marginHorizontal: 0,
     borderRadius: 16,
-    overflow: "hidden",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    padding: 12,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.22)",
-  },
-  input: { color: "#fff", minHeight: 46, lineHeight: 20 },
-  composerActions: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
-    marginTop: 10,
+    justifyContent: "space-between",
   },
-  iconBtn: {
-    padding: 10,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.10)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.22)",
+  fakeLeft: { flexDirection: "row", alignItems: "center" },
+  fakeAvatar: {
+    width: 28, height: 28, borderRadius: 14,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.25)",
+    backgroundColor: "rgba(255,255,255,0.12)",
+    alignItems: "center", justifyContent: "center",
     marginRight: 10,
   },
-  postBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: "#fff",
+  fakePlaceholder: { color: "rgba(255,255,255,0.75)" },
+  fakeActions: { flexDirection: "row", alignItems: "center" },
+  fakeIconBtn: {
+    paddingVertical: 8, paddingHorizontal: 10, borderRadius: 999,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.22)",
+    backgroundColor: "rgba(255,255,255,0.10)", marginRight: 8,
   },
-  postBtnText: { color: "#000", fontWeight: "700" },
+  fakePostPill: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: "#fff" },
+  fakePostPillText: { color: "#000", fontWeight: "700" },
+
+  // Feed — only the feed scrolls; header anchors top
+  feedList: { flex: 1, alignSelf: "stretch" },
+  feedContent: {
+    paddingHorizontal: 16,
+    paddingTop: 0,
+    flexGrow: 0,
+  },
 
   error: { color: "rgb(255,180,180)", paddingHorizontal: 16, paddingTop: 8 },
   footer: { color: "rgba(255,255,255,0.8)", textAlign: "center", padding: 16 },
+
+  // Modal
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  // KeyboardAvoidingView wrapper
+  kav: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    backgroundColor: "#f5f1ee",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 16,
+    maxHeight: "92%",
+  },
+  modalHeader: { alignItems: "center", justifyContent: "center", paddingBottom: 8 },
+  modalTitle: { color: "#2d241f", fontWeight: "800", fontSize: 16 },
+  closeBtn: { position: "absolute", right: 2, top: 2, padding: 8 },
+
+  modalUserRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8 },
+  userAvatar: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: "#e7dfdb",
+    alignItems: "center", justifyContent: "center",
+    marginRight: 10,
+  },
+  userAvatarText: { color: "#6b5f5a", fontWeight: "800", fontSize: 12 },
+  userName: { color: "#2d241f", fontWeight: "700" },
+  userSub: { color: "#746862", fontSize: 12 },
+
+  sectionLabel: { color: "#6b5f5a", fontWeight: "700", marginTop: 8 },
+  sectionLabelError: { color: "#b02a37" },
+  errorHint: { color: "#b02a37", fontSize: 12, marginTop: 4 },
+
+  catChipWrap: {
+    borderWidth: 1,
+    borderColor: "transparent",
+    borderRadius: 12,
+    marginTop: 6,
+  },
+  catChipWrapError: {
+    borderColor: "#e08585",
+    backgroundColor: "#f8eaea",
+  },
+
+  catChip: {
+    backgroundColor: "#e7dfdb",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  catChipActive: { borderColor: "#2d241f" },
+  catChipText: { color: "#2d241f", fontWeight: "700" },
+  catChipTextActive: { color: "#2d241f" },
+
+  textArea: {
+    marginTop: 10,
+    borderRadius: 12,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#e6dfdb",
+    minHeight: 110,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: "#2d241f",
+    textAlignVertical: "top",
+  },
+  counter: { alignSelf: "flex-end", color: "#8b7f78", fontSize: 12 },
+
+  assetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  assetRowText: { color: "#413833", fontWeight: "700", marginLeft: 8 },
+
+  preview: {
+    width: 72,
+    height: 72,
+    borderRadius: 10,
+    marginRight: 8,
+    backgroundColor: "#ddd",
+  },
+
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    paddingTop: 10,
+  },
+  button: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+  },
+  btnGhost: {
+    borderWidth: 1,
+    borderColor: "#d6cec9",
+    backgroundColor: "transparent",
+  },
+  btnGhostText: { color: "#6b5f5a", fontWeight: "700" },
+  btnPrimary: { backgroundColor: "#8e7e76" },
+  btnPrimaryText: { color: "#fff", fontWeight: "800" },
 });

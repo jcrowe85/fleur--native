@@ -18,17 +18,27 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Alert,
+  ActionSheetIOS,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCommentsService } from "./comments.service";
 import type { CommentItem } from "./types";
+import { ensureSession } from "@/features/community/ensureSession";
+import { Feather } from "@expo/vector-icons";
 
 type ResolveFn = () => void;
 
 // open accepts an optional onAdded callback so the opener (PostCard) can bump its count immediately
 type Ctx = {
-  open: (postId: string, opts?: { onAdded?: (n: number) => void }) => Promise<void>;
+  open: (
+    postId: string,
+    opts?: {
+      onAdded?: (n: number) => void; // existing
+      onDelta?: (n: number) => void; // NEW: +1 on add, -1 on delete
+    }
+  ) => Promise<void>;
 };
 
 const Ctx = createContext<Ctx | null>(null);
@@ -62,14 +72,20 @@ export function CommentsSheetProvider({ children }: { children: React.ReactNode 
   const [error, setError] = useState<string | null>(null);
   const [composerH, setComposerH] = useState(56);
 
+  // authoring/editing state
+  const [me, setMe] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   const resolver = useRef<ResolveFn | null>(null);
   const onAddedRef = useRef<((n: number) => void) | null>(null);
+  const onDeltaRef = useRef<((n: number) => void) | null>(null);
 
   const insets = useSafeAreaInsets();
-  const { listPageForPost, create } = useCommentsService();
+  const { listPageForPost, create, update, remove } = useCommentsService();
 
   const open = useCallback(
-    async (id: string, opts?: { onAdded?: (n: number) => void }) => {
+    async (id: string, opts?: { onAdded?: (n: number) => void; onDelta?: (n: number) => void }) => {
+      onDeltaRef.current = opts?.onDelta ?? null;
       onAddedRef.current = opts?.onAdded ?? null;
       setPostId(id);
       setItems([]);
@@ -77,7 +93,12 @@ export function CommentsSheetProvider({ children }: { children: React.ReactNode 
       setHasMore(true);
       setText("");
       setError(null);
+      setEditingId(null);
       setVisible(true);
+
+      // get current user (for author controls)
+      ensureSession().then((uid) => setMe(uid)).catch(() => setMe(null));
+
       return new Promise<void>((resolve) => {
         resolver.current = resolve;
       });
@@ -90,6 +111,7 @@ export function CommentsSheetProvider({ children }: { children: React.ReactNode 
     resolver.current = null;
     onAddedRef.current = null;
     setVisible(false);
+    setEditingId(null);
     r?.();
   }, []);
 
@@ -124,19 +146,105 @@ export function CommentsSheetProvider({ children }: { children: React.ReactNode 
     }
   }
 
+  /** Create or Save edit */
   async function onSend() {
     const body = text.trim();
     if (!body || !postId || sending) return;
     setSending(true);
-    setText("");
+
     try {
-      await create({ postId, body });
-      onAddedRef.current?.(1); // bump count in the opener
-      await onRefresh();       // refresh the list in the sheet
+      if (editingId) {
+        // save update
+        const updated = await update(editingId, body);
+        setItems((prev) => prev.map((c) => (c.id === editingId ? { ...c, body: updated.body } : c)));
+        setEditingId(null);
+        setText("");
+      } else {
+        // create
+        await create({ postId, body });
+        onAddedRef.current?.(1);
+        onDeltaRef.current?.(1);
+        setText("");
+        // prepend by refresh (keeps pagination sane)
+        await onRefresh();
+      }
     } catch (e: any) {
-      setError(e?.message ?? "Couldn't send. Check your connection.");
+      setError(e?.message ?? "Couldn't submit. Check your connection.");
     } finally {
       setSending(false);
+    }
+  }
+
+  /** Enter edit mode */
+  function onEdit(item: CommentItem) {
+    setEditingId(item.id);
+    setText(item.body);
+  }
+
+  /** Delete with confirm */
+  async function onDelete(item: CommentItem) {
+    const doDelete = async () => {
+      try {
+        await remove(item.id);
+        setItems((prev) => prev.filter((c) => c.id !== item.id));
+
+        // notify the opener so it can adjust its visible count
+        if (onDeltaRef.current) onDeltaRef.current(-1);
+        else onAddedRef.current?.(-1); // backward-compat if you only passed onAdded
+
+      } catch (e: any) {
+        setError(e?.message ?? "Failed to delete");
+      }
+    };
+
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: "Delete comment?",
+          options: ["Cancel", "Delete"],
+          destructiveButtonIndex: 1,
+          cancelButtonIndex: 0,
+        },
+        (i) => {
+          if (i === 1) doDelete();
+        }
+      );
+    } else {
+      Alert.alert("Delete comment?", "This cannot be undone.", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: doDelete },
+      ]);
+    }
+  }
+
+  /** Show actions: Edit / Delete (author only) */
+  function showActions(item: CommentItem) {
+    if (!me || item.user_id !== me) return;
+    if (Platform.OS === "ios") {
+      const options = ["Cancel", "Edit", "Delete"];
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          cancelButtonIndex: 0,
+          destructiveButtonIndex: 2,
+          userInterfaceStyle: "dark",
+        },
+        (index) => {
+          if (index === 1) onEdit(item);
+          if (index === 2) onDelete(item);
+        }
+      );
+    } else {
+      // Android: simple inline alert menu as a convention-friendly fallback
+      Alert.alert(
+        "Comment actions",
+        undefined,
+        [
+          { text: "Edit", onPress: () => onEdit(item) },
+          { text: "Delete", style: "destructive", onPress: () => onDelete(item) },
+          { text: "Cancel", style: "cancel" },
+        ]
+      );
     }
   }
 
@@ -174,22 +282,37 @@ export function CommentsSheetProvider({ children }: { children: React.ReactNode 
                 keyboardShouldPersistTaps="handled"
                 onEndReachedThreshold={0.3}
                 onEndReached={() => hasMore && !loading && load(false)}
-                // refreshing={refreshing}
-                // onRefresh={onRefresh}
-                renderItem={({ item }) => (
-                  <View style={styles.commentRow}>
-                    <View style={styles.commentAvatar} />
-                    <View style={{ flex: 1 }}>
-                      <View style={styles.commentHeader}>
-                        <Text style={styles.commentName}>
-                          {item.author?.display_name ?? item.author?.handle ?? "Anonymous"}
-                        </Text>
-                        <Text style={styles.commentMeta}> · {timeAgo(item.created_at)}</Text>
+                renderItem={({ item }) => {
+                  const isMine = me && item.user_id === me;
+                  return (
+                    <Pressable
+                      onLongPress={() => isMine && showActions(item)} // 👈 long-press convention
+                      delayLongPress={250}
+                      style={styles.commentRow}
+                    >
+                      <View style={styles.commentAvatar} />
+                      <View style={{ flex: 1 }}>
+                        <View style={styles.commentHeader}>
+                          <Text style={styles.commentName}>
+                            {item.author?.display_name ?? item.author?.handle ?? "Anonymous"}
+                          </Text>
+                          <Text style={styles.commentMeta}> · {timeAgo(item.created_at)}</Text>
+                          {isMine ? (
+                            <Pressable
+                              onPress={() => showActions(item)}
+                              hitSlop={10}
+                              style={styles.moreBtn}
+                              accessibilityLabel="More actions"
+                            >
+                              <Feather name="more-vertical" size={16} color="#fff" />
+                            </Pressable>
+                          ) : null}
+                        </View>
+                        <Text style={styles.commentBody}>{item.body}</Text>
                       </View>
-                      <Text style={styles.commentBody}>{item.body}</Text>
-                    </View>
-                  </View>
-                )}
+                    </Pressable>
+                  );
+                }}
                 ListFooterComponent={
                   loading ? <Text style={styles.footer}>Loading…</Text> : null
                 }
@@ -199,20 +322,29 @@ export function CommentsSheetProvider({ children }: { children: React.ReactNode 
                 style={styles.composerRow}
                 onLayout={(e) => setComposerH(e.nativeEvent.layout.height)}
               >
+                {editingId ? (
+                  <Pressable onPress={() => { setEditingId(null); setText(""); }} style={styles.cancelEdit}>
+                    <Text style={styles.cancelEditText}>Cancel</Text>
+                  </Pressable>
+                ) : null}
                 <TextInput
                   value={text}
                   onChangeText={setText}
-                  placeholder="Add a comment…"
+                  placeholder={editingId ? "Edit your comment…" : "Add a comment…"}
                   placeholderTextColor="rgba(255,255,255,0.6)"
                   style={styles.input}
                   multiline
                 />
                 <Pressable
                   onPress={onSend}
-                  style={[styles.sendBtn, sending && { opacity: 0.6 }]}
-                  disabled={sending}
+                  style={[styles.sendBtn, (sending || !text.trim()) && { opacity: 0.6 }]}
+                  disabled={sending || !text.trim()}
                 >
-                  {sending ? <ActivityIndicator /> : <Text style={styles.sendText}>Send</Text>}
+                  {sending ? (
+                    <ActivityIndicator />
+                  ) : (
+                    <Text style={styles.sendText}>{editingId ? "Save" : "Send"}</Text>
+                  )}
                 </Pressable>
               </View>
             </BlurView>
@@ -269,6 +401,12 @@ const styles = StyleSheet.create({
   commentName: { color: "#fff", fontWeight: "700" },
   commentMeta: { color: "rgba(255,255,255,0.7)", fontSize: 12 },
   commentBody: { color: "rgba(255,255,255,0.95)" },
+  moreBtn: {
+    marginLeft: 8,
+    padding: 4,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
   footer: { color: "rgba(255,255,255,0.8)", textAlign: "center", paddingVertical: 8 },
   composerRow: {
     flexDirection: "row",
@@ -292,4 +430,13 @@ const styles = StyleSheet.create({
   },
   sendBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, backgroundColor: "#fff" },
   sendText: { color: "#000", fontWeight: "700" },
+  cancelEdit: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  cancelEditText: { color: "#fff", fontWeight: "600" },
 });

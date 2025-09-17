@@ -14,14 +14,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import { resetLocalData } from "@/dev/resetLocalData";
+
+// Use RELATIVE imports to avoid alias issues
+import { resetLocalData } from "../../src/dev/resetLocalData";
 import { CommentsSheetProvider } from "../../src/features/community/commentsSheet";
-
-// 🔹 Silent auth bootstrap
-import { useAuthStore } from "@/state/authStore";
-
-// 🔹 NEW: Pick-Handle sheet provider (enables ensureHandleOrPrompt to open the sheet)
-import { PickHandleSheetProvider } from "@/features/community/pickHandleSheet";
+import { PickHandleSheetProvider } from "../../src/features/community/pickHandleSheet";
+import { useAuthStore } from "../../src/state/authStore";
 
 function ProfileButton() {
   return (
@@ -63,13 +61,12 @@ function ProfileButton() {
 export default function AppLayout() {
   const { bootstrap, loading, error } = useAuthStore();
 
-  // Kick off guest auth once
   useEffect(() => {
     bootstrap();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Glass loader while we establish the Supabase session
+  // Loader while establishing Supabase session
   if (loading) {
     return (
       <View style={styles.centerWrap}>
@@ -84,7 +81,7 @@ export default function AppLayout() {
     );
   }
 
-  // Friendly retry if bootstrap failed (e.g., network hiccup)
+  // Retry screen if bootstrap failed
   if (error) {
     return (
       <View style={styles.centerWrap}>
@@ -103,39 +100,52 @@ export default function AppLayout() {
   return (
     <PickHandleSheetProvider>
       <CommentsSheetProvider>
-      <Tabs
-        screenOptions={{
-          headerTransparent: true,
-          headerTitle: "",
-          headerTintColor: "#fff",
-          headerShadowVisible: false,
-          headerStyle: { backgroundColor: "transparent" },
-          headerRight: () => <ProfileButton />,
-          headerLeft: () => null,
-          tabBarShowLabel: false,
-        }}
-        tabBar={(props) => <FleurTabBar {...props} />}
-      >
-        <Tabs.Screen name="dashboard" options={{ title: "Dashboard", tabBarIcon: () => null }} />
-        <Tabs.Screen name="routine"   options={{ title: "Routine",   tabBarIcon: () => null }} />
-        <Tabs.Screen name="shop"      options={{ title: "Shop",      tabBarIcon: () => null }} />
-        <Tabs.Screen name="learn"     options={{ title: "Learn",     tabBarIcon: () => null }} />
+        <Tabs
+          screenOptions={{
+            headerTransparent: true,
+            headerTitle: "",
+            headerTintColor: "#fff",
+            headerShadowVisible: false,
+            headerStyle: { backgroundColor: "transparent" },
+            headerRight: () => <ProfileButton />,
+            headerLeft: () => null,
+            tabBarShowLabel: false,
+          }}
+          tabBar={(props) => <FleurTabBar {...props} />}
+        >
+          {/* Visible tabs */}
+          <Tabs.Screen name="dashboard" options={{ title: "Dashboard", tabBarIcon: () => null }} />
+          <Tabs.Screen name="routine"   options={{ title: "Routine",   tabBarIcon: () => null }} />
+          <Tabs.Screen name="shop"      options={{ title: "Shop",      tabBarIcon: () => null }} />
+          <Tabs.Screen name="education" options={{ title: "Education", tabBarIcon: () => null }} />
           <Tabs.Screen name="community" options={{ title: "Community", tabBarIcon: () => null }} />
+
+          {/* Hide non-tab routes inside this group */}
+          <Tabs.Screen name="article"  options={{ href: null }} />
+          <Tabs.Screen name="profile"  options={{ href: null }} />
+          {/* Add more hidden screens as needed:
+              <Tabs.Screen name="settings" options={{ href: null }} />
+          */}
         </Tabs>
       </CommentsSheetProvider>
     </PickHandleSheetProvider>
   );
 }
 
+/** Whitelisted custom tab bar — only renders the 5 intended tabs */
 function FleurTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+
+  // Only these show up as tabs; anything else (e.g., article/profile) is ignored
+  const TAB_NAMES = ["dashboard", "routine", "shop", "education", "community"] as const;
+  const routes = state.routes.filter((r) => TAB_NAMES.includes(r.name as any));
 
   const iconFor = (name: string): keyof typeof Feather.glyphMap => {
     switch (name) {
       case "dashboard": return "home";
       case "routine":   return "calendar";
       case "shop":      return "shopping-bag";
-      case "learn":     return "book-open";
+      case "education": return "book-open";
       case "community": return "users";
       default:          return "circle";
     }
@@ -147,22 +157,26 @@ function FleurTabBar({ state, navigation }: BottomTabBarProps) {
       style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 10) }]}
     >
       <View style={styles.pillShadow}>
-        <BlurView
-          intensity={Platform.OS === "ios" ? 90 : 90}
-          tint="dark"
-          style={styles.pill}
-        >
+        <BlurView intensity={Platform.OS === "ios" ? 90 : 90} tint="dark" style={styles.pill}>
           <View
             pointerEvents="none"
             style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(10,10,10,0.22)" }]}
           />
           <View style={styles.row}>
-            {state.routes.map((route, index) => {
-              const isFocused = state.index === index;
+            {routes.map((route) => {
+              // find original index to compute focus state
+              const routeIndex = state.routes.findIndex((r) => r.key === route.key);
+              const isFocused = state.index === routeIndex;
 
               const onPress = () => {
-                const e = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
-                if (!isFocused && !e.defaultPrevented) navigation.navigate(route.name);
+                const e = navigation.emit({
+                  type: "tabPress",
+                  target: route.key,
+                  canPreventDefault: true,
+                });
+                if (!isFocused && !e.defaultPrevented) {
+                  navigation.navigate(route.name);
+                }
               };
 
               return (

@@ -1,22 +1,33 @@
-// src/features/community/types.ts
+export type Author = {
+  display_name: string | null;
+  handle: string | null;
+  avatar_url: string | null;
+};
+
 export type PostItem = {
   id: string;
   user_id: string;
   body: string;
-  media_url: string | null;
+  category?: "hair_journeys" | "tips_tricks" | "before_after" | "questions";
+  media_url?: string | null;   // legacy single
+  media_urls?: string[];       // NEW multiple
   created_at: string;
-  author: { display_name?: string | null; handle?: string | null; avatar_url?: string | null } | null;
+  comments_count: number;
+  author: Author | null;
   liked_by_me: boolean;
-  comments_count?: number; // 👈 add this
 };
 
-  
-  export type CommentItem = {
-    id: string;
-    post_id: string;
-    user_id: string;
-    body: string;
-    created_at: string;
-    author: { display_name: string | null; handle: string | null; avatar_url: string | null } | null;
-  };
-  
+export type CommentAuthor = {
+  display_name?: string | null;
+  handle?: string | null;
+  avatar_url?: string | null;
+} | null;
+
+export type CommentItem = {
+  id: string;
+  user_id: string;          // ⬅️ add this
+  post_id: string;
+  body: string;
+  created_at: string;
+  author: CommentAuthor;
+};
