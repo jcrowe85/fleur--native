@@ -66,7 +66,6 @@ export default function AppLayout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Loader while establishing Supabase session
   if (loading) {
     return (
       <View style={styles.centerWrap}>
@@ -81,7 +80,6 @@ export default function AppLayout() {
     );
   }
 
-  // Retry screen if bootstrap failed
   if (error) {
     return (
       <View style={styles.centerWrap}>
@@ -121,11 +119,8 @@ export default function AppLayout() {
           <Tabs.Screen name="community" options={{ title: "Community", tabBarIcon: () => null }} />
 
           {/* Hide non-tab routes inside this group */}
-          <Tabs.Screen name="article"  options={{ href: null }} />
-          <Tabs.Screen name="profile"  options={{ href: null }} />
-          {/* Add more hidden screens as needed:
-              <Tabs.Screen name="settings" options={{ href: null }} />
-          */}
+          {/* Removed: <Tabs.Screen name="article" options={{ href: null }} /> */}
+          <Tabs.Screen name="profile" options={{ href: null }} />
         </Tabs>
       </CommentsSheetProvider>
     </PickHandleSheetProvider>
@@ -136,7 +131,7 @@ export default function AppLayout() {
 function FleurTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
 
-  // Only these show up as tabs; anything else (e.g., article/profile) is ignored
+  // Only these show up as tabs; anything else (e.g., profile) is ignored
   const TAB_NAMES = ["dashboard", "routine", "shop", "education", "community"] as const;
   const routes = state.routes.filter((r) => TAB_NAMES.includes(r.name as any));
 

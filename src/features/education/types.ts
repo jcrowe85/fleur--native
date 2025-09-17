@@ -1,17 +1,22 @@
-export type EduCategory = "Peptides 101" | "Hair Science" | "Hair Wellness" | "Natural Care";
+export type EduCategory =
+  | "Peptides 101"
+  | "Hair Science"
+  | "Hair Wellness"
+  | "Natural Care"
+  | string;
 
-export type Article = {
-  id: string;             // uuid (or slug as id for local)
-  slug: string;           // unique for routing
+export interface Article {
+  id: string;
+  slug: string;
   title: string;
   subtitle?: string | null;
-  excerpt: string;
+  excerpt?: string | null;     // ✅ corrected spelling
   category: EduCategory;
-  icon?: string | null;   // e.g. "feather:book" (not required)
-  read_minutes?: number | null;
-  audio_available?: boolean | null;
-  tags?: string[] | null;
-  body_md: string;        // markdown body
-  created_at?: string | null;
-  updated_at?: string | null;
-};
+  icon?: string | null;
+  read_minutes: number;
+  audio_available: boolean;
+  tags: string[];
+  body_md: string;
+  created_at: string;          // ISO
+  updated_at: string;          // ISO
+}

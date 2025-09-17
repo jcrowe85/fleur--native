@@ -1,5 +1,6 @@
+// app/(app)/article/[slug].tsx
 import React from "react";
-import ArticleScreen from "@/screens/ArticleScreen";
+import ArticleScreen from "../../../src/screens/ArticleScreen"; 
 
 export default function ArticleRoute() {
   return <ArticleScreen />;

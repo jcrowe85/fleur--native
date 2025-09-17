@@ -1,5 +1,5 @@
 // src/screens/EducationScreen.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,19 +10,20 @@ import {
   ImageBackground,
   Platform,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { listArticles, filterArticles } from "../features/education/articles.service";
+import { listArticles, filterArticles } from "@/lib/articles";
+import { supabase } from "@/services/supabase";
 import type { Article, EduCategory } from "../features/education/types";
 
 const CATS: { key: EduCategory; icon: keyof typeof Feather.glyphMap }[] = [
-  { key: "Peptides 101",  icon: "droplet" },
-  { key: "Hair Science",  icon: "book-open" },
+  { key: "Peptides 101", icon: "droplet" },
+  { key: "Hair Science", icon: "book-open" },
   { key: "Hair Wellness", icon: "heart" },
-  { key: "Natural Care",  icon: "leaf" },
+  { key: "Natural Care", icon: "feather" },
 ];
 
 export default function EducationScreen() {
@@ -32,23 +33,58 @@ export default function EducationScreen() {
   const [cat, setCat] = useState<EduCategory | "All">("All");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const rows = await listArticles();
-        setAll(rows);
-      } finally {
-        setLoading(false);
-      }
-    })();
+  // Single load function reused by focus, pull-to-refresh, and realtime
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const rows = await listArticles();
+      setAll(rows);
+    } catch (e) {
+      console.warn("Failed to load articles:", e);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const items = useMemo(() => filterArticles(all, { q, category: cat }), [all, q, cat]);
+  // Initial mount
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Re-fetch whenever the screen regains focus
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
+
+  // Supabase Realtime: refresh when articles change
+  useEffect(() => {
+    const channel = supabase
+      .channel("articles-feed")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "articles" },
+        () => {
+          // Simple strategy: re-fetch on any change
+          load();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [load]);
+
+  const items = useMemo(
+    () => filterArticles(all, { q, category: cat }),
+    [all, q, cat]
+  );
 
   const ListHeader = (
     <View>
-      {/* Centered header (copied from Community) */}
+      {/* Centered header */}
       <View style={styles.headerWrap}>
         <Text style={styles.headerTitle}>Education</Text>
         <Text style={styles.headerSub}>Science-backed hair care knowledge</Text>
@@ -63,6 +99,7 @@ export default function EducationScreen() {
           placeholder="Search articles..."
           placeholderTextColor="rgba(255,255,255,0.6)"
           style={styles.searchInput}
+          returnKeyType="search"
         />
       </View>
 
@@ -73,7 +110,9 @@ export default function EducationScreen() {
           return (
             <Pressable
               key={c.key}
-              onPress={() => setCat((prev) => (prev === c.key ? "All" : c.key))}
+              onPress={() =>
+                setCat((prev) => (prev === c.key ? "All" : c.key))
+              }
               style={[styles.catCard, active && styles.catActive]}
             >
               <Feather name={c.icon} size={20} color="#fff" />
@@ -89,19 +128,12 @@ export default function EducationScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#120d0a" }}>
-      {/* Background image + gradient (same as Community) */}
+      {/* Background image + subtle blur */}
       <ImageBackground
         source={require("../../assets/dashboard.png")}
         resizeMode="cover"
         style={StyleSheet.absoluteFillObject as any}
       />
-      {/* <LinearGradient
-        colors={["rgba(0,0,0,0.10)", "rgba(0,0,0,0.35)", "rgba(0,0,0,0.70)"]}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-        style={StyleSheet.absoluteFillObject as any}
-      /> */}
-      {/* (Optional) extra blur tint on Android to match glass look */}
       <BlurView
         intensity={Platform.OS === "ios" ? 0 : 10}
         tint="dark"
@@ -121,13 +153,21 @@ export default function EducationScreen() {
           renderItem={({ item }) => <ArticleCard item={item} />}
           ListEmptyComponent={
             loading ? null : (
-              <Text style={{ color: "rgba(255,255,255,0.8)", textAlign: "center", marginTop: 24 }}>
+              <Text
+                style={{
+                  color: "rgba(255,255,255,0.8)",
+                  textAlign: "center",
+                  marginTop: 24,
+                }}
+              >
                 No articles found.
               </Text>
             )
           }
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          // refreshing={loading}
+          // onRefresh={load} // pull-to-refresh
         />
       </SafeAreaView>
     </View>
@@ -136,21 +176,35 @@ export default function EducationScreen() {
 
 function ArticleCard({ item }: { item: Article }) {
   return (
-    <Pressable onPress={() => router.push(`/article/${item.slug}`)} style={styles.cardShadow}>
+    <Pressable
+      onPress={() =>
+        router.push({
+          pathname: "/(app)/education/[slug]",
+          params: { slug: item.slug },
+        })
+      }
+      style={styles.cardShadow}
+    >
       <View style={styles.card}>
         <View style={styles.cardIcon}>
           <Feather name={pickIcon(item.category)} size={18} color="#fff" />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.cardTitle}>{item.title}</Text>
-          {item.excerpt ? <Text style={styles.cardExcerpt}>{item.excerpt}</Text> : null}
+          {item.excerpt ? (
+            <Text style={styles.cardExcerpt}>{item.excerpt}</Text>
+          ) : null}
 
           <View style={styles.metaRow}>
             <View style={styles.pill}>
               <Text style={styles.pillText}>{item.category}</Text>
             </View>
-            {item.read_minutes ? <Text style={styles.metaText}>{item.read_minutes} min read</Text> : null}
-            {item.audio_available ? <Text style={styles.metaText}>Audio available</Text> : null}
+            {item.read_minutes ? (
+              <Text style={styles.metaText}>{item.read_minutes} min read</Text>
+            ) : null}
+            {item.audio_available ? (
+              <Text style={styles.metaText}>Audio available</Text>
+            ) : null}
           </View>
         </View>
         <Feather name="chevron-right" size={18} color="rgba(255,255,255,0.9)" />
@@ -161,17 +215,23 @@ function ArticleCard({ item }: { item: Article }) {
 
 function pickIcon(cat: EduCategory): keyof typeof Feather.glyphMap {
   switch (cat) {
-    case "Peptides 101": return "droplet";
-    case "Hair Science": return "book-open";
-    case "Hair Wellness": return "heart";
-    case "Natural Care": return "leaf";
+    case "Peptides 101":
+      return "droplet";
+    case "Hair Science":
+      return "book-open";
+    case "Hair Wellness":
+      return "heart";
+    case "Natural Care":
+      return "feather";
+    default:
+      return "file-text";
   }
 }
 
 const R = 18;
 
 const styles = StyleSheet.create({
-  // ----- copied header spacing from Community -----
+  // ----- layout -----
   safeBody: { flex: 1, justifyContent: "flex-start", alignItems: "stretch" },
 
   headerWrap: {
@@ -183,7 +243,6 @@ const styles = StyleSheet.create({
   headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800" },
   headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4 },
 
-  // ----- list container matches Community -----
   feedList: { flex: 1, alignSelf: "stretch" },
   feedContent: {
     paddingHorizontal: 16,
@@ -206,7 +265,7 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1, color: "#fff" },
 
-  // ----- category grid (large squares) -----
+  // ----- category grid -----
   grid: {
     marginTop: 14,
     flexDirection: "row",
@@ -235,7 +294,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
 
-  // ----- article cards (same glass look) -----
+  // ----- article cards -----
   cardShadow: {
     marginTop: 10,
     borderRadius: R,
@@ -268,7 +327,12 @@ const styles = StyleSheet.create({
   },
   cardTitle: { color: "#fff", fontWeight: "800", fontSize: 16, marginBottom: 6 },
   cardExcerpt: { color: "rgba(255,255,255,0.92)", marginBottom: 8 },
-  metaRow: { flexDirection: "row", gap: 10, alignItems: "center", flexWrap: "wrap" },
+  metaRow: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "center",
+    flexWrap: "wrap",
+  },
   pill: {
     paddingHorizontal: 10,
     paddingVertical: 6,

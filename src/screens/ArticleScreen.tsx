@@ -1,137 +1,331 @@
+// src/screens/ArticleScreen.tsx
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from "react-native";
-import { BlurView } from "expo-blur";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  ImageBackground,
+  Platform,
+  Pressable,
+  Linking,
+} from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
-import { getArticleBySlug } from "@/features/education/articles.service";
-import type { Article } from "@/features/education/types";
+import { BlurView } from "expo-blur";
+import { getArticleBySlug } from "@/lib/articles";
+import type { Article } from "../features/education/types";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function ArticleScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const [a, setA] = useState<Article | null>(null);
 
   useEffect(() => {
+    let mounted = true;
     (async () => {
-      const row = await getArticleBySlug(String(slug));
-      setA(row);
+      const found = slug ? await getArticleBySlug(String(slug)) : null;
+      if (mounted) setA(found ?? null);
     })();
+    return () => {
+      mounted = false;
+    };
   }, [slug]);
 
   if (!a) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+      <View style={styles.center}>
         <Text style={{ color: "#fff" }}>Loading…</Text>
       </View>
     );
   }
 
-  return (
-    <View style={{ flex: 1 }}>
-      <BlurView intensity={Platform.OS === "ios" ? 24 : 14} tint="dark" style={StyleSheet.absoluteFillObject} />
-      <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40 }}>
-        <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <Feather name="arrow-left" size={18} color="#fff" />
-          </Pressable>
-          <Text style={styles.headerTitle}>Article</Text>
-          <View style={{ width: 36 }} />
-        </View>
+  // Use body_md from DB
+  const lines = (a.body_md ?? "").split("\n");
 
-        <View style={styles.card}>
-          <View style={styles.metaRow}>
-            <View style={styles.iconWrap}>
-              <Feather name="bookmark" size={18} color="#fff" />
-            </View>
-            <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
-              <Pill label={a.category} />
-              {a.read_minutes ? <Meta text={`${a.read_minutes} min read`} /> : null}
-              {a.audio_available ? <Meta text="Audio available" /> : null}
-            </View>
+  return (
+    <View style={{ flex: 1, backgroundColor: "#120d0a" }}>
+      <ImageBackground
+        source={require("../../assets/dashboard.png")}
+        resizeMode="cover"
+        style={StyleSheet.absoluteFillObject as any}
+      />
+      <BlurView
+        intensity={Platform.OS === "ios" ? 0 : 10}
+        tint="dark"
+        style={StyleSheet.absoluteFillObject}
+      />
+
+      <SafeAreaView style={styles.safeBody} edges={["top", "left", "right"]}>
+        <ScrollView
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 28 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.topRow}>
+            <Pressable
+              onPress={() => {
+                if (router.canGoBack()) router.back();
+                else router.replace("/(app)/education");
+              }}
+              style={styles.backBtn}
+              hitSlop={8}
+              android_ripple={{ color: "rgba(255,255,255,0.12)", borderless: true }}
+            >
+              <Feather name="arrow-left" size={22} color="#fff" />
+            </Pressable>
+            <View style={{ width: 36 }} />
           </View>
 
-          <Text style={styles.title}>{a.title}</Text>
-          {a.excerpt ? <Text style={styles.excerpt}>{a.excerpt}</Text> : null}
+          {/* Centered header */}
+          <View style={styles.headerWrap}>
+            <Text style={styles.headerTitle}>{a.title}</Text>
+            <Text style={styles.headerSub}>Science-backed hair care knowledge</Text>
+          </View>
 
-          {/* Render markdown very simply; if you use a renderer, swap this block */}
-          {a.body_md.split("\n").map((line, i) => {
-            if (line.startsWith("## ")) {
+          {/* Meta row */}
+          <View style={styles.metaRow}>
+            <View style={styles.pill}>
+              <Text style={styles.pillText}>{a.category}</Text>
+            </View>
+            {a.read_minutes ? (
+              <Text style={styles.metaText}>{a.read_minutes} min read</Text>
+            ) : null}
+            {a.audio_available ? (
+              <View style={styles.metaBadge}>
+                <Feather name="headphones" size={14} color="#fff" />
+                <Text style={styles.metaBadgeText}>Audio</Text>
+              </View>
+            ) : null}
+          </View>
+
+          {/* Body */}
+          <View style={{ marginTop: 18, gap: 8 }}>
+            {lines.map((raw, i) => {
+              const line = raw.replace(/\r$/, "");
+              const trimmed = line.trim();
+
+              if (trimmed.length === 0) return <View key={i} style={{ height: 8 }} />;
+              if (trimmed === "---") return <View key={i} style={styles.rule} />;
+
+              // Headings
+              if (trimmed.startsWith("### ")) {
+                return (
+                  <Text key={i} style={styles.h3}>
+                    {trimmed.replace(/^###\s*/, "")}
+                  </Text>
+                );
+              }
+              if (trimmed.startsWith("## ")) {
+                return (
+                  <Text key={i} style={styles.h2}>
+                    {trimmed.replace(/^##\s*/, "")}
+                  </Text>
+                );
+              }
+              if (trimmed.startsWith("# ")) {
+                return (
+                  <Text key={i} style={styles.h1}>
+                    {trimmed.replace(/^#\s*/, "")}
+                  </Text>
+                );
+              }
+
+              // Bullets
+              if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+                return (
+                  <View key={i} style={styles.bulletRow}>
+                    <Text style={styles.bulletDot}>•</Text>
+                    <Text style={styles.body}>{renderInline(trimmed.replace(/^[-*]\s*/, ""), i)}</Text>
+                  </View>
+                );
+              }
+
+              // Paragraph with inline markdown
               return (
-                <Text key={i} style={styles.h2}>
-                  {line.replace(/^##\s+/, "")}
+                <Text key={i} style={styles.body}>
+                  {renderInline(line, i)}
                 </Text>
               );
-            }
-            if (line.startsWith("### ")) {
-              return (
-                <Text key={i} style={styles.h3}>
-                  {line.replace(/^###\s+/, "")}
-                </Text>
-              );
-            }
-            if (line.trim() === "---") {
-              return <View key={i} style={styles.hr} />;
-            }
-            return (
-              <Text key={i} style={styles.body}>
-                {line.length ? line : " "}
-              </Text>
-            );
-          })}
-        </View>
-      </ScrollView>
+            })}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
     </View>
   );
 }
 
-function Pill({ label }: { label: string }) {
-  return (
-    <View style={styles.pill}>
-      <Text style={styles.pillText}>{label}</Text>
-    </View>
-  );
-}
-function Meta({ text }: { text: string }) {
-  return <Text style={styles.meta}>{text}</Text>;
-}
+/** Lightweight inline markdown renderer for **bold**, *italic*, ***bold+italic***, `code`, and [links](url). */
+function renderInline(text: string, keySeed: number) {
+  // Order matters: code -> bold+italic -> bold -> italic -> link
+  // We'll token-scan left-to-right using a single regex and interpret matches.
+  const regex =
+    /(`[^`]+`)|(\*\*\*[^*]+?\*\*\*)|(\*\*[^*]+?\*\*)|(\*[^*]+?\*)|(\[([^\]]+)\]\(([^)]+)\))/g;
 
-const R = 18;
+  const out: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let m: RegExpExecArray | null;
+  let partIndex = 0;
+
+  while ((m = regex.exec(text)) !== null) {
+    const { index } = m;
+    if (index > lastIndex) {
+      out.push(
+        <Text key={`t-${keySeed}-${partIndex++}`} style={styles.body}>
+          {text.slice(lastIndex, index)}
+        </Text>
+      );
+    }
+
+    const [full] = m;
+
+    // `code`
+    if (m[1]) {
+      out.push(
+        <Text key={`c-${keySeed}-${partIndex++}`} style={styles.code}>
+          {full.slice(1, -1)}
+        </Text>
+      );
+    }
+    // ***bold+italic***
+    else if (m[2]) {
+      out.push(
+        <Text key={`bi-${keySeed}-${partIndex++}`} style={[styles.body, styles.boldItalic]}>
+          {full.slice(3, -3)}
+        </Text>
+      );
+    }
+    // **bold**
+    else if (m[3]) {
+      out.push(
+        <Text key={`b-${keySeed}-${partIndex++}`} style={[styles.body, styles.bold]}>
+          {full.slice(2, -2)}
+        </Text>
+      );
+    }
+    // *italic*
+    else if (m[4]) {
+      out.push(
+        <Text key={`i-${keySeed}-${partIndex++}`} style={[styles.body, styles.italic]}>
+          {full.slice(1, -1)}
+        </Text>
+      );
+    }
+    // [text](url)
+    else if (m[5]) {
+      const label = m[6];
+      const url = m[7];
+      out.push(
+        <Text
+          key={`l-${keySeed}-${partIndex++}`}
+          style={styles.link}
+          onPress={() => {
+            if (url) Linking.openURL(url).catch(() => {});
+          }}
+        >
+          {label}
+        </Text>
+      );
+    }
+
+    lastIndex = index + full.length;
+  }
+
+  if (lastIndex < text.length) {
+    out.push(
+      <Text key={`t-${keySeed}-${partIndex++}`} style={styles.body}>
+        {text.slice(lastIndex)}
+      </Text>
+    );
+  }
+  return out;
+}
 
 const styles = StyleSheet.create({
-  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
-  backBtn: {
-    width: 36, height: 36, borderRadius: 12,
-    alignItems: "center", justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.1)", borderWidth: 1, borderColor: "rgba(255,255,255,0.22)",
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#120d0a",
   },
-  headerTitle: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  safeBody: { flex: 1, justifyContent: "flex-start", alignItems: "stretch" },
 
-  card: {
-    borderRadius: R,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.22)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    padding: 14,
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 0,
+    marginTop: 6,
+    marginBottom: 6,
   },
 
-  metaRow: { flexDirection: "row", gap: 10, alignItems: "center", marginBottom: 10 },
-  iconWrap: {
-    width: 30, height: 30, borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.10)",
-    alignItems: "center", justifyContent: "center",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.18)",
+  backBtn: { padding: 8, borderRadius: 999 },
+
+  headerWrap: {
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
+  headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
+
+  metaRow: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "center",
+    marginTop: 12,
+    flexWrap: "wrap",
   },
   pill: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.14)", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
   },
   pillText: { color: "#fff", fontWeight: "700", fontSize: 12 },
-  meta: { color: "rgba(255,255,255,0.85)", fontSize: 12 },
+  metaText: { color: "rgba(255,255,255,0.85)", fontSize: 12 },
+  metaBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+  metaBadgeText: { color: "#fff", fontWeight: "700", fontSize: 12 },
 
-  title: { color: "#fff", fontWeight: "800", fontSize: 20, marginBottom: 8 },
-  excerpt: { color: "rgba(255,255,255,0.92)", marginBottom: 16 },
+  h1: { color: "#fff", fontWeight: "800", fontSize: 20, marginTop: 8 },
+  h2: { color: "#fff", fontWeight: "800", fontSize: 18, marginTop: 8 },
+  h3: { color: "#fff", fontWeight: "800", fontSize: 16, marginTop: 8 },
 
-  h2: { color: "#fff", fontWeight: "800", fontSize: 16, marginTop: 16, marginBottom: 8 },
-  h3: { color: "#fff", fontWeight: "700", fontSize: 14, marginTop: 12, marginBottom: 6 },
   body: { color: "rgba(255,255,255,0.95)", lineHeight: 20 },
-  hr: { height: 1, backgroundColor: "rgba(255,255,255,0.15)", marginVertical: 12 },
+  bold: { fontWeight: "800" },
+  italic: { fontStyle: "italic" },
+  boldItalic: { fontWeight: "800", fontStyle: "italic" },
+  code: {
+    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
+    backgroundColor: "rgba(255,255,255,0.10)",
+    borderColor: "rgba(255,255,255,0.18)",
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    color: "#fff",
+  },
+  link: {
+    color: "#9ad0ff",
+    textDecorationLine: "underline",
+  },
+
+  rule: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    marginVertical: 8,
+  },
+  bulletRow: { flexDirection: "row", gap: 8, alignItems: "flex-start" },
+  bulletDot: { color: "rgba(255,255,255,0.95)", lineHeight: 20 },
 });
