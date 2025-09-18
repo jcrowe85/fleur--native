@@ -15,15 +15,21 @@ import {
 } from "react-native";
 import { FlatList as HFlatList } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
+// import { LinearGradient } from "expo-linear-gradient"; // (optional, currently unused)
 import * as ImagePicker from "expo-image-picker";
+
 import { useFeed } from "@/features/community/useFeed";
 import { PostCard } from "@/features/community/PostCard";
 import { usePostsService } from "@/features/community/posts.service";
-// 👇 NEW: bring in the uploader
-import { uploadFirstOrNull } from "@/features/community/upload.service";
+
+// Uploader
 import { uploadAll } from "@/features/community/upload.service";
+
+// NEW: identity + handle prompt wiring
+import { useProfileStore } from "@/state/profileStore";
+import { usePickHandleSheet } from "@/features/community/pickHandleSheet";
+import { ensureHandleOrPrompt } from "@/features/community/ensureHandle";
 
 /** UI labels shown in header row */
 const CATEGORY_LABELS = ["Hair Journeys", "Tips & Tricks", "Before & After", "Questions"] as const;
@@ -52,9 +58,21 @@ function uniqById<T extends { id?: string | null }>(arr: T[]) {
   return out;
 }
 
+function getInitials(full?: string) {
+  const n = (full ?? "").trim();
+  if (!n) return "YY";
+  const parts = n.split(/\s+/);
+  const a = (parts[0]?.[0] ?? "Y").toUpperCase();
+  const b = (parts[1]?.[0] ?? parts[0]?.[1] ?? "Y").toUpperCase();
+  return a + b;
+}
+
 export default function CommunityScreen() {
   const { items, hasMore, loadMore, refresh, loading, error } = useFeed();
   const { create } = usePostsService();
+
+  const { profile } = useProfileStore();
+  const { open: openPickHandle } = usePickHandleSheet();
 
   // Header category (just filters UI)
   const [activeCat, setActiveCat] = useState<CategoryLabel>("Hair Journeys");
@@ -92,26 +110,39 @@ export default function CommunityScreen() {
     setCatError(false);
   }
 
+  // 🔒 Guard: ensure session + handle before opening the composer
+  async function openComposerGuarded() {
+    try {
+      await ensureHandleOrPrompt(openPickHandle);
+      setComposerOpen(true);           // only if user has/sets a handle
+    } catch (e) {
+      // user closed the sheet → do nothing
+      if ((e as Error)?.message === "pick-handle:cancelled") return;
+      // anything else is real
+      console.error("[ensureHandle] failed:", e);
+    }
+  }
+
   async function submitFromModal() {
     const body = composerText.trim();
     if (!body) return;
-  
+
     if (!composerCat) {
       setCatError(true);
       return;
     }
-  
+
     try {
       // Upload all selected images (up to 3)
       const mediaUrls = await uploadAll(assets, 3);
-  
+
       await create({
         body,
         category: CATEGORY_CODE[composerCat], // DB-safe code
-        mediaUrls,                            // 👈 pass array
+        mediaUrls,                            // array column
         mediaUrl: mediaUrls[0] ?? null,       // legacy compatibility (optional)
       });
-  
+
       resetComposer();
       await refresh();
     } catch (e: any) {
@@ -160,7 +191,7 @@ export default function CommunityScreen() {
 
       {/* Faux composer (opens modal) */}
       <View style={styles.fakeComposerShadow}>
-        <Pressable onPress={() => setComposerOpen(true)} style={styles.fakeComposer}>
+        <Pressable onPress={openComposerGuarded} style={styles.fakeComposer}>
           <View style={styles.fakeLeft}>
             <View style={styles.fakeAvatar}>
               <Feather name="user" size={14} color="rgba(255,255,255,0.9)" />
@@ -189,7 +220,8 @@ export default function CommunityScreen() {
         resizeMode="cover"
         style={StyleSheet.absoluteFillObject as any}
       />
-      {/* <LinearGradient
+      {/* If you want the gradient overlay, uncomment:
+      <LinearGradient
         colors={["rgba(0,0,0,0.10)", "rgba(0,0,0,0.35)", "rgba(0,0,0,0.70)"]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
@@ -240,44 +272,48 @@ export default function CommunityScreen() {
                 </Pressable>
               </View>
 
-              {/* User row (placeholder initials) */}
+              {/* User row (dynamic profile instead of hard-coded) */}
               <View style={styles.modalUserRow}>
                 <View style={styles.userAvatar}>
-                  <Text style={styles.userAvatarText}>JC</Text>
+                  <Text style={styles.userAvatarText}>
+                    {getInitials(profile?.display_name || profile?.handle || "You")}
+                  </Text>
                 </View>
                 <View>
-                  <Text style={styles.userName}>Josh Crowe</Text>
-                  <Text style={styles.userSub}>Posting to Community</Text>
+                  <Text style={styles.userName}>
+                    {profile?.display_name || profile?.handle || "Set your name"}
+                  </Text>
+                  <Text style={styles.userSub}>
+                    {profile?.handle ? `@${profile.handle}` : "Posting to Community"}
+                  </Text>
                 </View>
               </View>
 
               {/* Category chips (no default) */}
               <Text style={[styles.sectionLabel, catError && styles.sectionLabelError]}>Category</Text>
               {catError ? <Text style={styles.errorHint}>Please choose a category.</Text> : null}
-              <View style={[styles.catChipWrap, catError && styles.catChipWrapError]}>
-                <HFlatList
-                  horizontal
-                  data={CATEGORY_LABELS}
-                  keyExtractor={(c) => `modal-${c}`}
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingVertical: 6, paddingHorizontal: 2 }}
-                  renderItem={({ item }) => {
-                    const active = item === composerCat;
-                    return (
-                      <Pressable
-                        onPress={() => {
-                          setComposerCat(item);
-                          if (catError) setCatError(false);
-                        }}
-                        style={[styles.catChip, active && styles.catChipActive]}
-                      >
-                        <Text style={[styles.catChipText, active && styles.catChipTextActive]}>{item}</Text>
-                      </Pressable>
-                    );
-                  }}
-                  ListFooterComponent={<View style={{ width: 8 }} />}
-                />
-              </View>
+              <HFlatList
+                horizontal
+                data={CATEGORY_LABELS}
+                keyExtractor={(c) => `modal-${c}`}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingVertical: 6, paddingHorizontal: 2 }}
+                renderItem={({ item }) => {
+                  const active = item === composerCat;
+                  return (
+                    <Pressable
+                      onPress={() => {
+                        setComposerCat(item);
+                        if (catError) setCatError(false);
+                      }}
+                      style={[styles.catChip, active && styles.catChipActive]}
+                    >
+                      <Text style={[styles.catChipText, active && styles.catChipTextActive]}>{item}</Text>
+                    </Pressable>
+                  );
+                }}
+                ListFooterComponent={<View style={{ width: 8 }} />}
+              />
 
               {/* Text area */}
               <TextInput
@@ -467,17 +503,6 @@ const styles = StyleSheet.create({
   sectionLabel: { color: "#6b5f5a", fontWeight: "700", marginTop: 8 },
   sectionLabelError: { color: "#b02a37" },
   errorHint: { color: "#b02a37", fontSize: 12, marginTop: 4 },
-
-  catChipWrap: {
-    borderWidth: 1,
-    borderColor: "transparent",
-    borderRadius: 12,
-    marginTop: 6,
-  },
-  catChipWrapError: {
-    borderColor: "#e08585",
-    backgroundColor: "#f8eaea",
-  },
 
   catChip: {
     backgroundColor: "#e7dfdb",

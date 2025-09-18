@@ -50,7 +50,8 @@ Deno.serve(async (req) => {
     if (createErr || !created?.user) return json({ error: createErr?.message ?? 'createUser failed' }, 400)
 
     const userId = created.user.id
-    const handle = (body.handleHint && body.handleHint.trim()) || `Anonymous-${userId.slice(0, 6)}`
+    // const handle = (body.handleHint && body.handleHint.trim()) || `Anonymous-${userId.slice(0, 6)}`
+    const handle = null;
 
     const { error: pErr } = await supa.from('profiles').insert({
       user_id: userId,
@@ -61,6 +62,7 @@ Deno.serve(async (req) => {
     if (pErr) return json({ error: pErr.message }, 400)
 
     // Return one-time credentials; client will sign in immediately
+    return json({ email, password, _marker: "create-guest v3 NO-HANDLE" });
     return json({ email, password })
   } catch (e: any) {
     return json({ error: e?.message ?? 'unknown error' }, 500)

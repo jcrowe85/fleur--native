@@ -34,9 +34,7 @@ export function usePostsService() {
         user_id,
         body: input.body,
         category: input.category,
-        // keep single for older readers; store first (if any)
         media_url: input.mediaUrl ?? media_urls?.[0] ?? null,
-        // new array column
         media_urls: media_urls ?? null,
       });
 
@@ -58,7 +56,7 @@ export function usePostsService() {
             "user_id",
             "body",
             "media_url",
-            "media_urls",       // 👈 pull array
+            "media_urls",
             "category",
             "created_at",
             "comments_count",
@@ -76,7 +74,11 @@ export function usePostsService() {
         user_id: row.user_id,
         body: row.body,
         media_url: row.media_url ?? null,
-        media_urls: Array.isArray(row.media_urls) ? row.media_urls : (row.media_url ? [row.media_url] : []),
+        media_urls: Array.isArray(row.media_urls)
+          ? row.media_urls
+          : row.media_url
+          ? [row.media_url]
+          : [],
         category: row.category,
         created_at: row.created_at,
         comments_count: typeof row.comments_count === "number" ? row.comments_count : 0,
@@ -90,7 +92,7 @@ export function usePostsService() {
         liked_by_me: false,
       }));
 
-      // Mark which posts I liked
+      // Mark which posts I liked (no likes_count column assumed)
       const { data: u } = await supabase.auth.getUser();
       const uid = u?.user?.id;
       if (uid && items.length) {
