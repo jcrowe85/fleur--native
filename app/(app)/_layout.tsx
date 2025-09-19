@@ -20,43 +20,8 @@ import { resetLocalData } from "../../src/dev/resetLocalData";
 import { CommentsSheetProvider } from "../../src/features/community/commentsSheet";
 import { PickHandleSheetProvider } from "../../src/features/community/pickHandleSheet";
 import { useAuthStore } from "../../src/state/authStore";
+import RewardsPill from "@/components/UI/RewardsPill";
 
-function ProfileButton() {
-  return (
-    <Pressable
-      onPress={() => router.push("/(app)/profile")}
-      onLongPress={
-        __DEV__
-          ? () => {
-              Alert.alert(
-                "Reset local data?",
-                "This will clear your plan and onboarding answers stored on this device.",
-                [
-                  { text: "Cancel", style: "cancel" },
-                  {
-                    text: "Reset",
-                    style: "destructive",
-                    onPress: async () => {
-                      try {
-                        await resetLocalData();
-                      } catch (e) {
-                        console.warn("Reset failed:", e);
-                      }
-                    },
-                  },
-                ]
-              );
-            }
-          : undefined
-      }
-      delayLongPress={600}
-      hitSlop={10}
-      style={styles.headerBtn}
-    >
-      <Feather name="user" size={20} color="#fff" />
-    </Pressable>
-  );
-}
 
 export default function AppLayout() {
   const { bootstrap, loading, error } = useAuthStore();
@@ -105,7 +70,7 @@ export default function AppLayout() {
             headerTintColor: "#fff",
             headerShadowVisible: false,
             headerStyle: { backgroundColor: "transparent" },
-            headerRight: () => <ProfileButton />,
+            headerRight: () => <HeaderRight />,
             headerLeft: () => null,
             tabBarShowLabel: false,
           }}
@@ -193,6 +158,15 @@ function FleurTabBar({ state, navigation }: BottomTabBarProps) {
     </View>
   );
 }
+
+function HeaderRight() {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center" }}>
+      <RewardsPill />
+    </View>
+  );
+}
+
 
 const styles = StyleSheet.create({
   headerBtn: {
