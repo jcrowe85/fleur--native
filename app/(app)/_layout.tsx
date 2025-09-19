@@ -160,12 +160,39 @@ function FleurTabBar({ state, navigation }: BottomTabBarProps) {
 }
 
 function HeaderRight() {
+  const confirmAndReset = () => {
+    Alert.alert(
+      "Reset local data?",
+      "This will sign you out and clear local stores. (Dev tool)",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reset",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await resetLocalData();
+              Alert.alert("Done", "Local data was reset.");
+              // Redirect somewhere safe after sign-out/reset.
+              // Adjust if you have a dedicated auth route:
+              router.replace("/");
+            } catch (err: any) {
+              Alert.alert("Reset failed", String(err?.message || err));
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
-    <View style={{ flexDirection: "row", alignItems: "center" }}>
+    // Long-press triggers the dev reset; tap can still be used for normal Rewards UX
+    <Pressable onLongPress={confirmAndReset} hitSlop={12}>
       <RewardsPill />
-    </View>
+    </Pressable>
   );
 }
+
 
 
 const styles = StyleSheet.create({
