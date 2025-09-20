@@ -19,6 +19,9 @@ import { useRoutineStore, RoutineStep, Period } from "@/state/routineStore";
 import { onDailyCheckIn, onRoutineStarted } from "@/services/rewards";
 import { useRewardsStore } from "@/state/rewardsStore";
 
+// ✨ Add the compact Rewards pill like Community
+import RewardsPill from "@/components/UI/RewardsPill";
+
 type TimerState = {
   active: boolean;
   seconds: number;
@@ -32,7 +35,7 @@ function next7Days() {
     const d = dayjs().add(i, "day");
     out.push({
       iso: d.format("YYYY-MM-DD"),
-      label: `${d.format("ddd")} • ${d.format("MMM D")}`, // e.g., "Thu • Sep 19"
+      label: `${d.format("ddd")} • ${d.format("MMM D")}`,
     });
   }
   return out;
@@ -51,10 +54,7 @@ function StepRowWeekly({
 }) {
   const completed = isDone(step.id, dateISO);
   return (
-    <Pressable
-      onPress={() => onToggle(step.id, dateISO)}
-      style={[styles.card, completed && styles.cardDone]}
-    >
+    <Pressable onPress={() => onToggle(step.id, dateISO)} style={[styles.card, completed && styles.cardDone]}>
       <View style={styles.leftCheck}>
         <View style={[styles.checkCircle, completed && styles.checkCircleOn]}>
           {completed ? <Feather name="check" size={16} color="#fff" /> : null}
@@ -66,9 +66,7 @@ function StepRowWeekly({
           {step.name} {completed ? <Text style={styles.stepComplete}>✓ Complete</Text> : null}
         </Text>
 
-        {step.instructions ? (
-          <Text style={styles.stepDesc}>{step.instructions}</Text>
-        ) : null}
+        {step.instructions ? <Text style={styles.stepDesc}>{step.instructions}</Text> : null}
 
         <View style={styles.metaRow}>
           <View style={styles.pill}>
@@ -134,10 +132,7 @@ export default function RoutineScreen() {
   });
 
   // recompute the list when steps or completion map changes
-  const list = useMemo(
-    () => stepsByPeriod(tab),
-    [stepsByPeriod, tab, stepsAll, completedByDate]
-  );
+  const list = useMemo(() => stepsByPeriod(tab), [stepsByPeriod, tab, stepsAll, completedByDate]);
 
   // split into active vs completed (for Morning/Evening)
   const { activeList, completedList } = useMemo(() => {
@@ -226,8 +221,13 @@ export default function RoutineScreen() {
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 20 }}
           showsVerticalScrollIndicator={false}
         >
-          {/* Centered header (matches Community/Rewards) */}
+          {/* Header matches Community: centered title + compact pill in top-right */}
           <View style={styles.headerWrap}>
+            {/* absolute pill hugs the padded right edge (content padding is 16) */}
+            <View style={styles.headerAction}>
+              <RewardsPill compact />
+            </View>
+
             <Text style={styles.headerTitle}>Your Hair Routine</Text>
             <Text style={styles.headerSub}>Personalized for your hair goals</Text>
           </View>
@@ -356,7 +356,6 @@ export default function RoutineScreen() {
             /* Weekly tab */
             <View style={{ gap: 12 }}>
               {next7Days().map((d) => {
-                // derive current steps (subscribe via stepsAll above to rerender)
                 const dailyStepsAll = [
                   ...useRoutineStore.getState().stepsByPeriod("morning"),
                   ...useRoutineStore.getState().stepsByPeriod("evening"),
@@ -420,16 +419,10 @@ export default function RoutineScreen() {
 
           {/* Quick actions */}
           <View style={{ marginTop: 14, gap: 10 }}>
-            <Pressable
-              onPress={() => router.push("/(app)/routine/customize")}
-              style={[styles.longBtn, styles.longBtnGhost]}
-            >
+            <Pressable onPress={() => router.push("/(app)/routine/customize")} style={[styles.longBtn, styles.longBtnGhost]}>
               <Text style={styles.longBtnGhostText}>Customize Routine</Text>
             </Pressable>
-            <Pressable
-              onPress={() => router.push("/(app)/routine-analytics")}
-              style={[styles.longBtn, styles.longBtnGhost]}
-            >
+            <Pressable onPress={() => router.push("/(app)/routine-analytics")} style={[styles.longBtn, styles.longBtnGhost]}>
               <Text style={styles.longBtnGhostText}>View Progress Analytics</Text>
             </Pressable>
           </View>
@@ -450,10 +443,18 @@ export default function RoutineScreen() {
 
 const styles = StyleSheet.create({
   headerWrap: {
-    paddingTop: 24,
+    paddingHorizontal: 16,
+    // top padding set inline with insets
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 8,
+    marginBottom: 12,
+    position: "relative",
+    paddingTop: 24,
+  },
+  headerAction: {
+    position: "absolute",
+    right: 0, // as far right as we can within the page gutter
+    top: 8,    // small nudge down from the top of the header block
   },
   headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
   headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
@@ -519,10 +520,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.18)",
     borderColor: "rgba(255,255,255,0.35)",
   },
-  // dim finished items in the completed section
-  cardCompletedDim: {
-    opacity: 0.55,
-  },
+  cardCompletedDim: { opacity: 0.55 },
 
   leftCheck: { paddingTop: 2 },
   checkCircle: {
@@ -614,9 +612,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     marginTop: 2,
   },
-  weeklyDivider: {
-    height: 8,
-  },
+  weeklyDivider: { height: 8 },
   infoEmpty: {
     color: "rgba(255,255,255,0.8)",
     lineHeight: 18,

@@ -1,23 +1,22 @@
-// src/screens/EducationScreen.tsx
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   View,
   Text,
   TextInput,
   StyleSheet,
-  FlatList,
   Pressable,
   ImageBackground,
   Platform,
 } from "react-native";
-import { useFocusEffect } from "@react-navigation/native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { FlatList as HFlatList } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { listArticles, filterArticles } from "@/lib/articles";
 import { supabase } from "@/services/supabase";
 import type { Article, EduCategory } from "../features/education/types";
+import { ScreenFlatList } from "@/components/UI/bottom-space";
 
 const CATS: { key: EduCategory; icon: keyof typeof Feather.glyphMap }[] = [
   { key: "Peptides 101", icon: "droplet" },
@@ -27,7 +26,6 @@ const CATS: { key: EduCategory; icon: keyof typeof Feather.glyphMap }[] = [
 ];
 
 export default function EducationScreen() {
-  const insets = useSafeAreaInsets();
   const [all, setAll] = useState<Article[]>([]);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<EduCategory | "All">("All");
@@ -46,17 +44,9 @@ export default function EducationScreen() {
     }
   }, []);
 
-  // Initial mount
   useEffect(() => {
     load();
   }, [load]);
-
-  // Re-fetch whenever the screen regains focus
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
 
   // Supabase Realtime: refresh when articles change
   useEffect(() => {
@@ -65,10 +55,7 @@ export default function EducationScreen() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "articles" },
-        () => {
-          // Simple strategy: re-fetch on any change
-          load();
-        }
+        () => load()
       )
       .subscribe();
 
@@ -110,9 +97,7 @@ export default function EducationScreen() {
           return (
             <Pressable
               key={c.key}
-              onPress={() =>
-                setCat((prev) => (prev === c.key ? "All" : c.key))
-              }
+              onPress={() => setCat((prev) => (prev === c.key ? "All" : c.key))}
               style={[styles.catCard, active && styles.catActive]}
             >
               <Feather name={c.icon} size={20} color="#fff" />
@@ -141,15 +126,12 @@ export default function EducationScreen() {
       />
 
       <SafeAreaView style={styles.safeBody} edges={["top", "left", "right"]}>
-        <FlatList
+        <ScreenFlatList<Article>
           style={styles.feedList}
           data={items}
           keyExtractor={(a) => a.slug}
           ListHeaderComponent={ListHeader}
-          contentContainerStyle={[
-            styles.feedContent,
-            { paddingBottom: insets.bottom + 28 },
-          ]}
+          contentContainerStyle={styles.feedContent} // bottom padding handled by ScreenFlatList
           renderItem={({ item }) => <ArticleCard item={item} />}
           ListEmptyComponent={
             loading ? null : (
@@ -166,8 +148,6 @@ export default function EducationScreen() {
           }
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          // refreshing={loading}
-          // onRefresh={load} // pull-to-refresh
         />
       </SafeAreaView>
     </View>
@@ -239,6 +219,7 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 12,
   },
   headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800" },
   headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4 },
@@ -255,7 +236,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginTop: 10,
+    marginTop: 0,
     paddingHorizontal: 12,
     height: 44,
     borderRadius: R,

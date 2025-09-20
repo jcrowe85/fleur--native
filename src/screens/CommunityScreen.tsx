@@ -3,7 +3,6 @@ import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
-  FlatList,
   StyleSheet,
   TextInput,
   Pressable,
@@ -30,6 +29,12 @@ import { uploadAll } from "@/features/community/upload.service";
 import { useProfileStore } from "@/state/profileStore";
 import { usePickHandleSheet } from "@/features/community/pickHandleSheet";
 import { ensureHandleOrPrompt } from "@/features/community/ensureHandle";
+
+// Rewards pill (compact, top-right)
+import RewardsPill from "@/components/UI/RewardsPill";
+
+// ✅ Shared bottom spacing helpers
+import { ScreenFlatList } from "@/components/UI/bottom-space";
 
 /** UI labels shown in header row */
 const CATEGORY_LABELS = ["Hair Journeys", "Tips & Tricks", "Before & After", "Questions"] as const;
@@ -114,11 +119,9 @@ export default function CommunityScreen() {
   async function openComposerGuarded() {
     try {
       await ensureHandleOrPrompt(openPickHandle);
-      setComposerOpen(true);           // only if user has/sets a handle
+      setComposerOpen(true); // only if user has/sets a handle
     } catch (e) {
-      // user closed the sheet → do nothing
       if ((e as Error)?.message === "pick-handle:cancelled") return;
-      // anything else is real
       console.error("[ensureHandle] failed:", e);
     }
   }
@@ -133,14 +136,13 @@ export default function CommunityScreen() {
     }
 
     try {
-      // Upload all selected images (up to 3)
       const mediaUrls = await uploadAll(assets, 3);
 
       await create({
         body,
-        category: CATEGORY_CODE[composerCat], // DB-safe code
-        mediaUrls,                            // array column
-        mediaUrl: mediaUrls[0] ?? null,       // legacy compatibility (optional)
+        category: CATEGORY_CODE[composerCat],
+        mediaUrls,
+        mediaUrl: mediaUrls[0] ?? null,
       });
 
       resetComposer();
@@ -161,9 +163,15 @@ export default function CommunityScreen() {
   // Header (categories + faux composer) rendered inside the list
   const ListHeader = (
     <View>
-      {/* Centered header */}
-      <View style={styles.headerWrap}>
+      {/* Header with centered title + compact pill absolutely on the right */}
+      <View style={[styles.headerWrap]}>
         <Text style={styles.headerTitle}>Community</Text>
+
+        {/* Absolutely placed so it sits as far right as possible */}
+        <View style={styles.headerAction}>
+          <RewardsPill compact />
+        </View>
+
         <Text style={styles.headerSub}>Share your hair journey</Text>
       </View>
 
@@ -230,15 +238,13 @@ export default function CommunityScreen() {
 
       <SafeAreaView style={styles.safeBody} edges={["top", "left", "right"]}>
         {/* Scrollable feed with header at the top */}
-        <FlatList
+        <ScreenFlatList
           style={styles.feedList}
           data={filtered}
           keyExtractor={(p) => String(p.id)}
           ListHeaderComponent={ListHeader}
-          contentContainerStyle={[
-            styles.feedContent,
-            { paddingBottom: insets.bottom + 28 }, // bottom breathing room
-          ]}
+          contentContainerStyle={styles.feedContent}
+          bottomExtra={16} // small cushion beyond safe-area + tab bar
           renderItem={({ item }) => <PostCard post={item} />}
           onEndReachedThreshold={0.4}
           onEndReached={() => hasMore && loadMore()}
@@ -376,12 +382,20 @@ const styles = StyleSheet.create({
 
   headerWrap: {
     paddingHorizontal: 16,
-    paddingTop: 24,
+    // top padding set inline with insets
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 8,
+    position: "relative",
+    paddingTop: 24,
   },
-  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800" },
-  headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4 },
+  headerAction: {
+    position: "absolute",
+    right: 0, // as far right as we can within the page gutter
+    top: 8, // small nudge down from the top of the header block
+  },
+  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
+  headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
 
   // Categories (anti-clipping)
   catListView: { zIndex: 5 },
@@ -440,18 +454,26 @@ const styles = StyleSheet.create({
   },
   fakeLeft: { flexDirection: "row", alignItems: "center" },
   fakeAvatar: {
-    width: 28, height: 28, borderRadius: 14,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.25)",
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
     backgroundColor: "rgba(255,255,255,0.12)",
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "center",
     marginRight: 10,
   },
   fakePlaceholder: { color: "rgba(255,255,255,0.75)" },
   fakeActions: { flexDirection: "row", alignItems: "center" },
   fakeIconBtn: {
-    paddingVertical: 8, paddingHorizontal: 10, borderRadius: 999,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.22)",
-    backgroundColor: "rgba(255,255,255,0.10)", marginRight: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+    backgroundColor: "rgba(255,255,255,0.10)",
+    marginRight: 8,
   },
   fakePostPill: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: "#fff" },
   fakePostPillText: { color: "#000", fontWeight: "700" },
@@ -491,9 +513,12 @@ const styles = StyleSheet.create({
 
   modalUserRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8 },
   userAvatar: {
-    width: 34, height: 34, borderRadius: 17,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: "#e7dfdb",
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "center",
     marginRight: 10,
   },
   userAvatarText: { color: "#6b5f5a", fontWeight: "800", fontSize: 12 },

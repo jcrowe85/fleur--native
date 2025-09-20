@@ -70,7 +70,7 @@ export default function AppLayout() {
             headerTintColor: "#fff",
             headerShadowVisible: false,
             headerStyle: { backgroundColor: "transparent" },
-            headerRight: () => <HeaderRight />,
+            // headerRight: () => <HeaderRight />,
             headerLeft: () => null,
             tabBarShowLabel: false,
           }}
@@ -81,7 +81,7 @@ export default function AppLayout() {
           <Tabs.Screen name="routine"   options={{ title: "Routine",   tabBarIcon: () => null }} />
           <Tabs.Screen name="shop"      options={{ title: "Shop",      tabBarIcon: () => null }} />
           <Tabs.Screen name="education" options={{ title: "Education", tabBarIcon: () => null }} />
-          <Tabs.Screen name="community" options={{ title: "Community", tabBarIcon: () => null }} />
+          <Tabs.Screen name="community" options={{ title: "Community", tabBarIcon: () => null, headerShown: false }} />
 
           {/* Hide non-tab routes inside this group */}
           {/* Removed: <Tabs.Screen name="article" options={{ href: null }} /> */}
@@ -297,4 +297,11 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     backgroundColor: "rgba(255,255,255,0.14)",
   },
+  topRow: {
+  paddingHorizontal: 16,
+  marginBottom: 8,
+  flexDirection: "row",
+  justifyContent: "flex-end",
+  alignItems: "center",
+},
 });

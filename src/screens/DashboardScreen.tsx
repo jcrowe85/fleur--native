@@ -11,16 +11,18 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import Svg, { Path, Circle, Defs, LinearGradient as SvgGradient, Stop } from "react-native-svg";
 import dayjs from "dayjs";
 
-import { useRoutineStore, Period, RoutineStep } from "@/state/routineStore";
+import { useRoutineStore, RoutineStep } from "@/state/routineStore";
 import { useRewardsStore } from "@/state/rewardsStore";
 import { onDailyCheckIn } from "@/services/rewards";
+
+// ⭐ Small Rewards Pill (compact variant supported)
+import RewardsPill from "@/components/UI/RewardsPill";
 
 /* ------------------------------- tier math ------------------------------- */
 
@@ -70,7 +72,6 @@ function RecoveryChart({
     const out: { x: number; y: number; t: number }[] = [];
     for (let i = 0; i <= weeks; i++) {
       const t = i / weeks;
-      // smooth S-curve to a plateau
       const y = curve.plateauAt * (1 / (1 + Math.exp(-(t * 8 - 4))));
       out.push({ x: t, y, t });
     }
@@ -119,7 +120,6 @@ function RecoveryChart({
 
   const AnimatedCircleAny = Animated.createAnimatedComponent(Circle) as any;
 
-  // milestones (caption fade)
   const milestones = [0, 4, 8, 12].map((week) => ({
     threshold: week / weeks,
     label:
@@ -161,25 +161,20 @@ function RecoveryChart({
         <Path d={pathArea} fill="url(#area)" />
         <Path d={pathLine} stroke="url(#stroke)" strokeWidth={2} fill="none" />
 
-        {/* glow ring */}
+        {/* dot glow + dot */}
         <AnimatedCircleAny cx={cx} cy={cy} r={10} fill="rgba(255,255,255,0.10)" />
-        {/* dot */}
         <AnimatedCircleAny cx={cx} cy={cy} r={4} fill="#fff" />
       </Svg>
 
       {/* captions */}
       {milestones.map((m, i) => {
-        const appear = 0.02;
-        const hold = 0.2;
-        const fade = 0.02;
-
         const opacity = progress.interpolate({
-          inputRange: [m.threshold - appear, m.threshold, m.threshold + hold, m.threshold + hold + fade],
-          outputRange: [0, 1, 1, 0],
+          inputRange: [m.threshold - 0.02, m.threshold, m.threshold + 0.22],
+          outputRange: [0, 1, 0],
           extrapolate: "clamp",
         });
         const dy = progress.interpolate({
-          inputRange: [m.threshold - appear, m.threshold, m.threshold + hold],
+          inputRange: [m.threshold - 0.02, m.threshold, m.threshold + 0.22],
           outputRange: [0, 12, 12],
           extrapolate: "clamp",
         });
@@ -205,7 +200,15 @@ function RecoveryChart({
       })}
 
       {/* x-axis labels */}
-      <View style={{ marginTop: 6, width, paddingHorizontal: 8, flexDirection: "row", justifyContent: "space-between" }}>
+      <View
+        style={{
+          marginTop: 6,
+          width,
+          paddingHorizontal: 8,
+          flexDirection: "row",
+          justifyContent: "space-between",
+        }}
+      >
         <Text style={styles.axisLabel}>Week 0</Text>
         <Text style={styles.axisLabel}>Week {weeks}</Text>
       </View>
@@ -218,46 +221,49 @@ function RecoveryChart({
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
 
-  // Routine data
+  // Routine store
   const stepsByPeriod = useRoutineStore((s) => s.stepsByPeriod);
   const isCompletedToday = useRoutineStore((s) => s.isCompletedToday);
   const toggleStepToday = useRoutineStore((s) => s.toggleStepToday);
   const completedByDate = useRoutineStore((s) => s.completedByDate);
+  const stepsAll = useRoutineStore((s) => s.steps);                 // <- subscribe to steps
+  const applyDefaultIfEmpty = useRoutineStore((s) => s.applyDefaultIfEmpty);
 
-  // Rewards data
+  // Ensure defaults exist when dashboard is the first screen opened
+  useEffect(() => {
+    applyDefaultIfEmpty();
+  }, [applyDefaultIfEmpty]);
+
+  // Rewards store
   const points = useRewardsStore((s) => s.pointsAvailable);
   const streakDays = useRewardsStore((s) => s.streakDays);
   const hasCheckedInToday = useRewardsStore((s) => s.hasCheckedInToday);
   const ledger = useRewardsStore((s) => s.ledger);
 
-  // Today’s combined routine (AM + PM)
+  // Today’s routine (AM + PM) — recompute whenever steps change
   const todaysSteps = useMemo(
     () => [...stepsByPeriod("morning"), ...stepsByPeriod("evening")],
-    [stepsByPeriod]
+    [stepsByPeriod, stepsAll]                                      // <- include stepsAll
   );
-
   const totalToday = todaysSteps.length;
   const doneToday = todaysSteps.filter((s) => isCompletedToday(s.id)).length;
 
-  // Weekly completion %
-  const weekStart = dayjs().startOf("week"); // Sunday-based; fine for now
+  // Weekly completion
+  const weekStart = dayjs().startOf("week");
   const days = Array.from({ length: 7 }, (_, i) => weekStart.add(i, "day").format("YYYY-MM-DD"));
-  const expectedPerDay = todaysSteps.length; // same set expected each day (simple model)
-  const expectedTotal = expectedPerDay * 7;
-
+  const expectedTotal = todaysSteps.length * 7;
   const dailyIds = new Set(todaysSteps.map((s) => s.id));
   const actualTotal = days.reduce((acc, iso) => {
     const map = completedByDate[iso] || {};
     const completedIds = Object.keys(map).filter((id) => dailyIds.has(id)).length;
     return acc + completedIds;
   }, 0);
-
   const weeklyPct = expectedTotal > 0 ? Math.round((actualTotal / expectedTotal) * 100) : 0;
 
   // Rewards tier
   const tier = tierInfo(points);
 
-  // Toggle handler w/ daily check-in grant (+1) the first time a step is completed on the day
+  // Toggle handler (+1 daily check-in on first completion of the day)
   const [toast, setToast] = useState<string | null>(null);
   function onToggle(step: RoutineStep) {
     const nowCompleted = toggleStepToday(step.id);
@@ -270,7 +276,7 @@ export default function DashboardScreen() {
     }
   }
 
-  // Recent check-ins → “spark count” (last 14 days)
+  // 14-day check-ins sparkline (from rewards ledger)
   const checkinsSet = useMemo(() => {
     const set = new Set<string>();
     ledger
@@ -278,7 +284,6 @@ export default function DashboardScreen() {
       .forEach((l) => set.add(dayjs(l.ts).format("YYYY-MM-DD")));
     return set;
   }, [ledger]);
-
   const last14 = Array.from({ length: 14 }, (_, i) => dayjs().subtract(13 - i, "day"));
   const checkinBars = last14.map((d) => (checkinsSet.has(d.format("YYYY-MM-DD")) ? 1 : 0));
 
@@ -288,33 +293,28 @@ export default function DashboardScreen() {
         source={require("../../assets/dashboard.png")}
         resizeMode="cover"
         style={StyleSheet.absoluteFillObject as any}
-      >
-        {/* <LinearGradient
-          colors={["rgba(0,0,0,0.08)", "rgba(0,0,0,0.30)", "rgba(0,0,0,0.65)"]}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={StyleSheet.absoluteFillObject as any}
-        /> */}
-      </ImageBackground>
-
+      />
       <StatusBar style="light" />
 
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
         <ScrollView
-          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: insets.bottom + 28 }}
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingTop: 0,
+            paddingBottom: insets.bottom + 28,
+          }}
           showsVerticalScrollIndicator={false}
         >
           {/* Header */}
-          <View style={{ alignItems: "center", marginBottom: 10, paddingTop: 8 }}>
-            <Text style={{ color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" }}>
-              Stronger Hair Starts Here
-            </Text>
-            <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" }}>
-              Your routine, progress, and rewards in one place.
-            </Text>
+          <View style={styles.headerWrap}>
+            <Text style={styles.headerTitle}>Stronger Hair Starts Here</Text>
+            <View style={styles.headerAction}>
+              <RewardsPill compact />
+            </View>
+            <Text style={styles.headerSub}>Your routine, progress, and rewards in one place.</Text>
           </View>
 
-          {/* Hair Health Journey / Chart */}
+          {/* Hair Health Journey */}
           <GlassCard style={{ padding: 14, marginBottom: 14 }}>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionHeaderLeft}>
@@ -327,7 +327,6 @@ export default function DashboardScreen() {
 
             <RecoveryChart weeks={16} curve={{ plateauAt: 0.82 }} durationMs={18000} loop />
 
-            {/* tiny 14-day check-in sparkline under the chart */}
             <View style={{ marginTop: 10 }}>
               <Text style={styles.sparkTitle}>Daily check-ins (last 14 days)</Text>
               <View style={styles.sparkRow}>
@@ -344,7 +343,76 @@ export default function DashboardScreen() {
             </View>
           </GlassCard>
 
-          {/* Today’s Routine */}
+          {/* Progress + Rewards snapshot (MOVE ABOVE Today's Routine) */}
+          <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>
+            <GlassCard style={{ flex: 1, padding: 14 }}>
+              <View style={styles.sectionHeaderLeft}>
+                <View style={styles.iconDot}>
+                  <Feather name="activity" size={14} color="#fff" />
+                </View>
+                <Text style={styles.sectionHeaderText}>Your Progress</Text>
+              </View>
+
+              <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+                <StatTile big={String(streakDays)} caption="Days streak" />
+                <StatTile big={`${weeklyPct}%`} caption="Weekly completion" />
+              </View>
+            </GlassCard>
+
+            <GlassCard style={{ flex: 1, padding: 14 }}>
+              <View style={styles.sectionHeaderLeft}>
+                <View style={styles.iconDot}>
+                  <Feather name="gift" size={14} color="#fff" />
+                </View>
+                <Text style={styles.sectionHeaderText}>Rewards</Text>
+              </View>
+
+              <View
+                style={{
+                  marginTop: 10,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <View>
+                  <Text style={{ color: "rgba(255,255,255,0.85)", fontWeight: "600" }}>Points</Text>
+                  <Text style={{ color: "#fff", fontSize: 28, fontWeight: "800", marginTop: 2 }}>
+                    {points}
+                  </Text>
+                </View>
+                <View style={styles.tierBadge}>
+                  <Text style={styles.tierBadgeText}>{tier.currentLabel}</Text>
+                </View>
+              </View>
+
+              <View style={{ marginTop: 10 }}>
+                <View style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { width: `${tier.percent * 100}%` }]} />
+                </View>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    marginTop: 6,
+                  }}
+                >
+                  <Text style={styles.progressLeft}>To {tier.nextLabel}</Text>
+                  <Text style={styles.progressRight}>{tier.remainingLabel}</Text>
+                </View>
+              </View>
+
+              <Pressable
+                onPress={() => router.push("/(app)/rewards")}
+                style={[styles.linkRow, { marginTop: 10 }]}
+              >
+                <Text style={styles.linkText}>Open Rewards</Text>
+                <Feather name="chevron-right" size={16} color="#fff" />
+              </Pressable>
+            </GlassCard>
+          </View>
+
+          {/* Today’s Routine (NOW BELOW) */}
           <GlassCard style={{ padding: 14, marginBottom: 14 }}>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionHeaderLeft}>
@@ -386,57 +454,6 @@ export default function DashboardScreen() {
             </Pressable>
           </GlassCard>
 
-          {/* Progress + Rewards snapshot (2-up) */}
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <GlassCard style={{ flex: 1, padding: 14 }}>
-              <View style={styles.sectionHeaderLeft}>
-                <View style={styles.iconDot}>
-                  <Feather name="activity" size={14} color="#fff" />
-                </View>
-                <Text style={styles.sectionHeaderText}>Your Progress</Text>
-              </View>
-
-              <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
-                <StatTile big={String(streakDays)} caption="Days streak" />
-                <StatTile big={`${weeklyPct}%`} caption="Weekly completion" />
-              </View>
-            </GlassCard>
-
-            <GlassCard style={{ flex: 1, padding: 14 }}>
-              <View style={styles.sectionHeaderLeft}>
-                <View style={styles.iconDot}>
-                  <Feather name="gift" size={14} color="#fff" />
-                </View>
-                <Text style={styles.sectionHeaderText}>Rewards</Text>
-              </View>
-
-              <View style={{ marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <View>
-                  <Text style={{ color: "rgba(255,255,255,0.85)", fontWeight: "600" }}>Points</Text>
-                  <Text style={{ color: "#fff", fontSize: 28, fontWeight: "800", marginTop: 2 }}>{points}</Text>
-                </View>
-                <View style={styles.tierBadge}>
-                  <Text style={styles.tierBadgeText}>{tier.currentLabel}</Text>
-                </View>
-              </View>
-
-              <View style={{ marginTop: 10 }}>
-                <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${tier.percent * 100}%` }]} />
-                </View>
-                <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
-                  <Text style={styles.progressLeft}>To {tier.nextLabel}</Text>
-                  <Text style={styles.progressRight}>{tier.remainingLabel}</Text>
-                </View>
-              </View>
-
-              <Pressable onPress={() => router.push("/(app)/rewards")} style={[styles.linkRow, { marginTop: 10 }]}>
-                <Text style={styles.linkText}>Open Rewards</Text>
-                <Feather name="chevron-right" size={16} color="#fff" />
-              </Pressable>
-            </GlassCard>
-          </View>
-
           {/* tiny toast */}
           {toast ? (
             <View style={styles.toast}>
@@ -472,15 +489,32 @@ function StatTile({ big, caption }: { big: string; caption: string }) {
 /* --------------------------------- styles --------------------------------- */
 
 const styles = StyleSheet.create({
+  // Header
+  headerWrap: {
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+    position: "relative",
+    paddingTop: 24,
+  },
+  headerAction: { position: "absolute", right: 0, top: 8 },
+  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
+  headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
+
   axisLabel: { color: "rgba(255,255,255,0.7)", fontSize: 10 },
 
   sectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionHeaderLeft: { flexDirection: "row", alignItems: "center" },
   sectionHeaderText: { color: "#fff", fontWeight: "700" },
   iconDot: {
-    width: 22, height: 22, borderRadius: 11,
-    alignItems: "center", justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)", marginRight: 8,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.14)",
+    marginRight: 8,
   },
 
   glassShadow: {
@@ -502,11 +536,13 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.35)",
   },
 
-  // routine card
   counterPill: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
     backgroundColor: "rgba(255,255,255,0.12)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.25)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
   },
   counterPillText: { color: "#fff", fontWeight: "700", fontSize: 12 },
 
@@ -525,9 +561,13 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.35)",
   },
   checkCircle: {
-    width: 26, height: 26, borderRadius: 13,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.45)",
-    alignItems: "center", justifyContent: "center",
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "transparent",
   },
   taskTitle: { color: "#fff", fontWeight: "700" },
@@ -544,7 +584,6 @@ const styles = StyleSheet.create({
   },
   longBtnText: { color: "#fff", fontWeight: "800" },
 
-  // progress + rewards tiles
   statTile: {
     flex: 1,
     alignItems: "center",
@@ -558,8 +597,10 @@ const styles = StyleSheet.create({
   statCap: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 2 },
 
   tierBadge: {
-    paddingHorizontal: 10, paddingVertical: 6,
-    borderRadius: 999, backgroundColor: "rgba(255,255,255,0.12)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.12)",
   },
   tierBadgeText: { color: "#fff", fontWeight: "800", fontSize: 12 },
 
