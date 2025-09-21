@@ -15,7 +15,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { WebView } from "react-native-webview";
 
 import { useCartStore } from "@/state/cartStore";
@@ -123,6 +123,17 @@ export default function CartScreen() {
   const { items, increment, decrement, remove, clear, addSkusQuick } = useCartStore();
   const [busy, setBusy] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
+
+  // Helper function to navigate back to the correct screen
+  const goBack = () => {
+    if (returnTo) {
+      router.push(returnTo as any);
+    } else {
+      // Default fallback to recommendations
+      router.push("/(plan)/recommendations");
+    }
+  };
 
   const subtotal = useMemo(
     () => items.reduce((sum, it) => sum + (it.priceCents || 0) * it.qty, 0),
@@ -163,8 +174,7 @@ export default function CartScreen() {
     addSkusQuick(KIT_SKUS);
   }
   function onKeepShopping() {
-    // Choose your browse route (recommendations, plan summary, etc.)
-    router.push("/(plan)/recommendations");
+    goBack();
   }
   function onAlreadyHaveEverything() {
     router.replace("/dashboard");
@@ -189,7 +199,7 @@ export default function CartScreen() {
       <SafeAreaView className="flex-1" edges={["top", "left", "right"]}>
         {/* Header */}
         <View className="flex-row items-center justify-between px-4 pt-2 pb-3">
-          <Pressable onPress={() => router.push("/(plan)/recommendations")} className="p-2 rounded-full active:opacity-80" hitSlop={8}>
+          <Pressable onPress={goBack} className="p-2 rounded-full active:opacity-80" hitSlop={8}>
             <Feather name="arrow-right" size={22} color="#fff" style={{ transform: [{ scaleX: -1 }] }} />
           </Pressable>
           <View style={{ flex: 1, alignItems: "center" }}>

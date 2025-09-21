@@ -169,7 +169,7 @@ export default function Recommendations() {
     const skus = kit.map((k) => k.product.sku).filter(Boolean);
     if (skus.length === 0) return;
     addSkusQuick(skus);
-    router.push("/cart");
+    router.push("/cart?returnTo=/(plan)/recommendations");
   };
 
   // 🔹 Per-item add/remove (now using addBySku to guarantee price/variant)
@@ -181,7 +181,7 @@ export default function Recommendations() {
     }
   };
 
-  const goCart = () => router.push("/cart");
+  const goCart = () => router.push("/cart?returnTo=/(plan)/recommendations");
   const goDashboard = () => router.replace("/dashboard");
 
   return (
@@ -193,12 +193,6 @@ export default function Recommendations() {
         resizeMode="cover"
         className="absolute inset-0"
       >
-        <LinearGradient
-          colors={["rgba(0,0,0,0.10)", "rgba(0,0,0,0.35)", "rgba(0,0,0,0.70)"]}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          className="absolute inset-0"
-        />
       </ImageBackground>
 
       <SafeAreaView className="flex-1" edges={["top", "left", "right"]}>

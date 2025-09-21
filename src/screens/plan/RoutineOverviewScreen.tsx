@@ -92,12 +92,6 @@ export default function RoutineOverview() {
         resizeMode="cover"
         className="absolute inset-0"
       >
-        <LinearGradient
-          colors={["rgba(0,0,0,0.10)", "rgba(0,0,0,0.35)", "rgba(0,0,0,0.70)"]}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          className="absolute inset-0"
-        />
       </ImageBackground>
 
       <SafeAreaView className="flex-1" edges={["top", "left", "right"]}>

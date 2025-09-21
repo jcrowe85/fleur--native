@@ -108,12 +108,6 @@ function Background() {
       resizeMode="cover"
       className="absolute inset-0"
     >
-      <LinearGradient
-        colors={["rgba(0,0,0,0.25)", "rgba(0,0,0,0.15)", "rgba(0,0,0,0.35)"]}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-        className="absolute inset-0"
-      />
     </ImageBackground>
   );
 }

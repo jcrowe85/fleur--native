@@ -304,7 +304,7 @@ export default function DashboardScreen() {
         resizeMode="cover"
         style={StyleSheet.absoluteFillObject as any}
       />
-      <StatusBar style="light" />
+      
 
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
         <ScreenScrollView
