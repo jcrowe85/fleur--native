@@ -6,10 +6,9 @@ import {
   StyleSheet,
   ImageBackground,
   Pressable,
-  ScrollView,
   Platform,
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import dayjs from "dayjs";
@@ -18,6 +17,9 @@ import { router } from "expo-router";
 import { useRoutineStore, RoutineStep, Period } from "@/state/routineStore";
 import { onDailyCheckIn, onRoutineStarted } from "@/services/rewards";
 import { useRewardsStore } from "@/state/rewardsStore";
+
+// spacing helper (same convention as Community/Dashboard/Education)
+import { ScreenScrollView } from "@/components/UI/bottom-space";
 
 // ✨ Add the compact Rewards pill like Community
 import RewardsPill from "@/components/UI/RewardsPill";
@@ -87,19 +89,13 @@ function StepRowWeekly({
 /* --------------------- screen --------------------- */
 
 export default function RoutineScreen() {
-  const insets = useSafeAreaInsets();
-
   // routine store
   const applyDefaultIfEmpty = useRoutineStore((s) => s.applyDefaultIfEmpty);
   const stepsByPeriod = useRoutineStore((s) => s.stepsByPeriod);
   const isCompletedToday = useRoutineStore((s) => s.isCompletedToday);
   const toggleStepToday = useRoutineStore((s) => s.toggleStepToday);
   const stepsAll = useRoutineStore((s) => s.steps);
-
-  // subscribe to completion map so weekly view re-renders on toggle
   const completedByDate = useRoutineStore((s) => s.completedByDate);
-
-  // access per-day toggle/check helpers for weekly view
   const toggleStepOn = useRoutineStore((s) => s.toggleStepOn);
   const isCompletedOn = useRoutineStore((s) => s.isCompletedOn);
 
@@ -217,17 +213,16 @@ export default function RoutineScreen() {
       <StatusBar style="light" />
 
       <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1 }}>
-        <ScrollView
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 20 }}
+        <ScreenScrollView
+          contentContainerStyle={{ paddingHorizontal: 16 }}
+          bottomExtra={20} // ✅ safe-area + tab bar + small cushion (matches your convention)
           showsVerticalScrollIndicator={false}
         >
           {/* Header matches Community: centered title + compact pill in top-right */}
           <View style={styles.headerWrap}>
-            {/* absolute pill hugs the padded right edge (content padding is 16) */}
             <View style={styles.headerAction}>
               <RewardsPill compact />
             </View>
-
             <Text style={styles.headerTitle}>Your Hair Routine</Text>
             <Text style={styles.headerSub}>Personalized for your hair goals</Text>
           </View>
@@ -426,7 +421,7 @@ export default function RoutineScreen() {
               <Text style={styles.longBtnGhostText}>View Progress Analytics</Text>
             </Pressable>
           </View>
-        </ScrollView>
+        </ScreenScrollView>
       </SafeAreaView>
 
       {/* tiny toast */}

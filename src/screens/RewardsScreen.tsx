@@ -3,18 +3,19 @@ import React from "react";
 import {
   View,
   Text,
-  ScrollView,
   Pressable,
   StyleSheet,
   ImageBackground,
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import dayjs from "dayjs";
 
 import { useRewardsStore } from "@/state/rewardsStore";
+// ✅ Shared bottom spacing helper (same convention)
+import { ScreenScrollView } from "@/components/UI/bottom-space";
 
 /** Tiers for the progress bar */
 const TIERS = [
@@ -56,8 +57,6 @@ function reasonLabel(reason: string) {
 }
 
 export default function RewardsScreen() {
-  const insets = useSafeAreaInsets();
-
   const pointsAvailable = useRewardsStore((s) => s.pointsAvailable);
   const ledger = useRewardsStore((s) => s.ledger);
 
@@ -76,12 +75,10 @@ export default function RewardsScreen() {
       />
       <StatusBar style="light" />
 
-      <SafeAreaView
-        edges={["top", "left", "right"]}
-        style={[styles.safe, { paddingBottom: insets.bottom || 12 }]}
-      >
-        <ScrollView
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 24 }}
+      <SafeAreaView edges={["top", "left", "right"]} style={styles.safe}>
+        <ScreenScrollView
+          contentContainerStyle={{ paddingHorizontal: 16 }}
+          bottomExtra={24} // ← same convention as other screens
           showsVerticalScrollIndicator={false}
         >
           {/* Centered header — matches Community */}
@@ -224,7 +221,7 @@ export default function RewardsScreen() {
               </View>
             </>
           )}
-        </ScrollView>
+        </ScreenScrollView>
       </SafeAreaView>
     </View>
   );

@@ -1,3 +1,4 @@
+// src/screens/RoutineCustomizeScreen.tsx
 import React, { useMemo, useState, useEffect } from "react";
 import {
   View,
@@ -5,17 +6,19 @@ import {
   StyleSheet,
   ImageBackground,
   Pressable,
-  ScrollView,
   TextInput,
   Platform,
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 
 import { useRoutineStore, RoutineStep, Period } from "@/state/routineStore";
 import { useRecommendationsStore } from "@/state/recommendationsStore";
+
+// ✅ Shared bottom spacing helper
+import { ScreenScrollView } from "@/components/UI/bottom-space";
 
 /* ---------------- helpers ---------------- */
 
@@ -37,8 +40,6 @@ function recIdentity(rec: any) {
 /* ---------------- screen ---------------- */
 
 export default function RoutineCustomizeScreen() {
-  const insets = useSafeAreaInsets();
-
   // Routine store
   const steps = useRoutineStore((s) => s.steps);
   const upsertStep = useRoutineStore((s) => s.upsertStep);
@@ -166,8 +167,9 @@ export default function RoutineCustomizeScreen() {
       <StatusBar style="light" />
 
       <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1 }}>
-        <ScrollView
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 24 }}
+        <ScreenScrollView
+          contentContainerStyle={{ paddingHorizontal: 16 }}
+          bottomExtra={24} // ✅ safe-area + tab bar + small cushion (matches your prior padding)
           showsVerticalScrollIndicator={false}
         >
           {/* Header — center aligned like Rewards/Community */}
@@ -269,19 +271,20 @@ export default function RoutineCustomizeScreen() {
 
               {/* Action row — prevents squashing */}
               <View style={styles.actionRow}>
-                <Pressable
-                  onPress={cancelForm}
-                  style={[styles.longBtn, styles.longBtnGhost, styles.actionBtn]}
-                >
-                  <Text style={styles.longBtnGhostText}>Cancel</Text>
-                </Pressable>
-                <Pressable
-                  onPress={saveForm}
-                  style={[styles.longBtn, styles.longBtnPrimary, styles.actionBtn]}
-                >
-                  <Text style={styles.longBtnPrimaryText}>{editingId ? "Save" : "Add to steps"}</Text>
-                </Pressable>
-              </View>
+  <Pressable
+    onPress={cancelForm}
+    style={[styles.longBtn, styles.longBtnGhost, styles.formBtn]}
+  >
+    <Text style={styles.longBtnGhostText}>Cancel</Text>
+  </Pressable>
+
+  <Pressable
+    onPress={saveForm}
+    style={[styles.longBtn, styles.longBtnPrimary, styles.formBtn]}
+  >
+    <Text style={styles.longBtnPrimaryText}>{editingId ? "Save" : "Add"}</Text>
+  </Pressable>
+</View>
             </View>
           )}
 
@@ -376,7 +379,7 @@ export default function RoutineCustomizeScreen() {
               ))
             )}
           </View>
-        </ScrollView>
+        </ScreenScrollView>
       </SafeAreaView>
 
       {/* tiny toast */}
@@ -426,21 +429,46 @@ const styles = StyleSheet.create({
   },
 
   infoText: { color: "rgba(255,255,255,0.85)", textAlign: "center" },
-
+  formBtn: {
+    height: 44,                 // exact height match
+    marginTop: 0,               // overrides longBtnPrimary's marginTop in this row
+    paddingVertical: 0,         // kill vertical padding
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   longBtn: {
     borderRadius: 999,
-    paddingVertical: 12,
+    minHeight: 44,                 // uniform pill height
+    paddingHorizontal: 16,         // horizontal space
+    paddingVertical: 0,            // we'll center with height instead
     alignItems: "center",
+    justifyContent: "center",      // centers the label vertically
     borderWidth: 1,
+    overflow: Platform.OS === "android" ? "hidden" : undefined, // nicer ripple clip
   },
   longBtnGhost: {
     borderColor: "rgba(255,255,255,0.35)",
     backgroundColor: "rgba(255,255,255,0.08)",
+    minHeight: 44,
   },
-  longBtnGhostText: { color: "#fff", fontWeight: "700" },
 
   longBtnPrimary: { backgroundColor: "#fff", borderColor: "#fff", marginTop: 10 },
-  longBtnPrimaryText: { color: "#000", fontWeight: "800" },
+  longBtnGhostText: {
+    color: "#fff",
+    fontWeight: "700",
+    textAlign: "center",
+    includeFontPadding: false,
+    textAlignVertical: "center",
+  },
+  longBtnPrimaryText: {
+    color: "#000",
+    fontWeight: "800",
+    textAlign: "center",
+    includeFontPadding: false,
+    textAlignVertical: "center",
+  },
 
   /* form */
   formHeader: {
@@ -517,8 +545,11 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     flexShrink: 0,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    minWidth: 100,
+    minHeight: 44,           // enforce pill height consistency
+    paddingHorizontal: 16,   // horizontal space only
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   /* toast */

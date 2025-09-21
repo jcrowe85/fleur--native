@@ -1,16 +1,16 @@
+// src/screens/DashboardScreen.tsx
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import {
   View,
   Text,
   ImageBackground,
-  ScrollView,
   Pressable,
   Animated,
   Easing,
   StyleSheet,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -20,6 +20,7 @@ import dayjs from "dayjs";
 import { useRoutineStore, RoutineStep } from "@/state/routineStore";
 import { useRewardsStore } from "@/state/rewardsStore";
 import { onDailyCheckIn } from "@/services/rewards";
+import { ScreenScrollView } from "@/components/UI/bottom-space"; // ✅ unified bottom-spacing helper
 
 // ⭐ Small Rewards Pill (compact variant supported)
 import RewardsPill from "@/components/UI/RewardsPill";
@@ -219,14 +220,12 @@ function RecoveryChart({
 /* --------------------------------- screen --------------------------------- */
 
 export default function DashboardScreen() {
-  const insets = useSafeAreaInsets();
-
   // Routine store
   const stepsByPeriod = useRoutineStore((s) => s.stepsByPeriod);
   const isCompletedToday = useRoutineStore((s) => s.isCompletedToday);
   const toggleStepToday = useRoutineStore((s) => s.toggleStepToday);
   const completedByDate = useRoutineStore((s) => s.completedByDate);
-  const stepsAll = useRoutineStore((s) => s.steps);                 // <- subscribe to steps
+  const stepsAll = useRoutineStore((s) => s.steps); // subscribe to steps
   const applyDefaultIfEmpty = useRoutineStore((s) => s.applyDefaultIfEmpty);
 
   // Ensure defaults exist when dashboard is the first screen opened
@@ -243,7 +242,7 @@ export default function DashboardScreen() {
   // Today’s routine (AM + PM) — recompute whenever steps change
   const todaysSteps = useMemo(
     () => [...stepsByPeriod("morning"), ...stepsByPeriod("evening")],
-    [stepsByPeriod, stepsAll]                                      // <- include stepsAll
+    [stepsByPeriod, stepsAll]
   );
   const totalToday = todaysSteps.length;
   const doneToday = todaysSteps.filter((s) => isCompletedToday(s.id)).length;
@@ -297,12 +296,9 @@ export default function DashboardScreen() {
       <StatusBar style="light" />
 
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
-        <ScrollView
-          contentContainerStyle={{
-            paddingHorizontal: 16,
-            paddingTop: 0,
-            paddingBottom: insets.bottom + 28,
-          }}
+        <ScreenScrollView
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 0 }}
+          bottomExtra={16} // ✅ tab bar + safe-area + a little cushion (same convention)
           showsVerticalScrollIndicator={false}
         >
           {/* Header */}
@@ -343,7 +339,7 @@ export default function DashboardScreen() {
             </View>
           </GlassCard>
 
-          {/* Progress + Rewards snapshot (MOVE ABOVE Today's Routine) */}
+          {/* Progress + Rewards snapshot (above Today's Routine) */}
           <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>
             <GlassCard style={{ flex: 1, padding: 14 }}>
               <View style={styles.sectionHeaderLeft}>
@@ -412,7 +408,7 @@ export default function DashboardScreen() {
             </GlassCard>
           </View>
 
-          {/* Today’s Routine (NOW BELOW) */}
+          {/* Today’s Routine (below) */}
           <GlassCard style={{ padding: 14, marginBottom: 14 }}>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionHeaderLeft}>
@@ -460,7 +456,7 @@ export default function DashboardScreen() {
               <Text style={styles.toastText}>{toast}</Text>
             </View>
           ) : null}
-        </ScrollView>
+        </ScreenScrollView>
       </SafeAreaView>
     </View>
   );
