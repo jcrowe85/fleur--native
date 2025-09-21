@@ -17,6 +17,7 @@ import { listArticles, filterArticles } from "@/lib/articles";
 import { supabase } from "@/services/supabase";
 import type { Article, EduCategory } from "../features/education/types";
 import { ScreenFlatList } from "@/components/UI/bottom-space";
+import RewardsPill from "@/components/UI/RewardsPill";
 
 const CATS: { key: EduCategory; icon: keyof typeof Feather.glyphMap }[] = [
   { key: "Peptides 101", icon: "droplet" },
@@ -73,7 +74,10 @@ export default function EducationScreen() {
     <View>
       {/* Centered header */}
       <View style={styles.headerWrap}>
-        <Text style={styles.headerTitle}>Education</Text>
+        <Text style={styles.headerTitle}>Hair Education</Text>
+        <View style={styles.headerAction}>
+          <RewardsPill compact />
+        </View>
         <Text style={styles.headerSub}>Science-backed hair care knowledge</Text>
       </View>
 
@@ -216,11 +220,13 @@ const styles = StyleSheet.create({
 
   headerWrap: {
     paddingHorizontal: 16,
-    paddingTop: 24,
+    paddingTop: 32,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
+    marginBottom: 24,
+    position: "relative",
   },
+  headerAction: { position: "absolute", right: 0, top: 8 },
   headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800" },
   headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4 },
 

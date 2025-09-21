@@ -286,10 +286,10 @@ const styles = StyleSheet.create({
 
   // Match Community header
   headerWrap: {
-    paddingTop: 24,
+    paddingTop: 32,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 6,
+    marginBottom: 24,
   },
   headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
   headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },

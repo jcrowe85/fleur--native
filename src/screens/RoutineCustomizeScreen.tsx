@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 8,
+    marginBottom: 24,
   },
   backBtn: {
     position: "absolute",

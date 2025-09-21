@@ -1,6 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, Image, StyleSheet, Pressable, Platform, ScrollView } from "react-native";
-import { BlurView } from "expo-blur";
 import { Feather, FontAwesome } from "@expo/vector-icons"; // ⬅️ add FontAwesome
 import type { PostItem } from "./types";
 import { useLikesService } from "./likes.service";
@@ -29,6 +28,11 @@ export function PostCard({ post }: { post: PostItem }) {
   const [count, setCount] = useState(post.comments_count ?? 0);
   const likeCount = (post as any).likes_count as number | undefined;
 
+  // Sync count with post data updates (from realtime subscription)
+  useEffect(() => {
+    setCount(post.comments_count ?? 0);
+  }, [post.comments_count]);
+
   // Normalize media (always array)
   const media: string[] = Array.isArray((post as any).media_urls)
     ? (post as any).media_urls
@@ -53,13 +57,6 @@ export function PostCard({ post }: { post: PostItem }) {
   return (
     <View style={styles.shadow}>
       <View style={styles.cardWrap}>
-        <BlurView
-          intensity={Platform.OS === "ios" ? 24 : 14}
-          tint="light"
-          style={StyleSheet.absoluteFillObject}
-        />
-        <View style={styles.glassTint} />
-
         <View style={styles.inner}>
           {/* Header */}
           <View style={styles.headerRow}>
@@ -164,13 +161,11 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   cardWrap: {
-    borderRadius: RADIUS,
-    overflow: "hidden",
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.22)",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    backgroundColor: "rgba(255,255,255,0.08)",
   },
-  glassTint: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(255,255,255,0.06)" },
   inner: { padding: 16 },
 
   headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },

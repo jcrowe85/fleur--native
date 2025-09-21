@@ -11,6 +11,8 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from "react-native";
 import { FlatList as HFlatList } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -262,15 +264,17 @@ export default function CommunityScreen() {
         presentationStyle="overFullScreen"
         onRequestClose={resetComposer}
       >
-        <View style={styles.modalBackdrop}>
-          {/* KeyboardAvoidingView lifts the sheet above the iOS keyboard */}
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            keyboardVerticalOffset={insets.top}
-            style={styles.kav}
-          >
-            <View style={[styles.modalSheet, { paddingBottom: 16 + insets.bottom }]}>
-              {/* Header */}
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.modalBackdrop}>
+            {/* KeyboardAvoidingView lifts the sheet above the iOS keyboard */}
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : "height"}
+              keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+              style={styles.kav}
+            >
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <View style={[styles.modalSheet, { paddingBottom: 16 + insets.bottom }]}>
+                  {/* Header */}
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Create New Post</Text>
                 <Pressable onPress={resetComposer} hitSlop={8} style={styles.closeBtn}>
@@ -331,6 +335,9 @@ export default function CommunityScreen() {
                 style={styles.textArea}
                 maxLength={maxChars}
                 textAlignVertical="top"
+                returnKeyType="default"
+                blurOnSubmit={false}
+                scrollEnabled={true}
               />
               <Text style={styles.counter}>
                 {composerText.length}/{maxChars} characters
@@ -368,9 +375,11 @@ export default function CommunityScreen() {
                   <Text style={styles.btnPrimaryText}>Post</Text>
                 </Pressable>
               </View>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </KeyboardAvoidingView>
+          </View>
+        </TouchableWithoutFeedback>
       </Modal>
     </View>
   );
@@ -385,9 +394,9 @@ const styles = StyleSheet.create({
     // top padding set inline with insets
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 8,
+    marginBottom: 12,
     position: "relative",
-    paddingTop: 24,
+    paddingTop: 32,
   },
   headerAction: {
     position: "absolute",
@@ -402,7 +411,7 @@ const styles = StyleSheet.create({
   catList: {
     paddingLeft: 16,
     paddingRight: 0,
-    paddingTop: 10,
+    paddingTop: 0,
     paddingBottom: 4, // tight so the faux input hugs it
   },
   catBtn: {
@@ -505,7 +514,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 16,
-    maxHeight: "92%",
+    maxHeight: Platform.OS === "ios" ? "85%" : "90%",
+    minHeight: 300,
   },
   modalHeader: { alignItems: "center", justifyContent: "center", paddingBottom: 8 },
   modalTitle: { color: "#2d241f", fontWeight: "800", fontSize: 16 },

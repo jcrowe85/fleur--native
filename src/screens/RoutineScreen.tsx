@@ -442,9 +442,9 @@ const styles = StyleSheet.create({
     // top padding set inline with insets
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
+    marginBottom: 24,
     position: "relative",
-    paddingTop: 24,
+    paddingTop: 32,
   },
   headerAction: {
     position: "absolute",
@@ -457,7 +457,7 @@ const styles = StyleSheet.create({
   tabsRow: {
     flexDirection: "row",
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 18,
   },
   tabBtn: {
     flex: 1,

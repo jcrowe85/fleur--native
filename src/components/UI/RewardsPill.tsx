@@ -1,8 +1,9 @@
 import React, { useEffect, useRef } from "react";
-import { Pressable, Text, View, Animated, Easing, StyleSheet } from "react-native";
+import { Pressable, Text, View, Animated, Easing, StyleSheet, Alert } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useRewardsStore } from "../../state/rewardsStore";
 import { router } from "expo-router";
+import { resetLocalData } from "../../dev/resetLocalData";
 
 type Props = {
   compact?: boolean;
@@ -34,6 +35,31 @@ export default function RewardsPill({ compact }: Props) {
       friction: 6,
       tension: 120,
     }).start();
+  };
+
+  const handleLongPress = () => {
+    Alert.alert(
+      "Reset All Data",
+      "This will delete all your local data and reset the app to its initial state. Are you sure?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Reset",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await resetLocalData();
+            } catch (error) {
+              console.error("Error resetting data:", error);
+              Alert.alert("Error", "Failed to reset data. Please try again.");
+            }
+          },
+        },
+      ]
+    );
   };
 
   // Celebrate only when points increase
@@ -81,6 +107,7 @@ export default function RewardsPill({ compact }: Props) {
     <Animated.View style={{ transform: [{ scale: pillScale }] }}>
       <Pressable
         onPress={() => router.push("/(app)/rewards")}
+        onLongPress={handleLongPress}
         onPressIn={onPressIn}
         onPressOut={onPressOut}
         hitSlop={10}

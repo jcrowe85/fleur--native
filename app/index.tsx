@@ -52,7 +52,7 @@ export default function IndexGate() {
   if (!hydrated && !timeoutFired) return null;
 
   // If a plan exists (returning user), go straight to dashboard
-  if (plan) return <Redirect href="/(app)/community" />;
+  if (plan) return <Redirect href="/(app)/dashboard" />;
 
   // First-time user — show Welcome
   return <WelcomeScreen />;

@@ -11,7 +11,6 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import Svg, { Path, Circle, Defs, LinearGradient as SvgGradient, Stop } from "react-native-svg";
@@ -24,6 +23,7 @@ import { ScreenScrollView } from "@/components/UI/bottom-space"; // ✅ unified 
 
 // ⭐ Small Rewards Pill (compact variant supported)
 import RewardsPill from "@/components/UI/RewardsPill";
+import DailyHairCheckIn from "@/components/DailyHairCheckIn";
 
 /* ------------------------------- tier math ------------------------------- */
 
@@ -154,7 +154,7 @@ function RecoveryChart({
         {/* baseline */}
         <Path
           d={`M${pad},${height - pad} L${width - pad},${height - pad}`}
-          stroke="rgba(255,255,255,0.18)"
+          stroke="rgba(255,255,255,0.12)"
           strokeWidth={1}
         />
 
@@ -228,6 +228,9 @@ export default function DashboardScreen() {
   const stepsAll = useRoutineStore((s) => s.steps); // subscribe to steps
   const applyDefaultIfEmpty = useRoutineStore((s) => s.applyDefaultIfEmpty);
 
+  // Track check-in component visibility for spacing
+  const [checkInVisible, setCheckInVisible] = useState(true);
+
   // Ensure defaults exist when dashboard is the first screen opened
   useEffect(() => {
     applyDefaultIfEmpty();
@@ -235,6 +238,7 @@ export default function DashboardScreen() {
 
   // Rewards store
   const points = useRewardsStore((s) => s.pointsAvailable);
+  const pointsTotal = useRewardsStore((s) => s.pointsTotal);
   const streakDays = useRewardsStore((s) => s.streakDays);
   const hasCheckedInToday = useRewardsStore((s) => s.hasCheckedInToday);
   const ledger = useRewardsStore((s) => s.ledger);
@@ -258,6 +262,13 @@ export default function DashboardScreen() {
     return acc + completedIds;
   }, 0);
   const weeklyPct = expectedTotal > 0 ? Math.round((actualTotal / expectedTotal) * 100) : 0;
+
+  // Total steps completed (all time)
+  const totalStepsCompleted = useMemo(() => {
+    return Object.values(completedByDate).reduce((acc, dayCompletions) => {
+      return acc + Object.keys(dayCompletions).length;
+    }, 0);
+  }, [completedByDate]);
 
   // Rewards tier
   const tier = tierInfo(points);
@@ -303,12 +314,19 @@ export default function DashboardScreen() {
         >
           {/* Header */}
           <View style={styles.headerWrap}>
-            <Text style={styles.headerTitle}>Stronger Hair Starts Here</Text>
+            <Text style={styles.headerTitle}>Your Hair Journey</Text>
             <View style={styles.headerAction}>
               <RewardsPill compact />
             </View>
             <Text style={styles.headerSub}>Your routine, progress, and rewards in one place.</Text>
           </View>
+
+          {/* Daily Hair Check-in */}
+          {checkInVisible && (
+            <View style={{ marginBottom: 14 }}>
+              <DailyHairCheckIn onHidden={() => setCheckInVisible(false)} />
+            </View>
+          )}
 
           {/* Hair Health Journey */}
           <GlassCard style={{ padding: 14, marginBottom: 14 }}>
@@ -341,7 +359,7 @@ export default function DashboardScreen() {
 
           {/* Progress + Rewards snapshot (above Today's Routine) */}
           <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>
-            <GlassCard style={{ flex: 1, padding: 14 }}>
+            <GlassCard style={{ flex: 1, padding: 14, minHeight: 140 }}>
               <View style={styles.sectionHeaderLeft}>
                 <View style={styles.iconDot}>
                   <Feather name="activity" size={14} color="#fff" />
@@ -350,12 +368,16 @@ export default function DashboardScreen() {
               </View>
 
               <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
-                <StatTile big={String(streakDays)} caption="Days streak" />
-                <StatTile big={`${weeklyPct}%`} caption="Weekly completion" />
+                <StatTile big={String(streakDays)} caption="Streak" />
+                <StatTile big={`${weeklyPct}%`} caption="This Week" />
+              </View>
+              <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                <StatTile big={String(totalStepsCompleted)} caption="Total Steps" />
+                <StatTile big={String(pointsTotal)} caption="Points" />
               </View>
             </GlassCard>
 
-            <GlassCard style={{ flex: 1, padding: 14 }}>
+            <GlassCard style={{ flex: 1, padding: 14, minHeight: 140 }}>
               <View style={styles.sectionHeaderLeft}>
                 <View style={styles.iconDot}>
                   <Feather name="gift" size={14} color="#fff" />
@@ -466,9 +488,8 @@ export default function DashboardScreen() {
 
 function GlassCard({ children, style }: { children: React.ReactNode; style?: any }) {
   return (
-    <View style={[styles.glassShadow, style]}>
-      <BlurView intensity={18} tint="light" style={styles.glassBody} />
-      <View style={{ position: "relative" }}>{children}</View>
+    <View style={[styles.glassCard, style]}>
+      {children}
     </View>
   );
 }
@@ -490,7 +511,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
+    marginBottom: 24,
     position: "relative",
     paddingTop: 24,
   },
@@ -509,10 +530,16 @@ const styles = StyleSheet.create({
     borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.12)",
     marginRight: 8,
   },
 
+  glassCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.20)",
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
   glassShadow: {
     borderRadius: 16,
     overflow: "hidden",
@@ -526,7 +553,7 @@ const styles = StyleSheet.create({
   sparkRow: { flexDirection: "row", alignItems: "flex-end", gap: 4 },
   sparkBar: {
     width: 10,
-    backgroundColor: "rgba(255,255,255,0.95)",
+    backgroundColor: "rgba(255,255,255,0.8)",
     borderRadius: 3,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.35)",
@@ -553,7 +580,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.08)",
   },
   taskCardDone: {
-    backgroundColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(255,255,255,0.12)",
     borderColor: "rgba(255,255,255,0.35)",
   },
   checkCircle: {
@@ -583,11 +610,14 @@ const styles = StyleSheet.create({
   statTile: {
     flex: 1,
     alignItems: "center",
-    paddingVertical: 12,
+    justifyContent: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 4,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.22)",
     backgroundColor: "rgba(255,255,255,0.08)",
+    minHeight: 60,
   },
   statBig: { color: "#fff", fontSize: 22, fontWeight: "800" },
   statCap: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 2 },
@@ -603,7 +633,7 @@ const styles = StyleSheet.create({
   progressTrack: {
     height: 8,
     borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(255,255,255,0.12)",
     overflow: "hidden",
   },
   progressFill: { height: 8, borderRadius: 999, backgroundColor: "#fff" },
