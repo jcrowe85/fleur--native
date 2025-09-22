@@ -162,63 +162,9 @@ export default function CommunityScreen() {
     [deduped, activeCode]
   );
 
-  // Header (categories + faux composer) rendered inside the list
+  // Empty ListHeader since all content is now in fixed header
   const ListHeader = (
     <View>
-      {/* Header with centered title + compact pill absolutely on the right */}
-      <View style={[styles.headerWrap]}>
-        <Text style={styles.headerTitle}>Community</Text>
-
-        {/* Absolutely placed so it sits as far right as possible */}
-        <View style={styles.headerAction}>
-          <RewardsPill compact />
-        </View>
-
-        <Text style={styles.headerSub}>Share your hair journey</Text>
-      </View>
-
-      {/* Categories */}
-      <HFlatList
-        horizontal
-        data={CATEGORY_LABELS}
-        keyExtractor={(c) => c}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.catList}
-        style={styles.catListView}
-        renderItem={({ item }) => {
-          const active = item === activeCat;
-          return (
-            <Pressable onPress={() => setActiveCat(item)} style={styles.catBtn}>
-              <Text style={[styles.catText, active && styles.catTextActive]} numberOfLines={1}>
-                {item}
-              </Text>
-              <View style={[styles.catUnderline, active && styles.catUnderlineActive]} />
-            </Pressable>
-          );
-        }}
-        ListFooterComponent={<View style={{ width: 16 }} />}
-      />
-
-      {/* Faux composer (opens modal) */}
-      <View style={styles.fakeComposerShadow}>
-        <Pressable onPress={openComposerGuarded} style={styles.fakeComposer}>
-          <View style={styles.fakeLeft}>
-            <View style={styles.fakeAvatar}>
-              <Feather name="user" size={14} color="rgba(255,255,255,0.9)" />
-            </View>
-            <Text style={styles.fakePlaceholder}>Share your hair journey…</Text>
-          </View>
-          <View style={styles.fakeActions}>
-            <View style={styles.fakeIconBtn}>
-              <Feather name="camera" size={16} color="rgba(255,255,255,0.95)" />
-            </View>
-            <View style={styles.fakePostPill}>
-              <Text style={styles.fakePostPillText}>Post</Text>
-            </View>
-          </View>
-        </Pressable>
-      </View>
-
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
   );
@@ -238,15 +184,69 @@ export default function CommunityScreen() {
         style={StyleSheet.absoluteFillObject as any}
       /> */}
 
-      <SafeAreaView style={styles.safeBody} edges={["top", "left", "right"]}>
-        {/* Scrollable feed with header at the top */}
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+        {/* Header */}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
+          <View style={{ width: 38 }} />
+          <View style={{ flex: 1, alignItems: "center" }}>
+            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "600" }}>Community</Text>
+            <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 4 }}>Share your hair journey</Text>
+          </View>
+          <View style={{ padding: 8, borderRadius: 20 }}>
+            <RewardsPill compact />
+          </View>
+        </View>
+
+        {/* Categories */}
+        <HFlatList
+          horizontal
+          data={CATEGORY_LABELS}
+          keyExtractor={(c) => c}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.catList}
+          style={styles.catListView}
+          renderItem={({ item }) => {
+            const active = item === activeCat;
+            return (
+              <Pressable onPress={() => setActiveCat(item)} style={styles.catBtn}>
+                <Text style={[styles.catText, active && styles.catTextActive]} numberOfLines={1}>
+                  {item}
+                </Text>
+                <View style={[styles.catUnderline, active && styles.catUnderlineActive]} />
+              </Pressable>
+            );
+          }}
+          ListFooterComponent={<View style={{ width: 16 }} />}
+        />
+
+        {/* Faux composer */}
+        <View style={styles.fakeComposerShadow}>
+          <Pressable onPress={openComposerGuarded} style={styles.fakeComposer}>
+            <View style={styles.fakeLeft}>
+              <View style={styles.fakeAvatar}>
+                <Feather name="user" size={14} color="rgba(255,255,255,0.9)" />
+              </View>
+              <Text style={styles.fakePlaceholder}>Share your hair journey…</Text>
+            </View>
+            <View style={styles.fakeActions}>
+              <View style={styles.fakeIconBtn}>
+                <Feather name="camera" size={16} color="rgba(255,255,255,0.95)" />
+              </View>
+              <View style={styles.fakePostPill}>
+                <Text style={styles.fakePostPillText}>Post</Text>
+              </View>
+            </View>
+          </Pressable>
+        </View>
+
+        {/* Scrollable Feed */}
         <ScreenFlatList
           style={styles.feedList}
           data={filtered}
           keyExtractor={(p) => String(p.id)}
           ListHeaderComponent={ListHeader}
           contentContainerStyle={styles.feedContent}
-          bottomExtra={16} // small cushion beyond safe-area + tab bar
+          bottomExtra={16}
           renderItem={({ item }) => <PostCard post={item} />}
           onEndReachedThreshold={0.4}
           onEndReached={() => hasMore && loadMore()}
@@ -386,33 +386,15 @@ export default function CommunityScreen() {
 }
 
 const styles = StyleSheet.create({
-  // Root body stacks from the top
-  safeBody: { flex: 1, justifyContent: "flex-start", alignItems: "stretch" },
-
-  headerWrap: {
-    paddingHorizontal: 16,
-    // top padding set inline with insets
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-    position: "relative",
-    paddingTop: 32,
-  },
-  headerAction: {
-    position: "absolute",
-    right: 0, // as far right as we can within the page gutter
-    top: 8, // small nudge down from the top of the header block
-  },
-  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
-  headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
+  // Header styles removed - now using inline styles to match shop screen
 
   // Categories (anti-clipping)
-  catListView: { zIndex: 5 },
+  catListView: { zIndex: 5, height: 34, flexGrow: 0, flexShrink: 0, marginBottom: 6 },
   catList: {
     paddingLeft: 16,
     paddingRight: 0,
     paddingTop: 0,
-    paddingBottom: 4, // tight so the faux input hugs it
+    paddingBottom: 0, // no bottom padding to make input field directly below
   },
   catBtn: {
     position: "relative",
@@ -436,7 +418,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
-    bottom: -1,
+    bottom: 0,
     height: 2,
     borderRadius: 2,
     backgroundColor: "transparent",
@@ -445,8 +427,8 @@ const styles = StyleSheet.create({
 
   // Faux composer (edge-to-edge + vertical space)
   fakeComposerShadow: {
-    paddingHorizontal: 0,
-    paddingTop: 16,
+    paddingHorizontal: 16,
+    paddingTop: 8,
     paddingBottom: 16,
   },
   fakeComposer: {

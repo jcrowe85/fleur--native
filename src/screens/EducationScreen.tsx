@@ -72,14 +72,6 @@ export default function EducationScreen() {
 
   const ListHeader = (
     <View>
-      {/* Centered header */}
-      <View style={styles.headerWrap}>
-        <Text style={styles.headerTitle}>Hair Education</Text>
-        <View style={styles.headerAction}>
-          <RewardsPill compact />
-        </View>
-        <Text style={styles.headerSub}>Science-backed hair care knowledge</Text>
-      </View>
 
       {/* Search */}
       <View style={styles.searchWrap}>
@@ -130,6 +122,20 @@ export default function EducationScreen() {
       />
 
       <SafeAreaView style={styles.safeBody} edges={["top", "left", "right"]}>
+        {/* Header */}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
+          <View style={{ width: 38 }} />
+
+          <View style={{ flex: 1, alignItems: "center" }}>
+            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "600" }}>Hair Education</Text>
+            <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 4 }}>Science-backed hair care knowledge</Text>
+          </View>
+
+          <View style={{ padding: 8, borderRadius: 20 }}>
+            <RewardsPill compact />
+          </View>
+        </View>
+
         <ScreenFlatList<Article>
           style={styles.feedList}
           data={items}
@@ -218,17 +224,7 @@ const styles = StyleSheet.create({
   // ----- layout -----
   safeBody: { flex: 1, justifyContent: "flex-start", alignItems: "stretch" },
 
-  headerWrap: {
-    paddingHorizontal: 16,
-    paddingTop: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 24,
-    position: "relative",
-  },
-  headerAction: { position: "absolute", right: 0, top: 8 },
-  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800" },
-  headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4 },
+  // Header styles removed - now using inline styles to match shop screen
 
   feedList: { flex: 1, alignSelf: "stretch" },
   feedContent: {

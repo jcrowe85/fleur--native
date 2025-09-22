@@ -213,19 +213,25 @@ export default function RoutineScreen() {
       <StatusBar style="light" />
 
       <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1 }}>
+        {/* Header */}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
+          <View style={{ width: 38 }} />
+
+          <View style={{ flex: 1, alignItems: "center" }}>
+            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "600" }}>Your Hair Routine</Text>
+            <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 4 }}>Personalized for your hair goals</Text>
+          </View>
+
+          <View style={{ padding: 8, borderRadius: 20 }}>
+            <RewardsPill compact />
+          </View>
+        </View>
+
         <ScreenScrollView
-          contentContainerStyle={{ paddingHorizontal: 16 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6 }}
           bottomExtra={20} // ✅ safe-area + tab bar + small cushion (matches your convention)
           showsVerticalScrollIndicator={false}
         >
-          {/* Header matches Community: centered title + compact pill in top-right */}
-          <View style={styles.headerWrap}>
-            <View style={styles.headerAction}>
-              <RewardsPill compact />
-            </View>
-            <Text style={styles.headerTitle}>Your Hair Routine</Text>
-            <Text style={styles.headerSub}>Personalized for your hair goals</Text>
-          </View>
 
           {/* Tabs */}
           <View style={styles.tabsRow}>
@@ -437,22 +443,7 @@ export default function RoutineScreen() {
 /* ================== styles ================== */
 
 const styles = StyleSheet.create({
-  headerWrap: {
-    paddingHorizontal: 16,
-    // top padding set inline with insets
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 24,
-    position: "relative",
-    paddingTop: 32,
-  },
-  headerAction: {
-    position: "absolute",
-    right: 0, // as far right as we can within the page gutter
-    top: 8,    // small nudge down from the top of the header block
-  },
-  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
-  headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
+  // Header styles removed - now using inline styles to match shop screen
 
   tabsRow: {
     flexDirection: "row",

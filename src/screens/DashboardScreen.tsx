@@ -307,19 +307,25 @@ export default function DashboardScreen() {
       
 
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+        {/* Header */}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
+          <View style={{ width: 38 }} />
+
+          <View style={{ flex: 1, alignItems: "center" }}>
+            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "600" }}>Your Hair Journey</Text>
+            <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 4 }}>Your routine, progress, and rewards in one place.</Text>
+          </View>
+
+          <View style={{ padding: 8, borderRadius: 20 }}>
+            <RewardsPill compact />
+          </View>
+        </View>
+
         <ScreenScrollView
-          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 0 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6 }}
           bottomExtra={16} // ✅ tab bar + safe-area + a little cushion (same convention)
           showsVerticalScrollIndicator={false}
         >
-          {/* Header */}
-          <View style={styles.headerWrap}>
-            <Text style={styles.headerTitle}>Your Hair Journey</Text>
-            <View style={styles.headerAction}>
-              <RewardsPill compact />
-            </View>
-            <Text style={styles.headerSub}>Your routine, progress, and rewards in one place.</Text>
-          </View>
 
           {/* Daily Hair Check-in */}
           {checkInVisible && (
@@ -506,18 +512,7 @@ function StatTile({ big, caption }: { big: string; caption: string }) {
 /* --------------------------------- styles --------------------------------- */
 
 const styles = StyleSheet.create({
-  // Header
-  headerWrap: {
-    paddingHorizontal: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 24,
-    position: "relative",
-    paddingTop: 24,
-  },
-  headerAction: { position: "absolute", right: 0, top: 8 },
-  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
-  headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
+  // Header styles removed - now using inline styles to match shop screen
 
   axisLabel: { color: "rgba(255,255,255,0.7)", fontSize: 10 },
 

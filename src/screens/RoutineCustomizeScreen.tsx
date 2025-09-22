@@ -167,19 +167,25 @@ export default function RoutineCustomizeScreen() {
       <StatusBar style="light" />
 
       <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1 }}>
+        {/* Header */}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
+          <Pressable onPress={onBack} hitSlop={10} style={{ padding: 8, borderRadius: 20 }}>
+            <Feather name="arrow-left" size={18} color="#fff" />
+          </Pressable>
+
+          <View style={{ flex: 1, alignItems: "center" }}>
+            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "600" }}>Customize Routine</Text>
+            <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 4 }}>Add steps, set times, choose frequency</Text>
+          </View>
+
+          <View style={{ width: 38 }} />
+        </View>
+
         <ScreenScrollView
-          contentContainerStyle={{ paddingHorizontal: 16 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6 }}
           bottomExtra={24} // ✅ safe-area + tab bar + small cushion (matches your prior padding)
           showsVerticalScrollIndicator={false}
         >
-          {/* Header — center aligned like Rewards/Community */}
-          <View style={styles.headerWrap}>
-            <Pressable onPress={onBack} hitSlop={10} style={styles.backBtn}>
-              <Feather name="arrow-left" size={18} color="#fff" />
-            </Pressable>
-            <Text style={styles.headerTitle}>Customize Routine</Text>
-            <Text style={styles.headerSub}>Add steps, set times, choose frequency</Text>
-          </View>
 
           {/* Add Step trigger */}
           <Pressable onPress={openAdd} style={[styles.longBtn, styles.longBtnGhost]}>
@@ -395,22 +401,7 @@ export default function RoutineCustomizeScreen() {
 /* ---------------- styles ---------------- */
 
 const styles = StyleSheet.create({
-  headerWrap: {
-    paddingTop: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 24,
-  },
-  backBtn: {
-    position: "absolute",
-    left: 0,
-    top: 24,
-    padding: 10,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.12)",
-  },
-  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
-  headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
+  // Header styles removed - now using inline styles to match shop screen
 
   sectionTitle: {
     marginTop: 6,
