@@ -1,4 +1,4 @@
-// webhook/api/slack-webhook.js
+// webhook/api/slack-webhook.js commenting for auto verzel redeployment
 // Deploy this to Vercel as a serverless function
 
 const { createClient } = require('@supabase/supabase-js');
