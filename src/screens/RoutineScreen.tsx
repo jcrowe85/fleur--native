@@ -217,16 +217,16 @@ export default function RoutineScreen() {
 
       <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1 }}>
         {/* Header */}
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
-          <View style={{ width: 38 }} />
+        <View style={styles.headerWrap}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, position: "relative" }}>
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text style={styles.headerTitle}>Your Hair Routine</Text>
+              <Text style={styles.headerSub}>Personalized for your hair goals</Text>
+            </View>
 
-          <View style={{ flex: 1, alignItems: "center" }}>
-            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "600" }}>Your Hair Routine</Text>
-            <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 4 }}>Personalized for your hair goals</Text>
-          </View>
-
-          <View style={{ padding: 8, borderRadius: 20 }}>
-            <RewardsPill compact />
+            <View style={[styles.rewardsPillContainer, { padding: 8, borderRadius: 20 }]}>
+              <RewardsPill compact />
+            </View>
           </View>
         </View>
 
@@ -307,6 +307,10 @@ export default function RoutineScreen() {
                             <Text style={styles.pillText}>{step.frequency || "Daily"}</Text>
                           </View>
                         </View>
+                      </View>
+                      
+                      <View style={styles.pointIndicator}>
+                        <Text style={styles.pointText}>+1</Text>
                       </View>
                     </Pressable>
                   );
@@ -446,7 +450,20 @@ export default function RoutineScreen() {
 /* ================== styles ================== */
 
 const styles = StyleSheet.create({
-  // Header styles removed - now using inline styles to match shop screen
+  // Match Rewards header
+  headerWrap: {
+    paddingTop: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
+  headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
+  rewardsPillContainer: {
+    position: "absolute",
+    right: 16,
+    top: -8,
+  },
 
   tabsRow: {
     flexDirection: "row",
@@ -542,6 +559,13 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.25)",
   },
   pillText: { color: "#fff", fontWeight: "700", fontSize: 12 },
+  pointIndicator: {
+  },
+  pointText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
 
   completedHeader: {
     color: "rgba(255,255,255,0.9)",

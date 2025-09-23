@@ -179,35 +179,39 @@ export default function Shop() {
 
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
         {/* Header */}
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
-          <View style={{ width: 38 }} />
+        <View style={styles.headerWrap}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 }}>
+            <View style={{ width: 38 }} />
 
-          <View style={{ flex: 1, alignItems: "center" }}>
-            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "600" }}>Shop</Text>
-            <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 4 }}>Discover products for your hair journey</Text>
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text style={styles.headerTitle}>Shop</Text>
+              <Text style={styles.headerSub}>Discover products for your hair journey</Text>
+            </View>
+
+            <View style={{ padding: 10, borderRadius: 20, position: "relative" }}>
+              <Pressable onPress={goToCart} hitSlop={8}>
+                <Feather name="shopping-bag" size={24} color="#fff" />
+                {cartQty > 0 && (
+                  <View
+                    style={{
+                      position: "absolute",
+                      right: 2,
+                      top: 2,
+                      backgroundColor: "#fff",
+                      borderRadius: 10,
+                      minWidth: 18,
+                      height: 18,
+                      paddingHorizontal: 4,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text style={{ color: "#0b0b0b", fontSize: 11, fontWeight: "700" }}>{cartQty}</Text>
+                  </View>
+                )}
+              </Pressable>
+            </View>
           </View>
-
-          <Pressable onPress={goToCart} hitSlop={8} style={{ padding: 8, borderRadius: 20, position: "relative" }}>
-            <Feather name="shopping-bag" size={22} color="#fff" />
-            {cartQty > 0 && (
-              <View
-                style={{
-                  position: "absolute",
-                  right: 2,
-                  top: 2,
-                  backgroundColor: "#fff",
-                  borderRadius: 10,
-                  minWidth: 18,
-                  height: 18,
-                  paddingHorizontal: 4,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Text style={{ color: "#0b0b0b", fontSize: 11, fontWeight: "700" }}>{cartQty}</Text>
-              </View>
-            )}
-          </Pressable>
         </View>
 
         <ScreenScrollView
@@ -423,7 +427,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 24,
+    marginBottom: 12,
     position: "relative",
     paddingTop: 32,
   },
@@ -436,15 +440,8 @@ const styles = StyleSheet.create({
   headerSub: { 
     color: "rgba(255,255,255,0.85)", 
     fontSize: 12, 
-    marginTop: 4, 
+    marginTop: 4,
     textAlign: "center" 
-  },
-  cartButton: {
-    position: "absolute",
-    right: 0,
-    top: 8,
-    padding: 8,
-    borderRadius: 20,
   },
   cartBadge: {
     position: "absolute",

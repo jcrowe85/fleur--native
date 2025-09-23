@@ -19,6 +19,7 @@ import { useRecommendationsStore } from "@/state/recommendationsStore";
 
 // ✅ Shared bottom spacing helper
 import { ScreenScrollView } from "@/components/UI/bottom-space";
+import RewardsPill from "@/components/UI/RewardsPill";
 
 /* ---------------- helpers ---------------- */
 
@@ -168,17 +169,21 @@ export default function RoutineCustomizeScreen() {
 
       <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1 }}>
         {/* Header */}
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
-          <Pressable onPress={onBack} hitSlop={10} style={{ padding: 8, borderRadius: 20 }}>
-            <Feather name="arrow-left" size={18} color="#fff" />
-          </Pressable>
+        <View style={styles.headerWrap}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, position: "relative" }}>
+            <Pressable onPress={onBack} hitSlop={10} style={[styles.backButton, { padding: 8, borderRadius: 20 }]}>
+              <Feather name="arrow-left" size={18} color="#fff" />
+            </Pressable>
 
-          <View style={{ flex: 1, alignItems: "center" }}>
-            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "600" }}>Customize Routine</Text>
-            <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 4 }}>Add steps, set times, choose frequency</Text>
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text style={styles.headerTitle}>Customize Routine</Text>
+              <Text style={styles.headerSub}>Add steps, set times, choose frequency</Text>
+            </View>
+
+            <View style={[styles.rewardsPillContainer, { padding: 8, borderRadius: 20 }]}>
+              <RewardsPill compact />
+            </View>
           </View>
-
-          <View style={{ width: 38 }} />
         </View>
 
         <ScreenScrollView
@@ -401,7 +406,25 @@ export default function RoutineCustomizeScreen() {
 /* ---------------- styles ---------------- */
 
 const styles = StyleSheet.create({
-  // Header styles removed - now using inline styles to match shop screen
+  // Match Rewards header
+  headerWrap: {
+    paddingTop: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
+  headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
+  backButton: {
+    position: "absolute",
+    left: 16,
+    top: -8,
+  },
+  rewardsPillContainer: {
+    position: "absolute",
+    right: 16,
+    top: -8,
+  },
 
   sectionTitle: {
     marginTop: 6,

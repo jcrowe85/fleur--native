@@ -69,9 +69,9 @@ export default function DailyHairCheckIn({ onHidden }: { onHidden?: () => void }
   const { addCheckIn, getCheckInForDate, hasCheckedInToday } = useCheckInStore();
   const today = dayjs().format("YYYY-MM-DD");
 
-  const [scalpValue, setScalpValue] = useState(0);
-  const [sheddingValue, setSheddingValue] = useState(0);
-  const [feelingValue, setFeelingValue] = useState(0);
+  const [scalpValue, setScalpValue] = useState(-1);
+  const [sheddingValue, setSheddingValue] = useState(-1);
+  const [feelingValue, setFeelingValue] = useState(-1);
   const [isCompleted, setIsCompleted] = useState(false);
   const [shouldHide, setShouldHide] = useState(false);
   
@@ -120,10 +120,7 @@ export default function DailyHairCheckIn({ onHidden }: { onHidden?: () => void }
         overallFeeling: getOverallFeeling(feelingValue),
       };
 
-      addCheckIn(checkInData);
-      setIsCompleted(true);
-
-      // Award daily check-in points (separate from routine task rewards)
+      // Award daily check-in points FIRST (before marking as completed)
       console.log("DEBUG: Attempting to award daily check-in points...");
       const res = onDailyCheckIn();
       console.log("DEBUG: Daily check-in result:", res);
@@ -132,6 +129,10 @@ export default function DailyHairCheckIn({ onHidden }: { onHidden?: () => void }
       } else {
         console.log("Daily check-in failed:", res?.message);
       }
+
+      // Then mark the check-in as completed
+      addCheckIn(checkInData);
+      setIsCompleted(true);
 
       // Start the slide-out animation after a brief delay
       setTimeout(() => {
@@ -204,6 +205,9 @@ export default function DailyHairCheckIn({ onHidden }: { onHidden?: () => void }
             <Feather name="check-circle" size={14} color="#fff" />
           </View>
           <Text style={styles.title}>Daily Hair Check-in</Text>
+          <View style={styles.pointIndicator}>
+            <Text style={styles.pointText}>+1</Text>
+          </View>
         </View>
         {isCompleted && (
           <View style={styles.completedBadge}>
@@ -241,8 +245,20 @@ export default function DailyHairCheckIn({ onHidden }: { onHidden?: () => void }
       </View>
 
       {!isCompleted && (
-        <Pressable style={styles.saveButton} onPress={handleSave}>
-          <Text style={styles.saveButtonText}>Save Check-in</Text>
+        <Pressable 
+          style={[
+            styles.saveButton, 
+            (scalpValue === -1 || sheddingValue === -1 || feelingValue === -1) && styles.saveButtonDisabled
+          ]} 
+          onPress={handleSave}
+          disabled={scalpValue === -1 || sheddingValue === -1 || feelingValue === -1}
+        >
+          <Text style={[
+            styles.saveButtonText,
+            (scalpValue === -1 || sheddingValue === -1 || feelingValue === -1) && styles.saveButtonTextDisabled
+          ]}>
+            Save Check-in
+          </Text>
         </Pressable>
       )}
     </Animated.View>
@@ -280,6 +296,14 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "700",
+  },
+  pointIndicator: {
+    marginLeft: 8,
+  },
+  pointText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
   },
   completedBadge: {
     width: 20,
@@ -348,5 +372,12 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 14,
     fontWeight: "700",
+  },
+  saveButtonDisabled: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderColor: "rgba(255,255,255,0.10)",
+  },
+  saveButtonTextDisabled: {
+    color: "rgba(255,255,255,0.4)",
   },
 });

@@ -5,6 +5,10 @@ export type Profile = {
     handle: string | null;
     avatar_url: string | null;
     is_guest: boolean;
+    is_first_time?: boolean;
+    has_received_signup_bonus?: boolean;
+    created_at?: string;
+    updated_at?: string;
   };
   
   

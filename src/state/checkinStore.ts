@@ -18,6 +18,7 @@ export type DailyCheckIn = {
 
 type CheckInState = {
   checkIns: DailyCheckIn[];
+  lastPopupShownDate: string | null; // YYYY-MM-DD format
   
   // Actions
   addCheckIn: (data: Omit<DailyCheckIn, "id" | "date" | "timestamp">) => void;
@@ -28,6 +29,10 @@ type CheckInState = {
     hairShedding: HairShedding | null;
     overallFeeling: OverallFeeling | null;
   };
+  
+  // Popup logic
+  shouldShowDailyPopup: () => boolean;
+  markPopupShown: () => void;
   
   // Admin
   resetAll: () => void;
@@ -42,6 +47,7 @@ export const useCheckInStore = create<CheckInState>()(
   persist(
     (set, get) => ({
       checkIns: [],
+      lastPopupShownDate: null,
 
       addCheckIn: (data) => {
         const today = dayjs().format("YYYY-MM-DD");
@@ -118,7 +124,35 @@ export const useCheckInStore = create<CheckInState>()(
         };
       },
 
-      resetAll: () => set({ checkIns: [] }),
+      shouldShowDailyPopup: () => {
+        const now = dayjs();
+        const currentHour = now.hour();
+        const today = now.format("YYYY-MM-DD");
+        
+        // Only show popup after 4am (avoiding late night interruptions)
+        if (currentHour < 4) {
+          return false;
+        }
+        
+        // Don't show if already checked in today
+        if (get().hasCheckedInToday()) {
+          return false;
+        }
+        
+        // Don't show if popup was already shown today
+        if (get().lastPopupShownDate === today) {
+          return false;
+        }
+        
+        return true;
+      },
+
+      markPopupShown: () => {
+        const today = dayjs().format("YYYY-MM-DD");
+        set({ lastPopupShownDate: today });
+      },
+
+      resetAll: () => set({ checkIns: [], lastPopupShownDate: null }),
       
       // Debug helper - clear today's check-in only
       clearTodaysCheckIn: () => {

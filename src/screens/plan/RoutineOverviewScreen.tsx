@@ -10,6 +10,7 @@ import { router } from "expo-router";
 import { Svg, Path, Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 import { usePlanStore } from "@/state/planStore";
 import type { RoutineIcon } from "@/types/plan";
+import { StyleSheet } from "react-native";
 
 /* -------------------------------------------------------------
    Shape adapter: make UI resilient to old/new routine shapes
@@ -105,22 +106,21 @@ export default function RoutineOverview() {
           }}
         >
           {/* Header */}
-          <View className="flex-row items-center justify-center mb-6" style={{ paddingTop: 8 }}>
+          <View className="flex-row items-center justify-between mb-6" style={{ paddingTop: 8 }}>
             <Pressable
               onPress={() => router.back()}
-              className="absolute left-0 p-2 rounded-full active:opacity-80"
+              style={{ padding: 8, borderRadius: 20 }}
               hitSlop={8}
             >
               <Feather name="arrow-left" size={22} color="#fff" />
             </Pressable>
-            <View>
-              <Text className="text-white text-[22px] font-semibold text-center">
-                Your Routine Overview
-              </Text>
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text className="text-white text-[22px] font-semibold text-center">Your Routine Overview</Text>
               <Text className="text-white/80 text-sm text-center mt-1">
                 High-level plan for the next few weeks
               </Text>
             </View>
+            <View style={{ width: 38 }} />
           </View>
 
           {/* Loading / empty guard */}
@@ -324,3 +324,15 @@ function RecoveryChart({
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  // Match Rewards header
+  headerWrap: {
+    paddingTop: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
+  headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
+});

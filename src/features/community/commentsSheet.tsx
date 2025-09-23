@@ -383,7 +383,14 @@ export function CommentsSheetProvider({ children }: { children: React.ReactNode 
                   {sending ? (
                     <ActivityIndicator color="#000" />
                   ) : (
-                    <Text style={styles.sendText}>{editingId ? "Save" : "Send"}</Text>
+                    <View style={styles.sendButtonContent}>
+                      <Text style={styles.sendText}>{editingId ? "Save" : "Send"}</Text>
+                      {!editingId && (
+                        <View style={styles.pointIndicator}>
+                          <Text style={styles.pointText}>+1</Text>
+                        </View>
+                      )}
+                    </View>
                   )}
                 </Pressable>
               </View>
@@ -549,6 +556,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   sendText: { color: "#000", fontWeight: "700", fontSize: 14 },
+  sendButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  pointIndicator: {
+  },
+  pointText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
   cancelEdit: {
     paddingHorizontal: 12,
     paddingVertical: 8,

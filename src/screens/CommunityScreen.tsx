@@ -186,14 +186,15 @@ export default function CommunityScreen() {
 
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
         {/* Header */}
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
-          <View style={{ width: 38 }} />
-          <View style={{ flex: 1, alignItems: "center" }}>
-            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "600" }}>Community</Text>
-            <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 4 }}>Share your hair journey</Text>
-          </View>
-          <View style={{ padding: 8, borderRadius: 20 }}>
-            <RewardsPill compact />
+        <View style={styles.headerWrap}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, position: "relative" }}>
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text style={styles.headerTitle}>Community</Text>
+              <Text style={styles.headerSub}>Share your hair journey</Text>
+            </View>
+            <View style={[styles.rewardsPillContainer, { padding: 8, borderRadius: 20 }]}>
+              <RewardsPill compact />
+            </View>
           </View>
         </View>
 
@@ -386,7 +387,20 @@ export default function CommunityScreen() {
 }
 
 const styles = StyleSheet.create({
-  // Header styles removed - now using inline styles to match shop screen
+  // Match Rewards header
+  headerWrap: {
+    paddingTop: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
+  headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
+  rewardsPillContainer: {
+    position: "absolute",
+    right: 16,
+    top: -8,
+  },
 
   // Categories (anti-clipping)
   catListView: { zIndex: 5, height: 34, flexGrow: 0, flexShrink: 0, marginBottom: 6 },
@@ -466,8 +480,15 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.10)",
     marginRight: 8,
   },
-  fakePostPill: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: "#fff" },
-  fakePostPillText: { color: "#000", fontWeight: "700" },
+  fakePostPill: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: "#fff", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  fakePostPillText: { color: "#000", fontWeight: "700", textAlign: "center" },
+  pointIndicator: {
+  },
+  pointText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
 
   // Feed — only the feed scrolls; header anchors top
   feedList: { flex: 1, alignSelf: "stretch" },

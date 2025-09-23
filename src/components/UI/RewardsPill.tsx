@@ -90,17 +90,17 @@ export default function RewardsPill({ compact }: Props) {
     prevPointsRef.current = points;
   }, [points, pillScale, sparkleOpacity, sparkleScale, sparkleTranslateY]);
 
-  // sizes for regular vs compact
+  // sizes for regular vs compact (reduced by 15% from previous)
   const s = compact
     ? {
         pill: { paddingV: 4, paddingH: 8 },
-        icon: { box: 18, rad: 9, icon: 12, star: 9 },
-        textSize: 12,
+        icon: { box: 20, rad: 10, icon: 13, star: 9 },
+        textSize: 13,
       }
     : {
-        pill: { paddingV: 6, paddingH: 10 },
-        icon: { box: 22, rad: 11, icon: 14, star: 10 },
-        textSize: 14,
+        pill: { paddingV: 7, paddingH: 11 },
+        icon: { box: 24, rad: 12, icon: 15, star: 11 },
+        textSize: 15,
       };
 
   return (

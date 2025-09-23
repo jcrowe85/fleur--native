@@ -16,29 +16,49 @@ import dayjs from "dayjs";
 import { useRewardsStore } from "@/state/rewardsStore";
 // ✅ Shared bottom spacing helper (same convention)
 import { ScreenScrollView } from "@/components/UI/bottom-space";
+import { getNextAffordableProduct, getPointsNeededForNext, getAllRedeemableProducts, getAffordableProducts, RedeemableProduct } from "@/data/productCatalog";
 
-/** Tiers for the progress bar */
-const TIERS = [
-  { key: "Bronze", cutoff: 0 },
-  { key: "Silver", cutoff: 250 },
-  { key: "Gold", cutoff: 500 },
-  { key: "Platinum", cutoff: 1000 },
-];
+function getProductProgressInfo(points: number) {
+  const nextProduct = getNextAffordableProduct(points);
+  const pointsNeeded = getPointsNeededForNext(points);
+  
+  if (!nextProduct) {
+    // User can afford all products
+    return {
+      currentLabel: "All Products",
+      nextLabel: "Unlocked",
+      remainingLabel: "All products available!",
+      percent: 1,
+    };
+  }
 
-function getTierInfo(points: number) {
-  let current = TIERS[0];
-  for (const t of TIERS) if (points >= t.cutoff) current = t;
-  const idx = TIERS.findIndex((t) => t.key === current.key);
-  const next = TIERS[idx + 1] ?? null;
-  const remaining = next ? Math.max(0, next.cutoff - points) : 0;
-  const percent = next
-    ? Math.min(1, Math.max(0, (points - current.cutoff) / (next.cutoff - current.cutoff)))
-    : 1;
+  // Calculate progress towards the next product
+  const allProducts = getAllRedeemableProducts();
+  const sortedProducts = allProducts.sort((a, b) => a.pointsRequired - b.pointsRequired);
+  const currentProductIndex = sortedProducts.findIndex(p => p.pointsRequired > points);
+  
+  if (currentProductIndex === 0) {
+    // User hasn't reached the first product yet
+    const firstProduct = sortedProducts[0];
+    const percent = Math.min(1, points / firstProduct.pointsRequired);
+    return {
+      currentLabel: "Getting Started",
+      nextLabel: firstProduct.name,
+      remainingLabel: `${pointsNeeded} pts to ${firstProduct.name}`,
+      percent,
+    };
+  }
+
+  // User is between products
+  const previousProduct = sortedProducts[currentProductIndex - 1];
+  const nextProductPoints = nextProduct.pointsRequired;
+  const previousProductPoints = previousProduct.pointsRequired;
+  const percent = Math.min(1, (points - previousProductPoints) / (nextProductPoints - previousProductPoints));
 
   return {
-    currentLabel: current.key,
-    nextLabel: next?.key ?? "Max",
-    remainingLabel: next ? `${remaining} pts to ${next.key}` : "Top tier reached",
+    currentLabel: previousProduct.name,
+    nextLabel: nextProduct.name,
+    remainingLabel: `${pointsNeeded} pts to ${nextProduct.name}`,
     percent,
   };
 }
@@ -64,11 +84,87 @@ function reasonLabel(reason: string) {
   }
 }
 
+// Redeemable Products Grid Component
+function RedeemableProductsGrid({ userPoints }: { userPoints: number }) {
+  const allProducts = getAllRedeemableProducts();
+  const affordableProducts = getAffordableProducts(userPoints);
+
+  const handleRedeem = (product: RedeemableProduct) => {
+    // TODO: Implement redemption logic with Shopify integration
+    console.log(`Redeeming ${product.name} for ${product.pointsRequired} points`);
+    // For now, just navigate to shop with the product pre-selected
+    router.push(`/(app)/shop?redeem=${product.sku}`);
+  };
+
+  return (
+    <View style={styles.productsGrid}>
+      {allProducts.map((product) => {
+        const canAfford = userPoints >= product.pointsRequired;
+        const isAffordable = affordableProducts.some(p => p.sku === product.sku);
+        
+        return (
+          <View key={product.sku} style={[
+            styles.productCard,
+            !canAfford && styles.productCardDisabled
+          ]}>
+            {/* Product Image Placeholder */}
+            <View style={[
+              styles.productImage,
+              !canAfford && styles.productImageDisabled
+            ]}>
+              <Feather 
+                name="package" 
+                size={24} 
+                color={canAfford ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.3)"} 
+              />
+            </View>
+
+            {/* Product Info */}
+            <View style={styles.productInfo}>
+              <Text style={[
+                styles.productName,
+                !canAfford && styles.productNameDisabled
+              ]} numberOfLines={2}>
+                {product.name}
+              </Text>
+              
+              <Text style={[
+                styles.productPrice,
+                !canAfford && styles.productPriceDisabled
+              ]}>
+                ${(product.priceCents / 100).toFixed(2)}
+              </Text>
+            </View>
+
+            {/* Action Button */}
+            <View style={styles.productAction}>
+              {canAfford ? (
+                <Pressable
+                  style={styles.redeemButton}
+                  onPress={() => handleRedeem(product)}
+                >
+                  <Text style={styles.redeemButtonText}>Redeem</Text>
+                </Pressable>
+              ) : (
+                <View style={styles.pointsNeededContainer}>
+                  <Text style={styles.pointsNeededText}>
+                    {product.pointsRequired - userPoints} pts needed
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 export default function RewardsScreen() {
   const pointsAvailable = useRewardsStore((s) => s.pointsAvailable);
   const ledger = useRewardsStore((s) => s.ledger);
 
-  const tier = React.useMemo(() => getTierInfo(pointsAvailable), [pointsAvailable]);
+  const progress = React.useMemo(() => getProductProgressInfo(pointsAvailable), [pointsAvailable]);
   const recent = ledger.slice(0, 8);
 
   // accordion state (details only)
@@ -103,19 +199,16 @@ export default function RewardsScreen() {
                 <Text style={styles.pointsValue}>{pointsAvailable}</Text>
               </View>
 
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{tier.currentLabel}</Text>
-              </View>
             </View>
 
             {/* Progress */}
             <View style={{ marginTop: 14 }}>
               <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: `${tier.percent * 100}%` }]} />
+                <View style={[styles.progressFill, { width: `${progress.percent * 100}%` }]} />
               </View>
               <View style={styles.progressLabels}>
-                <Text style={styles.progressLeft}>Progress to {tier.nextLabel}</Text>
-                <Text style={styles.progressRight}>{tier.remainingLabel}</Text>
+                <Text style={styles.progressLeft}>Progress to {progress.nextLabel}</Text>
+                <Text style={styles.progressRight}>{progress.remainingLabel}</Text>
               </View>
             </View>
           </GlassCard>
@@ -161,6 +254,10 @@ export default function RewardsScreen() {
             />
           </View>
 
+          {/* Redeemable Products Section */}
+          <Text style={styles.sectionTitle}>Redeem with points</Text>
+          <RedeemableProductsGrid userPoints={pointsAvailable} />
+
           {/* How to earn (accordion with DETAILS ONLY) */}
           <View style={styles.accordion}>
             <Pressable
@@ -199,7 +296,7 @@ export default function RewardsScreen() {
           {/* Recent activity (ledger) */}
           {recent.length > 0 && (
             <>
-              <Text style={[styles.sectionTitle, { marginTop: 12 }]}>Recent activity</Text>
+              <Text style={[styles.sectionTitle, { marginTop: 12 }]}>Sign up bonus</Text>
               <View style={styles.ledgerWrap}>
                 {recent.map((ev, i) => (
                   <View
@@ -460,4 +557,87 @@ const styles = StyleSheet.create({
   ledgerDelta: { fontWeight: "800" },
   deltaPositive: { color: "#a7ffb0" },
   deltaNegative: { color: "#ffb4b4" },
+
+  // Product Grid Styles
+  productsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginBottom: 24,
+  },
+  productCard: {
+    width: "48%", // 2 columns with gap
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+  },
+  productCardDisabled: {
+    opacity: 0.4,
+  },
+  productImage: {
+    width: "100%",
+    height: 60,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  productImageDisabled: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+  },
+  productInfo: {
+    marginBottom: 8,
+  },
+  productName: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  productNameDisabled: {
+    color: "rgba(255,255,255,0.5)",
+  },
+  productPrice: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  productPriceDisabled: {
+    color: "rgba(255,255,255,0.4)",
+  },
+  productAction: {
+    alignItems: "center",
+  },
+  redeemButton: {
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.35)",
+    width: "100%",
+    alignItems: "center",
+  },
+  redeemButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  pointsNeededContainer: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 6,
+    width: "100%",
+    alignItems: "center",
+  },
+  pointsNeededText: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 10,
+    fontWeight: "500",
+    textAlign: "center",
+  },
 });

@@ -18,36 +18,61 @@ import dayjs from "dayjs";
 
 import { useRoutineStore, RoutineStep } from "@/state/routineStore";
 import { useRewardsStore } from "@/state/rewardsStore";
+import { useCheckInStore } from "@/state/checkinStore";
+import { getNextAffordableProduct, getAffordableProducts, getAllRedeemableProducts } from "@/data/productCatalog";
 import { onRoutineTaskCompleted, onRoutineTaskUndone } from "@/services/rewards";
+import { checkFirstLogin, markFirstLoginComplete } from "@/services/firstTimeUser";
 import { ScreenScrollView } from "@/components/UI/bottom-space"; // ✅ unified bottom-spacing helper
 
 // ⭐ Small Rewards Pill (compact variant supported)
 import RewardsPill from "@/components/UI/RewardsPill";
-import DailyHairCheckIn from "@/components/DailyHairCheckIn";
+import DailyCheckInPopup from "@/components/DailyCheckInPopup";
+import FirstPointPopup from "@/components/FirstPointPopup";
+import SignupBonusPopup from "@/components/SignupBonusPopup";
 
-/* ------------------------------- tier math ------------------------------- */
+/* ------------------------------- product progress math ------------------------------- */
 
-const TIERS = [
-  { key: "Bronze", cutoff: 0 },
-  { key: "Silver", cutoff: 250 },
-  { key: "Gold", cutoff: 500 },
-  { key: "Platinum", cutoff: 1000 },
-];
+function getProductProgressInfo(points: number) {
+  const nextProduct = getNextAffordableProduct(points);
+  const pointsNeeded = nextProduct ? nextProduct.pointsRequired - points : 0;
+  
+  if (!nextProduct) {
+    // User can afford all products
+    return {
+      currentLabel: "All Products",
+      nextLabel: "Unlocked",
+      remainingLabel: "All products available!",
+      percent: 1,
+    };
+  }
 
-function tierInfo(points: number) {
-  let current = TIERS[0];
-  for (const t of TIERS) if (points >= t.cutoff) current = t;
-  const idx = TIERS.findIndex((t) => t.key === current.key);
-  const next = TIERS[idx + 1] ?? null;
-  const remaining = next ? Math.max(0, next.cutoff - points) : 0;
-  const percent = next
-    ? Math.min(1, Math.max(0, (points - current.cutoff) / (next.cutoff - current.cutoff)))
-    : 1;
+  // Calculate progress towards the next product
+  const allProducts = getAllRedeemableProducts();
+  const sortedProducts = allProducts.sort((a, b) => a.pointsRequired - b.pointsRequired);
+  const currentProductIndex = sortedProducts.findIndex(p => p.pointsRequired > points);
+  
+  if (currentProductIndex === 0) {
+    // User hasn't reached the first product yet
+    const firstProduct = sortedProducts[0];
+    const percent = Math.min(1, points / firstProduct.pointsRequired);
+    return {
+      currentLabel: "Getting Started",
+      nextLabel: firstProduct.name,
+      remainingLabel: `To ${firstProduct.name}`,
+      percent,
+    };
+  }
+
+  // User is between products
+  const previousProduct = sortedProducts[currentProductIndex - 1];
+  const nextProductPoints = nextProduct.pointsRequired;
+  const previousProductPoints = previousProduct.pointsRequired;
+  const percent = Math.min(1, (points - previousProductPoints) / (nextProductPoints - previousProductPoints));
 
   return {
-    currentLabel: current.key,
-    nextLabel: next?.key ?? "Max",
-    remainingLabel: next ? `${remaining} pts to ${next.key}` : "Top tier reached",
+    currentLabel: previousProduct.name,
+    nextLabel: nextProduct.name,
+    remainingLabel: `To ${nextProduct.name}`,
     percent,
   };
 }
@@ -228,8 +253,17 @@ export default function DashboardScreen() {
   const stepsAll = useRoutineStore((s) => s.steps); // subscribe to steps
   const applyDefaultIfEmpty = useRoutineStore((s) => s.applyDefaultIfEmpty);
 
-  // Track check-in component visibility for spacing
-  const [checkInVisible, setCheckInVisible] = useState(true);
+  // Daily check-in popup
+  const [showDailyCheckInPopup, setShowDailyCheckInPopup] = useState(false);
+  
+  // First point popup
+  const [showFirstPointPopup, setShowFirstPointPopup] = useState(false);
+  
+  // Signup bonus popup
+  const [showSignupBonusPopup, setShowSignupBonusPopup] = useState(false);
+  
+  // Ref to store timeout ID for cleanup
+  const dailyCheckInTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Ensure defaults exist when dashboard is the first screen opened
   useEffect(() => {
@@ -242,6 +276,60 @@ export default function DashboardScreen() {
   const streakDays = useRewardsStore((s) => s.streakDays);
   const hasCheckedInToday = useRewardsStore((s) => s.hasCheckedInToday);
   const ledger = useRewardsStore((s) => s.ledger);
+
+  // Check-in popup logic - SIMPLIFIED
+  const shouldShowDailyPopup = useCheckInStore((s) => s.shouldShowDailyPopup);
+  const markPopupShown = useCheckInStore((s) => s.markPopupShown);
+  
+  // Signup bonus logic - SIMPLIFIED
+  const awardSignupBonus = useRewardsStore((s) => s.awardSignupBonus);
+
+  // Set up callbacks - run once on mount
+  useEffect(() => {
+    const { setFirstPointCallback, setSignupBonusCallback } = useRewardsStore.getState();
+    setFirstPointCallback(() => setShowFirstPointPopup(true));
+    setSignupBonusCallback(() => setShowSignupBonusPopup(true));
+  }, []);
+
+  // Check for first login and show signup bonus - SIMPLE APPROACH
+  useEffect(() => {
+    const checkAndShowSignupBonus = async () => {
+      try {
+        // Wait a bit for session to be established
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        const firstLoginData = await checkFirstLogin();
+        
+        if (firstLoginData.isFirstLogin) {
+          // Award signup bonus and show popup
+          const success = awardSignupBonus();
+          if (success) {
+            // Mark in database that first login is complete
+            await markFirstLoginComplete();
+            
+            // Show popup after small delay
+            setTimeout(() => {
+              setShowSignupBonusPopup(true);
+            }, 100);
+          }
+        }
+      } catch (error) {
+        console.error('Error checking first login status:', error);
+      }
+    };
+
+    checkAndShowSignupBonus();
+  }, []); // Run only once on mount
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (dailyCheckInTimeoutRef.current) {
+        clearTimeout(dailyCheckInTimeoutRef.current);
+        dailyCheckInTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // Today’s routine (AM + PM) — recompute whenever steps change
   const todaysSteps = useMemo(
@@ -270,11 +358,10 @@ export default function DashboardScreen() {
     }, 0);
   }, [completedByDate]);
 
-  // Rewards tier
-  const tier = tierInfo(points);
+  // Rewards progress (product-based)
+  const progress = getProductProgressInfo(points);
 
   // Toggle handler for routine tasks (awards points for task completion)
-  const [toast, setToast] = useState<string | null>(null);
   function onToggle(step: RoutineStep) {
     const wasCompleted = isCompletedToday(step.id);
     const nowCompleted = toggleStepToday(step.id);
@@ -283,15 +370,13 @@ export default function DashboardScreen() {
       // Task was just completed - award points
       const res = onRoutineTaskCompleted(step.id);
       if (res?.ok) {
-        setToast(res.message);
-        setTimeout(() => setToast(null), 3000);
+        // Points awarded for task completion
       }
     } else if (!nowCompleted && wasCompleted) {
       // Task was just undone - remove points
       const res = onRoutineTaskUndone(step.id);
       if (res?.ok) {
-        setToast(res.message);
-        setTimeout(() => setToast(null), 3000);
+        // Points removed for task undo
       }
     }
   }
@@ -318,16 +403,16 @@ export default function DashboardScreen() {
 
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
         {/* Header */}
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
-          <View style={{ width: 38 }} />
+        <View style={styles.headerWrap}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, position: "relative" }}>
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text style={styles.headerTitle}>Your Hair Journey</Text>
+              <Text style={styles.headerSub}>Your routine, progress, and rewards in one place.</Text>
+            </View>
 
-          <View style={{ flex: 1, alignItems: "center" }}>
-            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "600" }}>Your Hair Journey</Text>
-            <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 4 }}>Your routine, progress, and rewards in one place.</Text>
-          </View>
-
-          <View style={{ padding: 8, borderRadius: 20 }}>
-            <RewardsPill compact />
+            <View style={[styles.rewardsPillContainer, { padding: 8, borderRadius: 20 }]}>
+              <RewardsPill compact />
+            </View>
           </View>
         </View>
 
@@ -337,58 +422,23 @@ export default function DashboardScreen() {
           showsVerticalScrollIndicator={false}
         >
 
-          {/* Daily Hair Check-in */}
-          {checkInVisible && (
-            <View style={{ marginBottom: 14 }}>
-              <DailyHairCheckIn onHidden={() => setCheckInVisible(false)} />
-            </View>
-          )}
-
-          {/* DEBUG: Test Daily Check-in Button */}
+          {/* Points Display Block (same as rewards page) */}
           <GlassCard style={{ padding: 14, marginBottom: 14 }}>
-            <Pressable 
-              onPress={() => {
-                console.log("DEBUG: Test button pressed");
-                const { onDailyCheckIn } = require("@/services/rewards");
-                const result = onDailyCheckIn();
-                console.log("DEBUG: Test check-in result:", result);
-              }}
-              style={{ 
-                backgroundColor: "rgba(255,255,255,0.2)", 
-                padding: 12, 
-                borderRadius: 8,
-                alignItems: "center"
-              }}
-            >
-              <Text style={{ color: "#fff", fontWeight: "700" }}>TEST: Daily Check-in</Text>
-            </Pressable>
-          </GlassCard>
-
-          {/* Hair Health Journey */}
-          <GlassCard style={{ padding: 14, marginBottom: 14 }}>
-            <View style={styles.sectionHeaderRow}>
-              <View style={styles.sectionHeaderLeft}>
-                <View style={styles.iconDot}>
-                  <Feather name="trending-up" size={14} color="#fff" />
-                </View>
-                <Text style={styles.sectionHeaderText}>Hair Health Journey</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <View style={{ flexShrink: 1 }}>
+                <Text style={styles.pointsLabel}>Points</Text>
+                <Text style={styles.pointsValue}>{points}</Text>
               </View>
             </View>
 
-            <RecoveryChart weeks={16} curve={{ plateauAt: 0.82 }} durationMs={18000} loop />
-
-            <View style={{ marginTop: 10 }}>
-              <Text style={styles.sparkTitle}>Daily check-ins (last 14 days)</Text>
-              <View style={styles.sparkRow}>
-                {checkinBars.map((v, i) => (
-                  <View
-                    key={i}
-                    style={[
-                      styles.sparkBar,
-                      { opacity: v ? 1 : 0.35, height: v ? 16 : 8 },
-                    ]}
-                  />
-                ))}
+            {/* Progress */}
+            <View style={{ marginTop: 14 }}>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${progress.percent * 100}%` }]} />
+              </View>
+              <View style={styles.progressLabels}>
+                <Text style={styles.progressLeft}>Progress to {progress.nextLabel}</Text>
+                <Text style={styles.progressRight}>{progress.remainingLabel}</Text>
               </View>
             </View>
           </GlassCard>
@@ -436,13 +486,13 @@ export default function DashboardScreen() {
                   </Text>
                 </View>
                 <View style={styles.tierBadge}>
-                  <Text style={styles.tierBadgeText}>{tier.currentLabel}</Text>
+                  <Text style={styles.tierBadgeText}>{progress.currentLabel}</Text>
                 </View>
               </View>
 
               <View style={{ marginTop: 10 }}>
                 <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${tier.percent * 100}%` }]} />
+                  <View style={[styles.progressFill, { width: `${progress.percent * 100}%` }]} />
                 </View>
                 <View
                   style={{
@@ -451,8 +501,7 @@ export default function DashboardScreen() {
                     marginTop: 6,
                   }}
                 >
-                  <Text style={styles.progressLeft}>To {tier.nextLabel}</Text>
-                  <Text style={styles.progressRight}>{tier.remainingLabel}</Text>
+                  <Text style={styles.progressLeft}>To {progress.nextLabel}</Text>
                 </View>
               </View>
 
@@ -466,7 +515,138 @@ export default function DashboardScreen() {
             </GlassCard>
           </View>
 
-          {/* Today’s Routine (below) */}
+          {/* Enhanced Rewards Block */}
+          <GlassCard style={{ padding: 14, marginBottom: 14 }}>
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionHeaderLeft}>
+                <View style={styles.iconDot}>
+                  <Feather name="star" size={14} color="#fff" />
+                </View>
+                <Text style={styles.sectionHeaderText}>Rewards Hub</Text>
+              </View>
+              <Pressable
+                onPress={() => router.push("/(app)/rewards")}
+                style={styles.linkRow}
+              >
+                <Text style={styles.linkText}>View All</Text>
+                <Feather name="chevron-right" size={16} color="#fff" />
+              </Pressable>
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
+              {/* Next Product Preview */}
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, marginBottom: 4 }}>
+                  Next Product
+                </Text>
+                {(() => {
+                  const nextProduct = getNextAffordableProduct(points);
+                  const affordableProducts = getAffordableProducts(points);
+                  
+                  if (affordableProducts.length > 0) {
+                    const firstAffordable = affordableProducts[0];
+                    return (
+                      <View>
+                        <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }} numberOfLines={1}>
+                          {firstAffordable.name}
+                        </Text>
+                        <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 12 }}>
+                          Available now
+                        </Text>
+                      </View>
+                    );
+                  } else if (nextProduct) {
+                    return (
+                      <View>
+                        <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }} numberOfLines={1}>
+                          {nextProduct.name}
+                        </Text>
+                        <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 12 }}>
+                          {nextProduct.pointsRequired - points} pts to go
+                        </Text>
+                      </View>
+                    );
+                  } else {
+                    return (
+                      <View>
+                        <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>
+                          All Products
+                        </Text>
+                        <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 12 }}>
+                          Unlocked!
+                        </Text>
+                      </View>
+                    );
+                  }
+                })()}
+              </View>
+
+              {/* Quick Stats */}
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, marginBottom: 4 }}>
+                  This Week
+                </Text>
+                <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>
+                  {ledger.filter(item => 
+                    dayjs(item.ts).isAfter(dayjs().startOf('week')) && 
+                    item.delta > 0
+                  ).reduce((sum, item) => sum + item.delta, 0)} pts earned
+                </Text>
+                <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 12 }}>
+                  Keep it up!
+                </Text>
+              </View>
+            </View>
+
+            {/* Quick Actions */}
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+              <Pressable
+                onPress={() => router.push("/(app)/shop")}
+                style={[styles.quickActionButton, { flex: 1 }]}
+              >
+                <Feather name="shopping-bag" size={16} color="#fff" />
+                <Text style={styles.quickActionText}>Shop</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => router.push("/(app)/rewards")}
+                style={[styles.quickActionButton, { flex: 1 }]}
+              >
+                <Feather name="gift" size={16} color="#fff" />
+                <Text style={styles.quickActionText}>Redeem</Text>
+              </Pressable>
+            </View>
+          </GlassCard>
+
+          {/* Hair Health Journey */}
+          <GlassCard style={{ padding: 14, marginBottom: 14 }}>
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionHeaderLeft}>
+                <View style={styles.iconDot}>
+                  <Feather name="trending-up" size={14} color="#fff" />
+                </View>
+                <Text style={styles.sectionHeaderText}>Hair Health Journey</Text>
+              </View>
+            </View>
+
+            <RecoveryChart weeks={16} curve={{ plateauAt: 0.82 }} durationMs={18000} loop />
+
+            <View style={{ marginTop: 10 }}>
+              <Text style={styles.sparkTitle}>Daily check-ins (last 14 days)</Text>
+              <View style={styles.sparkRow}>
+                {checkinBars.map((v, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.sparkBar,
+                      { opacity: v ? 1 : 0.35, height: v ? 16 : 8 },
+                    ]}
+                  />
+                ))}
+              </View>
+            </View>
+          </GlassCard>
+
+          {/* Today's Routine (below) */}
           <GlassCard style={{ padding: 14, marginBottom: 14 }}>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionHeaderLeft}>
@@ -498,6 +678,9 @@ export default function DashboardScreen() {
                       <Text style={styles.taskTitle}>{s.name}</Text>
                       {s.time ? <Text style={styles.taskTime}>{s.time}</Text> : null}
                     </View>
+                    <View style={styles.pointIndicator}>
+                      <Text style={styles.pointText}>+1</Text>
+                    </View>
                   </Pressable>
                 );
               })}
@@ -511,12 +694,39 @@ export default function DashboardScreen() {
         </ScreenScrollView>
       </SafeAreaView>
 
-      {/* Toast for routine task completion */}
-      {toast ? (
-        <View style={styles.toast}>
-          <Text style={styles.toastText}>{toast}</Text>
-        </View>
-      ) : null}
+      {/* Daily Check-in Popup */}
+      <DailyCheckInPopup 
+        visible={showDailyCheckInPopup} 
+        onClose={() => setShowDailyCheckInPopup(false)} 
+      />
+
+      {/* Signup Bonus Popup */}
+      <SignupBonusPopup 
+        visible={showSignupBonusPopup} 
+        onClose={() => {
+          setShowSignupBonusPopup(false);
+          // Show daily check-in popup 5 seconds after signup bonus closes
+          dailyCheckInTimeoutRef.current = setTimeout(() => {
+            console.log("Checking for daily check-in popup after signup bonus...");
+            console.log("shouldShowDailyPopup():", shouldShowDailyPopup());
+            if (shouldShowDailyPopup()) {
+              console.log("Showing daily check-in popup");
+              setShowDailyCheckInPopup(true);
+              markPopupShown();
+            } else {
+              console.log("Daily check-in conditions not met");
+            }
+            dailyCheckInTimeoutRef.current = null;
+          }, 5000);
+        }} 
+      />
+
+      {/* First Point Popup */}
+      <FirstPointPopup 
+        visible={showFirstPointPopup} 
+        onClose={() => setShowFirstPointPopup(false)} 
+      />
+
     </View>
   );
 }
@@ -543,7 +753,20 @@ function StatTile({ big, caption }: { big: string; caption: string }) {
 /* --------------------------------- styles --------------------------------- */
 
 const styles = StyleSheet.create({
-  // Header styles removed - now using inline styles to match shop screen
+  // Match Rewards header
+  headerWrap: {
+    paddingTop: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
+  headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
+  rewardsPillContainer: {
+    position: "absolute",
+    right: 16,
+    top: -8,
+  },
 
   axisLabel: { color: "rgba(255,255,255,0.7)", fontSize: 10 },
 
@@ -621,6 +844,13 @@ const styles = StyleSheet.create({
   },
   taskTitle: { color: "#fff", fontWeight: "700" },
   taskTime: { color: "rgba(255,255,255,0.80)", marginTop: 2 },
+  pointIndicator: {
+  },
+  pointText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
 
   longBtn: {
     marginTop: 12,
@@ -669,18 +899,27 @@ const styles = StyleSheet.create({
   linkRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   linkText: { color: "#fff", textDecorationLine: "underline", fontWeight: "700" },
 
-  toast: {
-    position: "absolute",
-    bottom: 24,
-    left: 16,
-    right: 16,
-    borderRadius: 12,
+  quickActionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "rgba(255,255,255,0.1)",
     paddingVertical: 10,
     paddingHorizontal: 12,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)",
-    alignItems: "center",
+    borderColor: "rgba(255,255,255,0.15)",
   },
-  toastText: { color: "#fff", fontWeight: "700" },
+  quickActionText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  // Points display styles (from rewards page)
+  pointsLabel: { color: "rgba(255,255,255,0.75)", fontSize: 12, marginBottom: 2 },
+  pointsValue: { color: "#fff", fontSize: 32, fontWeight: "800" },
+  progressLabels: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
+
 });

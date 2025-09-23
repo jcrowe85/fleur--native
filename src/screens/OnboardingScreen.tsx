@@ -614,7 +614,7 @@ function SetupSequence({
   // ── State & layout ─────────────────────────────────────────────
   const [active, setActive] = React.useState(0);
   const { height: H } = Dimensions.get("window");
-  const TOP_OFFSET = Math.max(24, Math.round(H * 0.25));
+  const TOP_OFFSET = Math.max(24, Math.round(H * 0.3));
 
   // Opacity fade loop
   const fade = useSharedValue(MIN_OPACITY);

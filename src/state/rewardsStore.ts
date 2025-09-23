@@ -14,6 +14,7 @@ type LedgerItem = {
 };
 
 type Grants = {
+  signupBonus?: boolean;     // awarded once for signing up
   startedRoutine?: boolean;  // awarded once when user completes routine setup
   firstPost?: boolean;       // awarded once after first post
   firstComment?: boolean;    // awarded once after first comment
@@ -28,6 +29,8 @@ type RewardsState = {
   lastCheckInISO: string | null;
   ledger: LedgerItem[];
   grants: Grants;
+  firstPointCallback?: () => void; // Callback for first point earned
+  signupBonusCallback?: () => void; // Callback for signup bonus
   
   // Daily routine tracking
   dailyRoutinePoints: number; // points earned from routine tasks today
@@ -44,6 +47,9 @@ type RewardsState = {
   checkIn: () => { ok: boolean; message: string };
   undoCheckIn: () => { ok: boolean; message: string };
   grantOnce: (key: keyof Grants, delta: number, reason: string) => boolean;
+  setFirstPointCallback: (callback: () => void) => void;
+  setSignupBonusCallback: (callback: () => void) => void;
+  awardSignupBonus: () => boolean;
   
   // routine task tracking
   completeRoutineTask: (taskId: string) => { ok: boolean; message: string; points: number };
@@ -78,9 +84,9 @@ export const useRewardsStore = create<RewardsState>()(
       referralCount: 0,
 
       hasCheckedInToday: () => {
-        const iso = get().lastCheckInISO;
-        if (!iso) return false;
-        return dayjs(iso).isSame(dayjs(), "day");
+        // Check the check-in store instead of our own lastCheckInISO
+        const { hasCheckedInToday: checkInStoreHasCheckedIn } = require("./checkinStore").useCheckInStore.getState();
+        return checkInStoreHasCheckedIn();
       },
 
       hasCompletedRoutineToday: () => {
@@ -108,6 +114,9 @@ export const useRewardsStore = create<RewardsState>()(
         const currentState = get();
         console.log(`DEBUG: Before earning - pointsTotal: ${currentState.pointsTotal}, pointsAvailable: ${currentState.pointsAvailable}`);
         
+        // Check if this is the first point ever earned
+        const isFirstPoint = currentState.pointsTotal === 0 && delta > 0;
+        
         set((s) => ({
           pointsTotal: Math.max(0, s.pointsTotal + delta),
           pointsAvailable: Math.max(0, s.pointsAvailable + delta),
@@ -124,6 +133,12 @@ export const useRewardsStore = create<RewardsState>()(
         
         const newState = get();
         console.log(`DEBUG: After earning - pointsTotal: ${newState.pointsTotal}, pointsAvailable: ${newState.pointsAvailable}`);
+        
+        // Trigger first point callback if this was the first point (but not for signup bonus)
+        if (isFirstPoint && newState.firstPointCallback && reason !== "Welcome to Fleur! Here's your signup bonus to get you started on your hair journey.") {
+          console.log("DEBUG: First point earned! Triggering callback");
+          newState.firstPointCallback();
+        }
       },
 
       checkIn: () => {
@@ -373,6 +388,29 @@ export const useRewardsStore = create<RewardsState>()(
         return { ok: true, message: "Action reversed successfully" };
       },
 
+      setFirstPointCallback: (callback) => {
+        set({ firstPointCallback: callback });
+      },
+
+      setSignupBonusCallback: (callback) => {
+        set({ signupBonusCallback: callback });
+      },
+
+      awardSignupBonus: () => {
+        const currentState = get();
+        
+        // Check if signup bonus has already been awarded
+        if (currentState.grants.signupBonus) {
+          return false; // Already awarded
+        }
+
+        // Award the signup bonus
+        const success = get().grantOnce("signupBonus", 250, "Welcome to Fleur! Here's your signup bonus to get you started on your hair journey.");
+        
+        // Don't trigger callback here - let the component handle popup display
+        return success;
+      },
+
       resetAll: () =>
         set({
           pointsTotal: 0,
@@ -384,6 +422,8 @@ export const useRewardsStore = create<RewardsState>()(
           dailyRoutinePoints: 0,
           lastRoutineDate: null,
           referralCount: 0,
+          firstPointCallback: undefined,
+          signupBonusCallback: undefined,
         }),
     }),
     { name: "rewards:v2" }

@@ -123,16 +123,16 @@ export default function EducationScreen() {
 
       <SafeAreaView style={styles.safeBody} edges={["top", "left", "right"]}>
         {/* Header */}
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
-          <View style={{ width: 38 }} />
+        <View style={styles.headerWrap}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, position: "relative" }}>
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text style={styles.headerTitle}>Hair Education</Text>
+              <Text style={styles.headerSub}>Science-backed hair care knowledge</Text>
+            </View>
 
-          <View style={{ flex: 1, alignItems: "center" }}>
-            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "600" }}>Hair Education</Text>
-            <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 4 }}>Science-backed hair care knowledge</Text>
-          </View>
-
-          <View style={{ padding: 8, borderRadius: 20 }}>
-            <RewardsPill compact />
+            <View style={[styles.rewardsPillContainer, { padding: 8, borderRadius: 20 }]}>
+              <RewardsPill compact />
+            </View>
           </View>
         </View>
 
@@ -224,7 +224,20 @@ const styles = StyleSheet.create({
   // ----- layout -----
   safeBody: { flex: 1, justifyContent: "flex-start", alignItems: "stretch" },
 
-  // Header styles removed - now using inline styles to match shop screen
+  // Match Rewards header
+  headerWrap: {
+    paddingTop: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
+  headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
+  rewardsPillContainer: {
+    position: "absolute",
+    right: 16,
+    top: -8,
+  },
 
   feedList: { flex: 1, alignSelf: "stretch" },
   feedContent: {

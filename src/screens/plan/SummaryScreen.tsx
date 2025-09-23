@@ -103,10 +103,10 @@ export default function Summary() {
         >
           {/* Header */}
           <View className="flex-row items-center justify-center mb-6" style={{ paddingTop: 8 }}>
-            <View>
+            <View style={{ alignItems: "center" }}>
               <Text className="text-white text-[22px] font-semibold text-center">Your Hair Summary</Text>
               <Text className="text-white/80 text-sm text-center mt-1">
-                What we found and how we’ll help over the next 6–8 weeks
+                What we found and how we'll help over the next 6–8 weeks
               </Text>
             </View>
           </View>
