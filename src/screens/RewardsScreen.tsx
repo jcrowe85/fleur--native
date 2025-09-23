@@ -46,13 +46,21 @@ function getTierInfo(points: number) {
 function reasonLabel(reason: string) {
   switch (reason) {
     case "daily_check_in": return "Daily check-in";
-    case "start_routine":  return "Started routine";
-    case "first_post":     return "First community post";
-    case "write_review":   return "Product review";
-    case "refer_friend":   return "Referral";
-    case "purchase":       return "Purchase";
-    case "redeem":         return "Redeemed";
-    default:               return reason.replace(/_/g, " ");
+    case "seven_day_streak_bonus": return "7-day streak bonus";
+    case "daily_routine_task": return "Daily routine task";
+    case "daily_routine_task_undo": return "Routine task undone";
+    case "first_routine_step_bonus": return "First routine step";
+    case "start_routine": return "Started routine";
+    case "first_post": return "First community post";
+    case "first_comment": return "First comment";
+    case "first_like": return "First like";
+    case "post_engagement_likes": return "Post engagement (likes)";
+    case "post_engagement_comments": return "Post engagement (comments)";
+    case "write_review": return "Product review";
+    case "refer_friend": return "Referral";
+    case "purchase": return "Purchase";
+    case "redeem": return "Redeemed";
+    default: return reason.replace(/_/g, " ");
   }
 }
 
@@ -137,7 +145,7 @@ export default function RewardsScreen() {
               icon="gift"
               title="Refer a friend"
               points="+20"
-              onPress={() => router.push("/(app)/education")} // placeholder
+              onPress={() => router.push("/(app)/invite-friends")}
             />
             <EarnSquare
               icon="shopping-bag"
@@ -173,10 +181,16 @@ export default function RewardsScreen() {
                 <View style={styles.rulesWrap}>
                   <Rule line="$1 spent = 1 point" sub="Points post after confirmed orders." />
                   <Rule line="Daily check-in = +1 point" sub="Keep your streak going." />
-                  <Rule line="Start your routine = +5" sub="Awarded the first time you set it up." />
+                  <Rule line="7-day streak = +2 bonus points" sub="Extra reward for consistency." />
+                  <Rule line="Daily routine tasks = +1 point each" sub="Max 5 points per day." />
+                  <Rule line="First routine step = +6 points" sub="5 bonus + 1 task point." />
                   <Rule line="First community post = +5" sub="Say hi to the community." />
+                  <Rule line="First comment = +5" sub="Engage with the community." />
+                  <Rule line="First like = +1" sub="Show some love." />
+                  <Rule line="Post engagement = +1 per 100 likes" sub="Your content is popular!" />
+                  <Rule line="Post engagement = +5 per 10 comments" sub="Great discussions." />
+                  <Rule line="Refer a friend = +20" sub="Max 20 referrals." />
                   <Rule line="Write a review = +5" sub="Share your experience to help others." />
-                  <Rule line="Refer a friend = +20" sub="After their first confirmed order." />
                 </View>
               </View>
             )}

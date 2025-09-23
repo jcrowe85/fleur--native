@@ -4,6 +4,7 @@ import type { CommentItem } from "./types";
 import { usePickHandleSheet } from "./pickHandleSheet";
 import { ensureHandleOrPrompt } from "./ensureHandle";
 import { ensureSession } from "@/features/community/ensureSession";
+import { onFirstComment } from "@/services/rewards";
 
 const COMMENTS_PAGE_SIZE = 20;
 
@@ -32,6 +33,10 @@ export function useCommentsService() {
     }
 
     const row: any = data;
+    
+    // Award points for first comment
+    onFirstComment({ commentId: row.id, postId: postId });
+    
     return {
       id: row.id,
       user_id: row.user_id,

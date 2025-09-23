@@ -1,0 +1,511 @@
+// src/screens/InviteFriendsScreen.tsx
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ImageBackground,
+  Pressable,
+  ScrollView,
+  Alert,
+  Linking,
+  Share,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
+import { Feather } from "@expo/vector-icons";
+import { router } from "expo-router";
+import * as Contacts from "expo-contacts";
+
+import { useRewardsStore } from "@/state/rewardsStore";
+import { onReferralConfirmed } from "@/services/rewards";
+import RewardsPill from "@/components/UI/RewardsPill";
+
+type Contact = {
+  id: string;
+  name: string;
+  phoneNumbers?: string[];
+  emails?: string[];
+  selected: boolean;
+};
+
+const APP_LINK = "https://fleur.app/download"; // Replace with your actual app link
+
+export default function InviteFriendsScreen() {
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+  const [permissionGranted, setPermissionGranted] = useState(false);
+
+  const referralCount = useRewardsStore((s) => s.referralCount);
+  const maxReferrals = 20;
+  const remainingReferrals = maxReferrals - referralCount;
+
+  useEffect(() => {
+    requestContactsPermission();
+  }, []);
+
+  const requestContactsPermission = async () => {
+    try {
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status === "granted") {
+        setPermissionGranted(true);
+        loadContacts();
+      } else {
+        console.log("Contacts permission denied, user can still use manual sharing");
+        // Don't show alert, just allow manual sharing
+      }
+    } catch (error) {
+      console.error("Error requesting contacts permission:", error);
+      // Fallback to manual sharing only
+    }
+  };
+
+  const loadContacts = async () => {
+    try {
+      setLoading(true);
+      const { data } = await Contacts.getContactsAsync({
+        fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails],
+        sort: Contacts.SortTypes.FirstName,
+      });
+
+      const formattedContacts: Contact[] = data
+        .filter((contact) => contact.name && (contact.phoneNumbers?.length || contact.emails?.length))
+        .slice(0, 100) // Limit to first 100 contacts for performance
+        .map((contact) => ({
+          id: contact.id || Math.random().toString(),
+          name: contact.name || "Unknown",
+          phoneNumbers: contact.phoneNumbers?.map((p) => p.number),
+          emails: contact.emails?.map((e) => e.email),
+          selected: false,
+        }));
+
+      setContacts(formattedContacts);
+    } catch (error) {
+      console.error("Error loading contacts:", error);
+      // Don't show alert, just continue with manual sharing
+      setContacts([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleContact = (contactId: string) => {
+    if (selectedContacts.size >= remainingReferrals && !selectedContacts.has(contactId)) {
+      Alert.alert(
+        "Limit Reached",
+        `You can only invite ${remainingReferrals} more friends (${maxReferrals} total limit).`
+      );
+      return;
+    }
+
+    setSelectedContacts((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(contactId)) {
+        newSet.delete(contactId);
+      } else {
+        newSet.add(contactId);
+      }
+      return newSet;
+    });
+  };
+
+  const sendInvites = async () => {
+    if (selectedContacts.size === 0) {
+      Alert.alert("No Selection", "Please select at least one friend to invite.");
+      return;
+    }
+
+    const selectedContactData = contacts.filter((c) => selectedContacts.has(c.id));
+    
+    try {
+      for (const contact of selectedContactData) {
+        const message = `Hey! I've been using Fleur for my hair care routine and it's been amazing. Check it out: ${APP_LINK}`;
+        
+        // Try to send via SMS if phone number available
+        if (contact.phoneNumbers && contact.phoneNumbers.length > 0) {
+          const phoneNumber = contact.phoneNumbers[0];
+          const smsUrl = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
+          
+          try {
+            await Linking.openURL(smsUrl);
+          } catch (error) {
+            console.error("Error sending SMS:", error);
+          }
+        }
+        
+        // Award points for each referral
+        const result = onReferralConfirmed({ contactName: contact.name });
+        if (result.ok) {
+          console.log(`Points awarded for referring ${contact.name}`);
+        }
+      }
+
+      Alert.alert(
+        "Invites Sent!",
+        `You've earned ${selectedContacts.size * 20} points for referring ${selectedContacts.size} friend${selectedContacts.size > 1 ? 's' : ''}!`,
+        [
+          {
+            text: "Great!",
+            onPress: () => router.back(),
+          },
+        ]
+      );
+    } catch (error) {
+      console.error("Error sending invites:", error);
+      Alert.alert("Error", "Failed to send some invites. Please try again.");
+    }
+  };
+
+  const shareManually = async () => {
+    try {
+      const message = `Hey! I've been using Fleur for my hair care routine and it's been amazing. Check it out: ${APP_LINK}`;
+      await Share.share({
+        message,
+        url: APP_LINK,
+        title: "Check out Fleur!",
+      });
+    } catch (error) {
+      console.error("Error sharing:", error);
+    }
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: "#120d0a" }}>
+      <ImageBackground
+        source={require("../../assets/dashboard.png")}
+        resizeMode="cover"
+        style={StyleSheet.absoluteFillObject as any}
+      />
+      <StatusBar style="light" />
+
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.backButton}>
+            <Feather name="arrow-left" size={24} color="#fff" />
+          </Pressable>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>Invite Friends</Text>
+            <Text style={styles.headerSubtitle}>Earn 20 points per friend</Text>
+          </View>
+          <View style={styles.rewardsContainer}>
+            <RewardsPill compact />
+          </View>
+        </View>
+
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          {/* Progress */}
+          <View style={styles.progressCard}>
+            <View style={styles.progressHeader}>
+              <Text style={styles.progressTitle}>Referral Progress</Text>
+              <Text style={styles.progressCount}>
+                {referralCount}/{maxReferrals}
+              </Text>
+            </View>
+            <View style={styles.progressBar}>
+              <View
+                style={[
+                  styles.progressFill,
+                  { width: `${(referralCount / maxReferrals) * 100}%` },
+                ]}
+              />
+            </View>
+            <Text style={styles.progressText}>
+              {remainingReferrals} referrals remaining
+            </Text>
+          </View>
+
+          {/* Manual Share */}
+          <View style={styles.manualShareCard}>
+            <View style={styles.manualShareHeader}>
+              <Feather name="share-2" size={20} color="#fff" />
+              <Text style={styles.manualShareTitle}>Share Manually</Text>
+            </View>
+            <Text style={styles.manualShareDescription}>
+              Share Fleur with friends via any app
+            </Text>
+            <Pressable style={styles.manualShareButton} onPress={shareManually}>
+              <Text style={styles.manualShareButtonText}>Share App Link</Text>
+            </Pressable>
+          </View>
+
+          {/* Contacts Section */}
+          {permissionGranted && (
+            <View style={styles.contactsSection}>
+              <View style={styles.contactsHeader}>
+                <Text style={styles.contactsTitle}>Select Friends</Text>
+                <Text style={styles.contactsSubtitle}>
+                  Choose up to {remainingReferrals} friends
+                </Text>
+              </View>
+
+              {loading ? (
+                <View style={styles.loadingContainer}>
+                  <Text style={styles.loadingText}>Loading contacts...</Text>
+                </View>
+              ) : (
+                <View style={styles.contactsList}>
+                  {contacts.map((contact) => (
+                    <Pressable
+                      key={contact.id}
+                      style={[
+                        styles.contactItem,
+                        selectedContacts.has(contact.id) && styles.contactItemSelected,
+                      ]}
+                      onPress={() => toggleContact(contact.id)}
+                    >
+                      <View style={styles.contactInfo}>
+                        <View style={styles.contactAvatar}>
+                          <Text style={styles.contactAvatarText}>
+                            {contact.name.charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                        <View style={styles.contactDetails}>
+                          <Text style={styles.contactName}>{contact.name}</Text>
+                          {contact.phoneNumbers && contact.phoneNumbers.length > 0 && (
+                            <Text style={styles.contactPhone}>
+                              {contact.phoneNumbers[0]}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                      <View
+                        style={[
+                          styles.checkbox,
+                          selectedContacts.has(contact.id) && styles.checkboxSelected,
+                        ]}
+                      >
+                        {selectedContacts.has(contact.id) && (
+                          <Feather name="check" size={16} color="#fff" />
+                        )}
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+
+              {selectedContacts.size > 0 && (
+                <Pressable style={styles.inviteButton} onPress={sendInvites}>
+                  <Text style={styles.inviteButtonText}>
+                    Send Invites ({selectedContacts.size})
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+        </ScrollView>
+      </SafeAreaView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  backButton: {
+    padding: 8,
+    borderRadius: 20,
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: "center",
+  },
+  headerTitle: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "600",
+  },
+  headerSubtitle: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 12,
+    marginTop: 4,
+  },
+  rewardsContainer: {
+    padding: 8,
+    borderRadius: 20,
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  progressCard: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  progressHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  progressTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  progressCount: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  progressBar: {
+    height: 8,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderRadius: 4,
+    overflow: "hidden",
+    marginBottom: 8,
+  },
+  progressFill: {
+    height: 8,
+    backgroundColor: "#fff",
+    borderRadius: 4,
+  },
+  progressText: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 12,
+  },
+  manualShareCard: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  manualShareHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  manualShareTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+    marginLeft: 8,
+  },
+  manualShareDescription: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  manualShareButton: {
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: "center",
+  },
+  manualShareButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  contactsSection: {
+    marginBottom: 20,
+  },
+  contactsHeader: {
+    marginBottom: 12,
+  },
+  contactsTitle: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  contactsSubtitle: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 14,
+  },
+  loadingContainer: {
+    padding: 20,
+    alignItems: "center",
+  },
+  loadingText: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 14,
+  },
+  contactsList: {
+    marginBottom: 16,
+  },
+  contactItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  contactItemSelected: {
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderColor: "rgba(255,255,255,0.35)",
+  },
+  contactInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  contactAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  contactAvatarText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  contactDetails: {
+    flex: 1,
+  },
+  contactName: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  contactPhone: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 14,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxSelected: {
+    backgroundColor: "#fff",
+    borderColor: "#fff",
+  },
+  inviteButton: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  inviteButtonText: {
+    color: "#2d241f",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+});

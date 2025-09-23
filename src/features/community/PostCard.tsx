@@ -4,6 +4,7 @@ import { Feather, FontAwesome } from "@expo/vector-icons"; // ⬅️ add FontAwe
 import type { PostItem } from "./types";
 import { useLikesService } from "./likes.service";
 import { useCommentsSheet } from "./commentsSheet";
+import { onPostEngagement } from "@/services/rewards";
 
 function timeAgo(iso: string) {
   const s = Math.max(1, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -26,12 +27,23 @@ export function PostCard({ post }: { post: PostItem }) {
 
   const [liked, setLiked] = useState(!!post.liked_by_me);
   const [count, setCount] = useState(post.comments_count ?? 0);
-  const likeCount = (post as any).likes_count as number | undefined;
+  const [likeCount, setLikeCount] = useState((post as any).likes_count as number | undefined ?? 0);
 
   // Sync count with post data updates (from realtime subscription)
   useEffect(() => {
     setCount(post.comments_count ?? 0);
-  }, [post.comments_count]);
+    setLikeCount((post as any).likes_count ?? 0);
+  }, [post.comments_count, (post as any).likes_count]);
+
+  // Check for engagement rewards when counts change
+  useEffect(() => {
+    if (likeCount > 0 || count > 0) {
+      const result = onPostEngagement(post.id, likeCount, count);
+      if (result.totalPoints > 0) {
+        console.log(`Post engagement reward: ${result.totalPoints} points (${result.likePoints} from likes, ${result.commentPoints} from comments)`);
+      }
+    }
+  }, [likeCount, count, post.id]);
 
   // Normalize media (always array)
   const media: string[] = Array.isArray((post as any).media_urls)
@@ -49,6 +61,13 @@ export function PostCard({ post }: { post: PostItem }) {
     try {
       const nowLiked = await toggle(post.id);
       setLiked(nowLiked);
+      
+      // Update like count based on the action
+      if (nowLiked && !prev) {
+        setLikeCount(prev => prev + 1);
+      } else if (!nowLiked && prev) {
+        setLikeCount(prev => Math.max(0, prev - 1));
+      }
     } catch {
       setLiked(prev);
     }
@@ -124,9 +143,7 @@ export function PostCard({ post }: { post: PostItem }) {
                   color={liked ? "#ff3b30" : "rgba(255,255,255,0.9)"}
                 />
               </View>
-              {typeof likeCount === "number" ? (
-                <Text style={styles.iconText}>{likeCount}</Text>
-              ) : null}
+              <Text style={styles.iconText}>{likeCount}</Text>
             </Pressable>
 
             <Pressable

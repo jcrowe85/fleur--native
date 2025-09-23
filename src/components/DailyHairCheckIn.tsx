@@ -65,6 +65,7 @@ const getValueFromOverallFeeling = (feeling: OverallFeeling): number => {
 
 
 export default function DailyHairCheckIn({ onHidden }: { onHidden?: () => void }) {
+  console.log("DEBUG: DailyHairCheckIn component rendered");
   const { addCheckIn, getCheckInForDate, hasCheckedInToday } = useCheckInStore();
   const today = dayjs().format("YYYY-MM-DD");
 
@@ -79,9 +80,12 @@ export default function DailyHairCheckIn({ onHidden }: { onHidden?: () => void }
 
   // Initialize component state based on existing check-in
   useEffect(() => {
+    console.log("DEBUG: DailyHairCheckIn useEffect running for date:", today);
     const existingCheckIn = getCheckInForDate(today);
+    console.log("DEBUG: Existing check-in found:", !!existingCheckIn);
     
     if (existingCheckIn) {
+      console.log("DEBUG: Setting completed state and hiding component");
       setScalpValue(getValueFromScalpCondition(existingCheckIn.scalpCondition));
       setSheddingValue(getValueFromHairShedding(existingCheckIn.hairShedding));
       setFeelingValue(getValueFromOverallFeeling(existingCheckIn.overallFeeling));
@@ -89,6 +93,7 @@ export default function DailyHairCheckIn({ onHidden }: { onHidden?: () => void }
       // If already completed, hide the component immediately
       onHidden?.();
     } else {
+      console.log("DEBUG: No existing check-in, showing form");
       setScalpValue(0);
       setSheddingValue(0);
       setFeelingValue(0);
@@ -118,12 +123,14 @@ export default function DailyHairCheckIn({ onHidden }: { onHidden?: () => void }
       addCheckIn(checkInData);
       setIsCompleted(true);
 
-      // Award check-in points if this is the first check-in today
-      if (!hasCheckedInToday()) {
-        const res = onDailyCheckIn();
-        if (res?.ok) {
-          console.log("Check-in completed:", res.message);
-        }
+      // Award daily check-in points (separate from routine task rewards)
+      console.log("DEBUG: Attempting to award daily check-in points...");
+      const res = onDailyCheckIn();
+      console.log("DEBUG: Daily check-in result:", res);
+      if (res?.ok) {
+        console.log("Daily check-in completed:", res.message);
+      } else {
+        console.log("Daily check-in failed:", res?.message);
       }
 
       // Start the slide-out animation after a brief delay

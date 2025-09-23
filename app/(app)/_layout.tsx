@@ -21,15 +21,24 @@ import { CommentsSheetProvider } from "../../src/features/community/commentsShee
 import { PickHandleSheetProvider } from "../../src/features/community/pickHandleSheet";
 import { useAuthStore } from "../../src/state/authStore";
 import RewardsPill from "@/components/UI/RewardsPill";
+import RewardsPopup from "@/components/UI/RewardsPopup";
+import { useRewardsPopup } from "@/hooks/useRewardsPopup";
 
 
 export default function AppLayout() {
   const { bootstrap, loading, error } = useAuthStore();
+  const { visible, popupData, hidePopup, checkForBigRewards } = useRewardsPopup();
 
   useEffect(() => {
     bootstrap();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Check for big rewards periodically
+  useEffect(() => {
+    const interval = setInterval(checkForBigRewards, 1000);
+    return () => clearInterval(interval);
+  }, [checkForBigRewards]);
 
   if (loading) {
     return (
@@ -86,7 +95,20 @@ export default function AppLayout() {
           {/* Hide non-tab routes inside this group */}
           {/* Removed: <Tabs.Screen name="article" options={{ href: null }} /> */}
           <Tabs.Screen name="profile" options={{ href: null }} />
+          <Tabs.Screen name="rewards" options={{ href: null }} />
+          <Tabs.Screen name="invite-friends" options={{ href: null }} />
         </Tabs>
+        
+        {/* Rewards Popup */}
+        {popupData && (
+          <RewardsPopup
+            visible={visible}
+            onClose={hidePopup}
+            points={popupData.points}
+            reason={popupData.reason}
+            description={popupData.description}
+          />
+        )}
       </CommentsSheetProvider>
     </PickHandleSheetProvider>
   );

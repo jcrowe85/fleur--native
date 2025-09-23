@@ -9,11 +9,16 @@ type LedgerItem = {
   delta: number;          // +points or -points
   reason: string;         // "daily_check_in", "start_routine", "first_post", "redeem", etc.
   meta?: Record<string, any>;
+  reversible?: boolean;   // whether this action can be undone
+  relatedActionId?: string; // ID of the action that can reverse this
 };
 
 type Grants = {
   startedRoutine?: boolean;  // awarded once when user completes routine setup
   firstPost?: boolean;       // awarded once after first post
+  firstComment?: boolean;    // awarded once after first comment
+  firstLike?: boolean;       // awarded once after first like
+  firstRoutineStep?: boolean; // awarded once after first routine step completion
 };
 
 type RewardsState = {
@@ -23,14 +28,33 @@ type RewardsState = {
   lastCheckInISO: string | null;
   ledger: LedgerItem[];
   grants: Grants;
+  
+  // Daily routine tracking
+  dailyRoutinePoints: number; // points earned from routine tasks today
+  lastRoutineDate: string | null; // YYYY-MM-DD format
+  referralCount: number; // number of successful referrals (max 20)
 
   // derived helpers (lightweight)
   hasCheckedInToday: () => boolean;
+  hasCompletedRoutineToday: () => boolean;
+  getDailyRoutinePointsRemaining: () => number;
 
   // core mutations
-  earn: (delta: number, reason: string, meta?: Record<string, any>) => void;
+  earn: (delta: number, reason: string, meta?: Record<string, any>, reversible?: boolean, relatedActionId?: string) => void;
   checkIn: () => { ok: boolean; message: string };
+  undoCheckIn: () => { ok: boolean; message: string };
   grantOnce: (key: keyof Grants, delta: number, reason: string) => boolean;
+  
+  // routine task tracking
+  completeRoutineTask: (taskId: string) => { ok: boolean; message: string; points: number };
+  undoRoutineTask: (taskId: string) => { ok: boolean; message: string; points: number };
+  
+  // referral tracking
+  addReferral: () => { ok: boolean; message: string };
+  
+  // anti-gaming measures
+  validateAction: (reason: string, meta?: Record<string, any>) => { valid: boolean; message?: string };
+  reverseAction: (actionId: string) => { ok: boolean; message: string };
 
   // admin/debug helpers (optionally use in dev menu)
   resetAll: () => void;
@@ -49,6 +73,9 @@ export const useRewardsStore = create<RewardsState>()(
       lastCheckInISO: null,
       ledger: [],
       grants: {},
+      dailyRoutinePoints: 0,
+      lastRoutineDate: null,
+      referralCount: 0,
 
       hasCheckedInToday: () => {
         const iso = get().lastCheckInISO;
@@ -56,23 +83,116 @@ export const useRewardsStore = create<RewardsState>()(
         return dayjs(iso).isSame(dayjs(), "day");
       },
 
-      earn: (delta, reason, meta) =>
+      hasCompletedRoutineToday: () => {
+        const date = get().lastRoutineDate;
+        if (!date) return false;
+        return dayjs(date).isSame(dayjs(), "day");
+      },
+
+      getDailyRoutinePointsRemaining: () => {
+        const state = get();
+        if (!state.hasCompletedRoutineToday()) return 5;
+        return Math.max(0, 5 - state.dailyRoutinePoints);
+      },
+
+      earn: (delta, reason, meta, reversible = false, relatedActionId) => {
+        console.log(`DEBUG: earn called - delta: ${delta}, reason: ${reason}`);
+        
+        // Validate the action before awarding points
+        const validation = get().validateAction(reason, meta);
+        if (!validation.valid) {
+          console.warn(`Invalid action blocked: ${reason} - ${validation.message}`);
+          return;
+        }
+
+        const currentState = get();
+        console.log(`DEBUG: Before earning - pointsTotal: ${currentState.pointsTotal}, pointsAvailable: ${currentState.pointsAvailable}`);
+        
         set((s) => ({
           pointsTotal: Math.max(0, s.pointsTotal + delta),
           pointsAvailable: Math.max(0, s.pointsAvailable + delta),
-          ledger: [{ id: uid(), ts: Date.now(), delta, reason, meta }, ...s.ledger].slice(0, 200),
-        })),
+          ledger: [{ 
+            id: uid(), 
+            ts: Date.now(), 
+            delta, 
+            reason, 
+            meta, 
+            reversible,
+            relatedActionId 
+          }, ...s.ledger].slice(0, 200),
+        }));
+        
+        const newState = get();
+        console.log(`DEBUG: After earning - pointsTotal: ${newState.pointsTotal}, pointsAvailable: ${newState.pointsAvailable}`);
+      },
 
       checkIn: () => {
+        console.log("DEBUG: checkIn called");
+        console.log("DEBUG: hasCheckedInToday:", get().hasCheckedInToday());
+        
         if (get().hasCheckedInToday()) {
+          console.log("DEBUG: Already checked in today, returning false");
           return { ok: false, message: "Already checked in today." };
         }
+        
+        const state = get();
+        const newStreakDays = state.streakDays + 1;
+        const isSevenDayStreak = newStreakDays % 7 === 0;
+        
+        console.log("DEBUG: Setting check-in state, streak days:", newStreakDays);
         set((s) => ({
           lastCheckInISO: dayjs().toISOString(),
-          streakDays: s.streakDays + 1,
+          streakDays: newStreakDays,
         }));
-        get().earn(1, "daily_check_in");
+        
+        // Award 1 point for check-in (reversible)
+        const checkInActionId = `checkin-${dayjs().format("YYYY-MM-DD")}-${Date.now()}`;
+        console.log("DEBUG: Awarding 1 point for daily check-in");
+        get().earn(1, "daily_check_in", { actionId: checkInActionId }, true, checkInActionId);
+        
+        // Award 2 bonus points for 7-day streaks (not reversible)
+        if (isSevenDayStreak) {
+          console.log("DEBUG: Awarding 2 bonus points for 7-day streak");
+          get().earn(2, "seven_day_streak_bonus", { streakDays: newStreakDays }, false);
+          return { ok: true, message: `7-day streak! +3 points total (1 check-in + 2 bonus)` };
+        }
+        
+        console.log("DEBUG: Daily check-in completed successfully");
         return { ok: true, message: "Checked in! +1 point" };
+      },
+
+      undoCheckIn: () => {
+        const state = get();
+        
+        if (!state.hasCheckedInToday()) {
+          return { ok: false, message: "No check-in to undo today" };
+        }
+        
+        // Find today's check-in action
+        const today = dayjs().format("YYYY-MM-DD");
+        const checkInAction = state.ledger.find(item => 
+          item.reason === "daily_check_in" && 
+          item.delta > 0 &&
+          dayjs(item.ts).format("YYYY-MM-DD") === today
+        );
+        
+        if (!checkInAction) {
+          return { ok: false, message: "No check-in action found for today" };
+        }
+        
+        // Reverse the check-in action
+        const result = get().reverseAction(checkInAction.id);
+        if (!result.ok) {
+          return { ok: false, message: result.message };
+        }
+        
+        // Reset check-in state
+        set((s) => ({
+          lastCheckInISO: null,
+          streakDays: Math.max(0, s.streakDays - 1),
+        }));
+        
+        return { ok: true, message: "Check-in undone. -1 point" };
       },
 
       grantOnce: (key, delta, reason) => {
@@ -83,6 +203,176 @@ export const useRewardsStore = create<RewardsState>()(
         return true;
       },
 
+      completeRoutineTask: (taskId) => {
+        const state = get();
+        const today = dayjs().format("YYYY-MM-DD");
+        
+        // Reset daily points if it's a new day
+        if (state.lastRoutineDate !== today) {
+          set((s) => ({
+            dailyRoutinePoints: 0,
+            lastRoutineDate: today,
+          }));
+        }
+        
+        const currentState = get();
+        const remaining = currentState.getDailyRoutinePointsRemaining();
+        
+        if (remaining <= 0) {
+          return { ok: false, message: "Daily routine points limit reached (5 points max)", points: 0 };
+        }
+        
+        // Award 1 point for routine task completion
+        const points = 1;
+        set((s) => ({
+          dailyRoutinePoints: s.dailyRoutinePoints + points,
+        }));
+        
+        // Create a unique action ID for this specific task completion
+        const actionId = `${taskId}-${today}-${Date.now()}`;
+        get().earn(points, "daily_routine_task", { taskId, actionId }, true, actionId);
+        
+        // Check if this is the first routine step ever
+        if (!currentState.grants.firstRoutineStep) {
+          get().grantOnce("firstRoutineStep", 5, "first_routine_step_bonus");
+          return { ok: true, message: `First routine step! +6 points total (1 task + 5 bonus)`, points: 6 };
+        }
+        
+        return { ok: true, message: `Routine task completed! +${points} point`, points };
+      },
+
+      undoRoutineTask: (taskId) => {
+        const state = get();
+        const today = dayjs().format("YYYY-MM-DD");
+        
+        if (state.lastRoutineDate !== today || state.dailyRoutinePoints <= 0) {
+          return { ok: false, message: "No routine points to undo today", points: 0 };
+        }
+        
+        // Find the most recent routine task completion for this task today
+        const recentAction = state.ledger.find(item => 
+          item.reason === "daily_routine_task" && 
+          item.meta?.taskId === taskId &&
+          item.delta > 0 &&
+          dayjs(item.ts).format("YYYY-MM-DD") === today
+        );
+        
+        if (!recentAction) {
+          return { ok: false, message: "No recent completion found for this task", points: 0 };
+        }
+        
+        // Reverse the specific action
+        const result = get().reverseAction(recentAction.id);
+        if (!result.ok) {
+          return { ok: false, message: result.message, points: 0 };
+        }
+        
+        // Update daily routine points counter
+        const points = 1;
+        set((s) => ({
+          dailyRoutinePoints: Math.max(0, s.dailyRoutinePoints - points),
+        }));
+        
+        return { ok: true, message: `Routine task undone. -${points} point`, points: -points };
+      },
+
+      addReferral: () => {
+        const state = get();
+        
+        if (state.referralCount >= 20) {
+          return { ok: false, message: "Referral limit reached (20 friends max)" };
+        }
+        
+        set((s) => ({
+          referralCount: s.referralCount + 1,
+        }));
+        
+        get().earn(20, "refer_friend", { referralNumber: state.referralCount + 1 });
+        
+        return { ok: true, message: "Friend referred! +20 points" };
+      },
+
+      validateAction: (reason, meta) => {
+        const state = get();
+        const now = Date.now();
+        
+        // Rate limiting: prevent rapid-fire actions
+        const recentActions = state.ledger.filter(item => 
+          now - item.ts < 1000 // Within last second
+        );
+        
+        if (recentActions.length > 5) {
+          return { valid: false, message: "Too many actions too quickly" };
+        }
+        
+        // Validate specific action types
+        switch (reason) {
+          case "daily_check_in":
+            if (state.hasCheckedInToday()) {
+              return { valid: false, message: "Already checked in today" };
+            }
+            break;
+            
+          case "daily_routine_task":
+            if (state.getDailyRoutinePointsRemaining() <= 0) {
+              return { valid: false, message: "Daily routine points limit reached" };
+            }
+            break;
+            
+          case "refer_friend":
+            if (state.referralCount >= 20) {
+              return { valid: false, message: "Referral limit reached" };
+            }
+            break;
+            
+          case "post_engagement_likes":
+          case "post_engagement_comments":
+            // Prevent duplicate engagement rewards for same post
+            const postId = meta?.postId;
+            if (postId) {
+              const existingEngagement = state.ledger.find(item => 
+                item.reason === reason && item.meta?.postId === postId
+              );
+              if (existingEngagement) {
+                return { valid: false, message: "Engagement already rewarded for this post" };
+              }
+            }
+            break;
+        }
+        
+        return { valid: true };
+      },
+
+      reverseAction: (actionId) => {
+        const state = get();
+        const action = state.ledger.find(item => item.id === actionId);
+        
+        if (!action) {
+          return { ok: false, message: "Action not found" };
+        }
+        
+        if (!action.reversible) {
+          return { ok: false, message: "Action cannot be reversed" };
+        }
+        
+        // Create a reversal entry
+        const reversalId = uid();
+        set((s) => ({
+          pointsTotal: Math.max(0, s.pointsTotal - action.delta),
+          pointsAvailable: Math.max(0, s.pointsAvailable - action.delta),
+          ledger: [{ 
+            id: reversalId, 
+            ts: Date.now(), 
+            delta: -action.delta, 
+            reason: `${action.reason}_reversed`, 
+            meta: { originalActionId: actionId, ...action.meta },
+            reversible: false
+          }, ...s.ledger].slice(0, 200),
+        }));
+        
+        return { ok: true, message: "Action reversed successfully" };
+      },
+
       resetAll: () =>
         set({
           pointsTotal: 0,
@@ -91,9 +381,12 @@ export const useRewardsStore = create<RewardsState>()(
           lastCheckInISO: null,
           ledger: [],
           grants: {},
+          dailyRoutinePoints: 0,
+          lastRoutineDate: null,
+          referralCount: 0,
         }),
     }),
-    { name: "rewards:v1" }
+    { name: "rewards:v2" }
   )
 );
 

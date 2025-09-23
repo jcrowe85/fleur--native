@@ -18,7 +18,7 @@ import dayjs from "dayjs";
 
 import { useRoutineStore, RoutineStep } from "@/state/routineStore";
 import { useRewardsStore } from "@/state/rewardsStore";
-import { onDailyCheckIn } from "@/services/rewards";
+import { onRoutineTaskCompleted, onRoutineTaskUndone } from "@/services/rewards";
 import { ScreenScrollView } from "@/components/UI/bottom-space"; // ✅ unified bottom-spacing helper
 
 // ⭐ Small Rewards Pill (compact variant supported)
@@ -273,15 +273,25 @@ export default function DashboardScreen() {
   // Rewards tier
   const tier = tierInfo(points);
 
-  // Toggle handler (+1 daily check-in on first completion of the day)
+  // Toggle handler for routine tasks (awards points for task completion)
   const [toast, setToast] = useState<string | null>(null);
   function onToggle(step: RoutineStep) {
+    const wasCompleted = isCompletedToday(step.id);
     const nowCompleted = toggleStepToday(step.id);
-    if (nowCompleted && !hasCheckedInToday()) {
-      const res = onDailyCheckIn();
+
+    if (nowCompleted && !wasCompleted) {
+      // Task was just completed - award points
+      const res = onRoutineTaskCompleted(step.id);
       if (res?.ok) {
         setToast(res.message);
-        setTimeout(() => setToast(null), 1500);
+        setTimeout(() => setToast(null), 3000);
+      }
+    } else if (!nowCompleted && wasCompleted) {
+      // Task was just undone - remove points
+      const res = onRoutineTaskUndone(step.id);
+      if (res?.ok) {
+        setToast(res.message);
+        setTimeout(() => setToast(null), 3000);
       }
     }
   }
@@ -333,6 +343,26 @@ export default function DashboardScreen() {
               <DailyHairCheckIn onHidden={() => setCheckInVisible(false)} />
             </View>
           )}
+
+          {/* DEBUG: Test Daily Check-in Button */}
+          <GlassCard style={{ padding: 14, marginBottom: 14 }}>
+            <Pressable 
+              onPress={() => {
+                console.log("DEBUG: Test button pressed");
+                const { onDailyCheckIn } = require("@/services/rewards");
+                const result = onDailyCheckIn();
+                console.log("DEBUG: Test check-in result:", result);
+              }}
+              style={{ 
+                backgroundColor: "rgba(255,255,255,0.2)", 
+                padding: 12, 
+                borderRadius: 8,
+                alignItems: "center"
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "700" }}>TEST: Daily Check-in</Text>
+            </Pressable>
+          </GlassCard>
 
           {/* Hair Health Journey */}
           <GlassCard style={{ padding: 14, marginBottom: 14 }}>
@@ -478,14 +508,15 @@ export default function DashboardScreen() {
             </Pressable>
           </GlassCard>
 
-          {/* tiny toast */}
-          {toast ? (
-            <View style={styles.toast}>
-              <Text style={styles.toastText}>{toast}</Text>
-            </View>
-          ) : null}
         </ScreenScrollView>
       </SafeAreaView>
+
+      {/* Toast for routine task completion */}
+      {toast ? (
+        <View style={styles.toast}>
+          <Text style={styles.toastText}>{toast}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -639,14 +670,17 @@ const styles = StyleSheet.create({
   linkText: { color: "#fff", textDecorationLine: "underline", fontWeight: "700" },
 
   toast: {
-    marginTop: 12,
-    alignSelf: "center",
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    position: "absolute",
+    bottom: 24,
+    left: 16,
+    right: 16,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     backgroundColor: "rgba(0,0,0,0.6)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.25)",
+    alignItems: "center",
   },
   toastText: { color: "#fff", fontWeight: "700" },
 });

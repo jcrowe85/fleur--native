@@ -3,6 +3,7 @@ import { supabase } from "@/services/supabase";
 import { usePickHandleSheet } from "./pickHandleSheet";
 import { ensureHandleOrPrompt } from "./ensureHandle";
 import { ensureSession } from "@/features/community/ensureSession";
+import { onFirstLike } from "@/services/rewards";
 
 /** Like/unlike a post with RLS-safe preconditions and robust toggle. */
 export function useLikesService() {
@@ -18,6 +19,8 @@ export function useLikesService() {
       const { error: insErr } = await supabase.from("likes").insert({ post_id: postId });
       if (!insErr) {
         // insert succeeded → now liked
+        // Award points for first like (one-time only, not reversible)
+        onFirstLike({ postId });
         return true;
       }
 

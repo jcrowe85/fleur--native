@@ -182,8 +182,19 @@ export const useRoutineStore = create<RoutineState>()(
           return { steps: next };
         }),
 
-      removeStep: (id) =>
-        set((state) => ({ steps: state.steps.filter((s) => s.id !== id) })),
+      removeStep: (id) => {
+        // First, reverse any points earned from this step
+        const { onRoutineStepDeleted } = require("@/services/rewards");
+        const result = onRoutineStepDeleted(id);
+        
+        // Log the result for debugging
+        if (result.ok && result.points !== 0) {
+          console.log(`Routine step deleted: ${result.message}`);
+        }
+        
+        // Then remove the step from the routine
+        set((state) => ({ steps: state.steps.filter((s) => s.id !== id) }));
+      },
 
       toggleStepToday: (id) => {
         const k = get().todayKey();

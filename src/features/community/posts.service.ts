@@ -4,6 +4,7 @@ import { supabase } from "@/services/supabase";
 import { usePickHandleSheet } from "./pickHandleSheet";
 import { ensureHandleOrPrompt } from "./ensureHandle";
 import { ensureSession } from "./ensureSession";
+import { onFirstPost } from "@/services/rewards";
 import type { PostItem } from "./types";
 
 const PAGE_SIZE = 10;
@@ -30,15 +31,18 @@ export function usePostsService() {
       const user_id = await getUserId();
       const media_urls = (input.mediaUrls ?? undefined) as unknown as string[] | undefined;
 
-      const { error } = await supabase.from("posts").insert({
+      const { data: postData, error } = await supabase.from("posts").insert({
         user_id,
         body: input.body,
         category: input.category,
         media_url: input.mediaUrl ?? media_urls?.[0] ?? null,
         media_urls: media_urls ?? null,
-      });
+      }).select("id").single();
 
       if (error) throw error;
+
+      // Award points for first post
+      onFirstPost({ postId: postData.id });
     },
     [open]
   );

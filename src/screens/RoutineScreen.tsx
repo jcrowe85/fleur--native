@@ -15,7 +15,7 @@ import dayjs from "dayjs";
 import { router } from "expo-router";
 
 import { useRoutineStore, RoutineStep, Period } from "@/state/routineStore";
-import { onDailyCheckIn, onRoutineStarted } from "@/services/rewards";
+import { onRoutineTaskCompleted, onRoutineTaskUndone } from "@/services/rewards";
 import { useRewardsStore } from "@/state/rewardsStore";
 
 // spacing helper (same convention as Community/Dashboard/Education)
@@ -99,19 +99,12 @@ export default function RoutineScreen() {
   const toggleStepOn = useRoutineStore((s) => s.toggleStepOn);
   const isCompletedOn = useRoutineStore((s) => s.isCompletedOn);
 
-  // rewards
-  const hasCheckedInToday = useRewardsStore((s) => s.hasCheckedInToday);
+  // rewards (daily check-in is handled separately)
 
-  // initialize default routine & grant "startedRoutine" once
+  // initialize default routine
   useEffect(() => {
     applyDefaultIfEmpty();
   }, [applyDefaultIfEmpty]);
-
-  useEffect(() => {
-    if (stepsAll.some((s) => s.enabled)) {
-      onRoutineStarted();
-    }
-  }, [stepsAll]);
 
   const [tab, setTab] = useState<Period>("morning");
 
@@ -185,16 +178,26 @@ export default function RoutineScreen() {
   const [toast, setToast] = useState<string | null>(null);
 
   async function onToggleDaily(step: RoutineStep) {
+    const wasCompleted = isCompletedToday(step.id);
     const nowCompleted = toggleStepToday(step.id);
 
-    // If this was the first completion today, trigger +1 check-in
-    if (nowCompleted && !hasCheckedInToday()) {
-      const res = onDailyCheckIn(); // { ok, message }
+    if (nowCompleted && !wasCompleted) {
+      // Task was just completed - award points
+      const res = onRoutineTaskCompleted(step.id);
       if (res?.ok) {
         setToast(res.message);
-        setTimeout(() => setToast(null), 1800);
+        setTimeout(() => setToast(null), 3000);
+      }
+    } else if (!nowCompleted && wasCompleted) {
+      // Task was just undone - remove points
+      const res = onRoutineTaskUndone(step.id);
+      if (res?.ok) {
+        setToast(res.message);
+        setTimeout(() => setToast(null), 3000);
       }
     }
+
+    // Daily check-in is handled separately through the DailyHairCheckIn form component
   }
 
   function headerCounts(period: Period) {
