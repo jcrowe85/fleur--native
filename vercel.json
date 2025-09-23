@@ -2,12 +2,9 @@
   "functions": {
     "api/slack-webhook.js": {
       "maxDuration": 10
+    },
+    "api/test-webhook.js": {
+      "maxDuration": 10
     }
-  },
-  "rewrites": [
-    {
-      "source": "/api/slack-webhook",
-      "destination": "/api/slack-webhook.js"
-    }
-  ]
+  }
 }
