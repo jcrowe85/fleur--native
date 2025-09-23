@@ -199,7 +199,7 @@ export default function Recommendations() {
         {/* Header */}
         <View className="flex-row items-center justify-between px-4 pt-2 pb-3">
           <Pressable onPress={() => router.back()} className="p-2 rounded-full active:opacity-80" hitSlop={8}>
-            <Feather name="arrow-right" size={22} color="#fff" style={{ transform: [{ scaleX: -1 }] }} />
+            <Feather name="arrow-left" size={22} color="#fff" />
           </Pressable>
 
           <View style={{ flex: 1, alignItems: "center" }}>

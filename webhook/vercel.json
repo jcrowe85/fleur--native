@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/slack-webhook.js": {
+      "maxDuration": 10
+    }
+  }
+}

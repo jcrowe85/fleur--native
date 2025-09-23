@@ -17,6 +17,8 @@ import { useRewardsStore } from "@/state/rewardsStore";
 // ✅ Shared bottom spacing helper (same convention)
 import { ScreenScrollView } from "@/components/UI/bottom-space";
 import { getNextAffordableProduct, getPointsNeededForNext, getAllRedeemableProducts, getAffordableProducts, RedeemableProduct } from "@/data/productCatalog";
+import RewardsPill from "@/components/UI/RewardsPill";
+import PointsContainer from "@/components/UI/PointsContainer";
 
 function getProductProgressInfo(points: number) {
   const nextProduct = getNextAffordableProduct(points);
@@ -96,62 +98,104 @@ function RedeemableProductsGrid({ userPoints }: { userPoints: number }) {
     router.push(`/(app)/shop?redeem=${product.sku}`);
   };
 
+  // Group products by point cost
+  const productsByPoints = allProducts.reduce((groups, product) => {
+    const points = product.pointsRequired;
+    if (!groups[points]) {
+      groups[points] = [];
+    }
+    groups[points].push(product);
+    return groups;
+  }, {} as Record<number, RedeemableProduct[]>);
+
+  // Sort point groups in ascending order
+  const sortedPointGroups = Object.keys(productsByPoints)
+    .map(Number)
+    .sort((a, b) => a - b);
+
   return (
-    <View style={styles.productsGrid}>
-      {allProducts.map((product) => {
-        const canAfford = userPoints >= product.pointsRequired;
-        const isAffordable = affordableProducts.some(p => p.sku === product.sku);
+    <View style={styles.productsContainer}>
+      {sortedPointGroups.map((points) => {
+        const products = productsByPoints[points];
+        const canAffordAny = products.some(p => userPoints >= p.pointsRequired);
         
         return (
-          <View key={product.sku} style={[
-            styles.productCard,
-            !canAfford && styles.productCardDisabled
-          ]}>
-            {/* Product Image Placeholder */}
+          <View key={points} style={styles.pointGroup}>
+            {/* Point Group Header */}
             <View style={[
-              styles.productImage,
-              !canAfford && styles.productImageDisabled
+              styles.pointGroupHeader,
+              !canAffordAny && styles.pointGroupHeaderDisabled
             ]}>
-              <Feather 
-                name="package" 
-                size={24} 
-                color={canAfford ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.3)"} 
-              />
-            </View>
-
-            {/* Product Info */}
-            <View style={styles.productInfo}>
               <Text style={[
-                styles.productName,
-                !canAfford && styles.productNameDisabled
-              ]} numberOfLines={2}>
-                {product.name}
-              </Text>
-              
-              <Text style={[
-                styles.productPrice,
-                !canAfford && styles.productPriceDisabled
+                styles.pointGroupTitle,
+                !canAffordAny && styles.pointGroupTitleDisabled
               ]}>
-                ${(product.priceCents / 100).toFixed(2)}
+                {points} POINTS
               </Text>
+              {!canAffordAny && (
+                <Feather name="lock" size={16} color="rgba(255,255,255,0.4)" />
+              )}
             </View>
 
-            {/* Action Button */}
-            <View style={styles.productAction}>
-              {canAfford ? (
-                <Pressable
-                  style={styles.redeemButton}
-                  onPress={() => handleRedeem(product)}
-                >
-                  <Text style={styles.redeemButtonText}>Redeem</Text>
-                </Pressable>
-              ) : (
-                <View style={styles.pointsNeededContainer}>
-                  <Text style={styles.pointsNeededText}>
-                    {product.pointsRequired - userPoints} pts needed
-                  </Text>
-                </View>
-              )}
+            {/* Products in this point group */}
+            <View style={styles.productsGrid}>
+              {products.map((product) => {
+                const canAfford = userPoints >= product.pointsRequired;
+                
+                return (
+                  <View key={product.sku} style={[
+                    styles.productCard,
+                    !canAfford && styles.productCardDisabled
+                  ]}>
+                    {/* Product Image Placeholder */}
+                    <View style={[
+                      styles.productImage,
+                      !canAfford && styles.productImageDisabled
+                    ]}>
+                      <Feather 
+                        name="package" 
+                        size={24} 
+                        color={canAfford ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.3)"} 
+                      />
+                    </View>
+
+                    {/* Product Info */}
+                    <View style={styles.productInfo}>
+                      <Text style={[
+                        styles.productName,
+                        !canAfford && styles.productNameDisabled
+                      ]} numberOfLines={2}>
+                        {product.name}
+                      </Text>
+                      
+                      <Text style={[
+                        styles.productPrice,
+                        !canAfford && styles.productPriceDisabled
+                      ]}>
+                        ${(product.priceCents / 100).toFixed(2)}
+                      </Text>
+                    </View>
+
+                    {/* Action Button */}
+                    <View style={styles.productAction}>
+                      {canAfford ? (
+                        <Pressable
+                          style={styles.redeemButton}
+                          onPress={() => handleRedeem(product)}
+                        >
+                          <Text style={styles.redeemButtonText}>Redeem</Text>
+                        </Pressable>
+                      ) : (
+                        <View style={styles.pointsNeededContainer}>
+                          <Text style={styles.pointsNeededText}>
+                            {product.pointsRequired - userPoints} pts needed
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
             </View>
           </View>
         );
@@ -161,14 +205,23 @@ function RedeemableProductsGrid({ userPoints }: { userPoints: number }) {
 }
 
 export default function RewardsScreen() {
-  const pointsAvailable = useRewardsStore((s) => s.pointsAvailable);
+  const points = useRewardsStore((s) => s.pointsAvailable);
   const ledger = useRewardsStore((s) => s.ledger);
+  const scrollViewRef = React.useRef<any>(null);
 
-  const progress = React.useMemo(() => getProductProgressInfo(pointsAvailable), [pointsAvailable]);
+  const progress = React.useMemo(() => getProductProgressInfo(points), [points]);
+  const affordableProducts = getAffordableProducts(points);
+  const allProducts = getAllRedeemableProducts();
   const recent = ledger.slice(0, 8);
 
   // accordion state (details only)
   const [howOpen, setHowOpen] = React.useState(false);
+
+  const scrollToRedeemSection = () => {
+    if (scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({ y: 400, animated: true }); // Adjust this value as needed
+    }
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: "#120d0a" }}>
@@ -179,39 +232,32 @@ export default function RewardsScreen() {
       />
       <StatusBar style="light" />
 
-      <SafeAreaView edges={["top", "left", "right"]} style={styles.safe}>
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+        {/* Header */}
+        <View style={styles.headerWrap}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, position: "relative" }}>
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text style={styles.headerTitle}>Rewards</Text>
+              <Text style={styles.headerSub}>Earn points & free gifts</Text>
+            </View>
+
+            <View style={[styles.rewardsPillContainer, { padding: 8, borderRadius: 20 }]}>
+              <RewardsPill compact />
+            </View>
+          </View>
+        </View>
+
         <ScreenScrollView
-          contentContainerStyle={{ paddingHorizontal: 16 }}
+          ref={scrollViewRef}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6 }}
           bottomExtra={24} // ← same convention as other screens
           showsVerticalScrollIndicator={false}
         >
-          {/* Centered header — matches Community */}
-          <View style={styles.headerWrap}>
-            <Text style={styles.headerTitle}>Rewards</Text>
-            <Text style={styles.headerSub}>Earn points & free gifts</Text>
-          </View>
-
-          {/* Points glass card */}
-          <GlassCard style={styles.card}>
-            <View style={styles.pointsTopRow}>
-              <View style={{ flexShrink: 1 }}>
-                <Text style={styles.pointsLabel}>Points</Text>
-                <Text style={styles.pointsValue}>{pointsAvailable}</Text>
-              </View>
-
-            </View>
-
-            {/* Progress */}
-            <View style={{ marginTop: 14 }}>
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: `${progress.percent * 100}%` }]} />
-              </View>
-              <View style={styles.progressLabels}>
-                <Text style={styles.progressLeft}>Progress to {progress.nextLabel}</Text>
-                <Text style={styles.progressRight}>{progress.remainingLabel}</Text>
-              </View>
-            </View>
-          </GlassCard>
+          {/* Points Display Block */}
+          <PointsContainer 
+            points={points} 
+            onRedeemPress={scrollToRedeemSection}
+          />
 
           {/* Ways to earn (ALWAYS visible) */}
           <Text style={styles.sectionTitle}>Ways to earn</Text>
@@ -250,13 +296,13 @@ export default function RewardsScreen() {
               icon="star"
               title="Write a review"
               points="+5"
-              onPress={() => router.push("/(app)/education")} // placeholder
+              onPress={() => router.push("/(app)/community")}
             />
           </View>
 
           {/* Redeemable Products Section */}
           <Text style={styles.sectionTitle}>Redeem with points</Text>
-          <RedeemableProductsGrid userPoints={pointsAvailable} />
+          <RedeemableProductsGrid userPoints={points} />
 
           {/* How to earn (accordion with DETAILS ONLY) */}
           <View style={styles.accordion}>
@@ -340,16 +386,10 @@ export default function RewardsScreen() {
 
 /* ------------ components ------------ */
 
-function GlassCard({
-  children,
-  style,
-}: {
-  children: React.ReactNode;
-  style?: any;
-}) {
+function GlassCard({ children, style }: { children: React.ReactNode; style?: any }) {
   return (
-    <View style={[styles.cardShadow, style]}>
-      <View style={styles.cardBodyAlt}>{children}</View>
+    <View style={[styles.glassCard, style]}>
+      {children}
     </View>
   );
 }
@@ -400,11 +440,22 @@ const styles = StyleSheet.create({
     paddingTop: 32,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 24,
+    marginBottom: 12,
   },
-  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
+  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "600", textAlign: "center" },
   headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
+  rewardsPillContainer: {
+    position: "absolute",
+    right: 16,
+    top: -24,
+  },
 
+  glassCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.20)",
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
   card: { marginTop: 8, marginBottom: 14 },
   cardShadow: {
     borderRadius: 14,
@@ -428,8 +479,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  pointsLabel: { color: "rgba(255,255,255,0.8)", fontWeight: "600" },
-  pointsValue: { color: "#fff", fontSize: 42, fontWeight: "800", marginTop: 2 },
+  pointsLabel: { color: "rgba(255,255,255,0.75)", fontSize: 12, marginLeft: 8 },
+  pointsValue: { color: "#fff", fontSize: 40, fontWeight: "800" },
+
+  // Redeem button styles
+  redeemButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.15)",
+    paddingHorizontal: 8,
+    paddingVertical: 6.8,
+    borderRadius: 13.6,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+    marginTop: 0,
+    alignSelf: "flex-start",
+  },
+  redeemButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
 
   badge: {
     paddingHorizontal: 10,
@@ -438,6 +508,17 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.12)",
   },
   badgeText: { color: "#fff", fontWeight: "700", fontSize: 12 },
+
+  availableItemsContainer: {
+    alignItems: "flex-start",
+    marginBottom: 8,
+  },
+  availableItemsText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "left",
+  },
 
   progressTrack: {
     height: 8,
@@ -559,11 +640,41 @@ const styles = StyleSheet.create({
   deltaNegative: { color: "#ffb4b4" },
 
   // Product Grid Styles
+  productsContainer: {
+    marginBottom: 24,
+  },
+  pointGroup: {
+    marginBottom: 20,
+  },
+  pointGroupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(255,255,255,0.15)",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+  },
+  pointGroupHeaderDisabled: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  pointGroupTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  pointGroupTitleDisabled: {
+    color: "rgba(255,255,255,0.5)",
+  },
   productsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
-    marginBottom: 24,
   },
   productCard: {
     width: "48%", // 2 columns with gap

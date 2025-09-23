@@ -1,6 +1,7 @@
 // src/state/rewardsStore.ts
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import dayjs from "dayjs";
 
 type LedgerItem = {
@@ -31,6 +32,7 @@ type RewardsState = {
   grants: Grants;
   firstPointCallback?: () => void; // Callback for first point earned
   signupBonusCallback?: () => void; // Callback for signup bonus
+  hasPerformedFirstAction?: boolean; // Track if user has performed their first action
   
   // Daily routine tracking
   dailyRoutinePoints: number; // points earned from routine tasks today
@@ -82,6 +84,7 @@ export const useRewardsStore = create<RewardsState>()(
       dailyRoutinePoints: 0,
       lastRoutineDate: null,
       referralCount: 0,
+      hasPerformedFirstAction: false,
 
       hasCheckedInToday: () => {
         // Check the check-in store instead of our own lastCheckInISO
@@ -114,12 +117,13 @@ export const useRewardsStore = create<RewardsState>()(
         const currentState = get();
         console.log(`DEBUG: Before earning - pointsTotal: ${currentState.pointsTotal}, pointsAvailable: ${currentState.pointsAvailable}`);
         
-        // Check if this is the first point ever earned
-        const isFirstPoint = currentState.pointsTotal === 0 && delta > 0;
+        // Check if this is the user's first action (not signup bonus)
+        const isFirstUserAction = !currentState.hasPerformedFirstAction && reason !== "Sign up bonus" && delta > 0;
         
         set((s) => ({
           pointsTotal: Math.max(0, s.pointsTotal + delta),
           pointsAvailable: Math.max(0, s.pointsAvailable + delta),
+          hasPerformedFirstAction: isFirstUserAction ? true : s.hasPerformedFirstAction,
           ledger: [{ 
             id: uid(), 
             ts: Date.now(), 
@@ -134,9 +138,9 @@ export const useRewardsStore = create<RewardsState>()(
         const newState = get();
         console.log(`DEBUG: After earning - pointsTotal: ${newState.pointsTotal}, pointsAvailable: ${newState.pointsAvailable}`);
         
-        // Trigger first point callback if this was the first point (but not for signup bonus)
-        if (isFirstPoint && newState.firstPointCallback && reason !== "Welcome to Fleur! Here's your signup bonus to get you started on your hair journey.") {
-          console.log("DEBUG: First point earned! Triggering callback");
+        // Trigger first point callback if this was the user's first action
+        if (isFirstUserAction && newState.firstPointCallback) {
+          console.log("DEBUG: First user action performed! Triggering callback");
           newState.firstPointCallback();
         }
       },
@@ -398,14 +402,18 @@ export const useRewardsStore = create<RewardsState>()(
 
       awardSignupBonus: () => {
         const currentState = get();
+        console.log('DEBUG: awardSignupBonus called, current grants:', currentState.grants);
         
         // Check if signup bonus has already been awarded
         if (currentState.grants.signupBonus) {
+          console.log('DEBUG: Signup bonus already awarded, returning false');
           return false; // Already awarded
         }
 
+        console.log('DEBUG: Awarding signup bonus...');
         // Award the signup bonus
-        const success = get().grantOnce("signupBonus", 250, "Welcome to Fleur! Here's your signup bonus to get you started on your hair journey.");
+        const success = get().grantOnce("signupBonus", 250, "Sign up bonus");
+        console.log('DEBUG: Signup bonus awarded, success:', success);
         
         // Don't trigger callback here - let the component handle popup display
         return success;
@@ -424,9 +432,16 @@ export const useRewardsStore = create<RewardsState>()(
           referralCount: 0,
           firstPointCallback: undefined,
           signupBonusCallback: undefined,
+          hasPerformedFirstAction: false,
         }),
     }),
-    { name: "rewards:v2" }
+    { 
+      name: "rewards:v2",
+      storage: createJSONStorage(() => AsyncStorage),
+      onRehydrateStorage: () => (state) => {
+        console.log('DEBUG: Rewards store rehydrated:', state);
+      }
+    }
   )
 );
 

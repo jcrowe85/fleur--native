@@ -20,6 +20,7 @@ import { useRoutineStore, RoutineStep } from "@/state/routineStore";
 import { useRewardsStore } from "@/state/rewardsStore";
 import { useCheckInStore } from "@/state/checkinStore";
 import { getNextAffordableProduct, getAffordableProducts, getAllRedeemableProducts } from "@/data/productCatalog";
+import PointsContainer from "@/components/UI/PointsContainer";
 import { onRoutineTaskCompleted, onRoutineTaskUndone } from "@/services/rewards";
 import { checkFirstLogin, markFirstLoginComplete } from "@/services/firstTimeUser";
 import { ScreenScrollView } from "@/components/UI/bottom-space"; // ✅ unified bottom-spacing helper
@@ -264,6 +265,7 @@ export default function DashboardScreen() {
   
   // Ref to store timeout ID for cleanup
   const dailyCheckInTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const firstPointTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Ensure defaults exist when dashboard is the first screen opened
   useEffect(() => {
@@ -287,7 +289,14 @@ export default function DashboardScreen() {
   // Set up callbacks - run once on mount
   useEffect(() => {
     const { setFirstPointCallback, setSignupBonusCallback } = useRewardsStore.getState();
-    setFirstPointCallback(() => setShowFirstPointPopup(true));
+    setFirstPointCallback(() => {
+      // Show first point popup with a delay to avoid conflicts
+      firstPointTimeoutRef.current = setTimeout(() => {
+        console.log("Showing first point popup after delay");
+        setShowFirstPointPopup(true);
+        firstPointTimeoutRef.current = null;
+      }, 2000); // 2 second delay
+    });
     setSignupBonusCallback(() => setShowSignupBonusPopup(true));
   }, []);
 
@@ -299,19 +308,25 @@ export default function DashboardScreen() {
         await new Promise(resolve => setTimeout(resolve, 1000));
         
         const firstLoginData = await checkFirstLogin();
+        console.log('DEBUG: First login check result:', firstLoginData);
         
         if (firstLoginData.isFirstLogin) {
+          console.log('DEBUG: This is first login, awarding signup bonus...');
           // Award signup bonus and show popup
           const success = awardSignupBonus();
+          console.log('DEBUG: Signup bonus award result:', success);
           if (success) {
             // Mark in database that first login is complete
             await markFirstLoginComplete();
+            console.log('DEBUG: Marked first login as complete');
             
             // Show popup after small delay
             setTimeout(() => {
               setShowSignupBonusPopup(true);
             }, 100);
           }
+        } else {
+          console.log('DEBUG: Not first login, skipping signup bonus');
         }
       } catch (error) {
         console.error('Error checking first login status:', error);
@@ -327,6 +342,10 @@ export default function DashboardScreen() {
       if (dailyCheckInTimeoutRef.current) {
         clearTimeout(dailyCheckInTimeoutRef.current);
         dailyCheckInTimeoutRef.current = null;
+      }
+      if (firstPointTimeoutRef.current) {
+        clearTimeout(firstPointTimeoutRef.current);
+        firstPointTimeoutRef.current = null;
       }
     };
   }, []);
@@ -360,6 +379,8 @@ export default function DashboardScreen() {
 
   // Rewards progress (product-based)
   const progress = getProductProgressInfo(points);
+  const affordableProducts = getAffordableProducts(points);
+  const allProducts = getAllRedeemableProducts();
 
   // Toggle handler for routine tasks (awards points for task completion)
   function onToggle(step: RoutineStep) {
@@ -403,16 +424,17 @@ export default function DashboardScreen() {
 
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
         {/* Header */}
-        <View style={styles.headerWrap}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, position: "relative" }}>
-            <View style={{ flex: 1, alignItems: "center" }}>
-              <Text style={styles.headerTitle}>Your Hair Journey</Text>
-              <Text style={styles.headerSub}>Your routine, progress, and rewards in one place.</Text>
-            </View>
+         <View style={styles.headerWrap}>
+           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, position: "relative" }}>
+          <View style={{ flex: 1, alignItems: "center" }}>
+               <Text style={styles.headerTitle}>Your Hair Journey</Text>
+               <Text style={styles.headerSub}>Your routine, progress, and rewards in one place.</Text>
+          </View>
 
-            <View style={[styles.rewardsPillContainer, { padding: 8, borderRadius: 20 }]}>
-              <RewardsPill compact />
-            </View>
+             <View style={[styles.rewardsPillContainer, { padding: 8, borderRadius: 20 }]}>
+            <RewardsPill compact />
+             </View>
+
           </View>
         </View>
 
@@ -422,26 +444,11 @@ export default function DashboardScreen() {
           showsVerticalScrollIndicator={false}
         >
 
-          {/* Points Display Block (same as rewards page) */}
-          <GlassCard style={{ padding: 14, marginBottom: 14 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <View style={{ flexShrink: 1 }}>
-                <Text style={styles.pointsLabel}>Points</Text>
-                <Text style={styles.pointsValue}>{points}</Text>
-              </View>
-            </View>
-
-            {/* Progress */}
-            <View style={{ marginTop: 14 }}>
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: `${progress.percent * 100}%` }]} />
-              </View>
-              <View style={styles.progressLabels}>
-                <Text style={styles.progressLeft}>Progress to {progress.nextLabel}</Text>
-                <Text style={styles.progressRight}>{progress.remainingLabel}</Text>
-              </View>
-            </View>
-          </GlassCard>
+          {/* Points Display Block */}
+          <PointsContainer 
+            points={points} 
+            onRedeemPress={() => router.push("/(app)/rewards")}
+          />
 
           {/* Progress + Rewards snapshot (above Today's Routine) */}
           <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>
@@ -691,6 +698,25 @@ export default function DashboardScreen() {
             </Pressable>
           </GlassCard>
 
+          {/* Help & Support Card */}
+          <GlassCard style={styles.helpCard}>
+            <Pressable 
+              style={styles.helpButton}
+              onPress={() => router.push("/support-chat")}
+            >
+              <View style={styles.helpContent}>
+                <View style={styles.helpIconContainer}>
+                  <Feather name="help-circle" size={20} color="#fff" />
+                </View>
+                <View style={styles.helpTextContainer}>
+                  <Text style={styles.helpTitle}>Need Help?</Text>
+                  <Text style={styles.helpSubtitle}>Get support from our team</Text>
+                </View>
+                <Feather name="arrow-right" size={16} color="rgba(255,255,255,0.6)" />
+              </View>
+            </Pressable>
+          </GlassCard>
+
         </ScreenScrollView>
       </SafeAreaView>
 
@@ -724,7 +750,14 @@ export default function DashboardScreen() {
       {/* First Point Popup */}
       <FirstPointPopup 
         visible={showFirstPointPopup} 
-        onClose={() => setShowFirstPointPopup(false)} 
+        onClose={() => {
+          setShowFirstPointPopup(false);
+          // Clear any pending timeout
+          if (firstPointTimeoutRef.current) {
+            clearTimeout(firstPointTimeoutRef.current);
+            firstPointTimeoutRef.current = null;
+          }
+        }} 
       />
 
     </View>
@@ -760,13 +793,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 12,
   },
-  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
+  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "600", textAlign: "center" },
   headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
-  rewardsPillContainer: {
-    position: "absolute",
-    right: 16,
-    top: -8,
-  },
+   rewardsPillContainer: {
+     position: "absolute",
+     right: 16,
+     top: -24,
+   },
 
   axisLabel: { color: "rgba(255,255,255,0.7)", fontSize: 10 },
 
@@ -863,6 +896,41 @@ const styles = StyleSheet.create({
   },
   longBtnText: { color: "#fff", fontWeight: "800" },
 
+  // Help card styles
+  helpCard: {
+    padding: 16,
+    marginBottom: 16,
+  },
+  helpButton: {
+    width: "100%",
+  },
+  helpContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  helpIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  helpTextContainer: {
+    flex: 1,
+  },
+  helpTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  helpSubtitle: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 14,
+  },
+
   statTile: {
     flex: 1,
     alignItems: "center",
@@ -886,6 +954,16 @@ const styles = StyleSheet.create({
   },
   tierBadgeText: { color: "#fff", fontWeight: "800", fontSize: 12 },
 
+  availableItemsContainer: {
+    alignItems: "flex-start",
+    marginBottom: 8,
+  },
+  availableItemsText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "left",
+  },
   progressTrack: {
     height: 8,
     borderRadius: 999,
@@ -918,8 +996,26 @@ const styles = StyleSheet.create({
   },
 
   // Points display styles (from rewards page)
-  pointsLabel: { color: "rgba(255,255,255,0.75)", fontSize: 12, marginBottom: 2 },
-  pointsValue: { color: "#fff", fontSize: 32, fontWeight: "800" },
+  pointsLabel: { color: "rgba(255,255,255,0.75)", fontSize: 12, marginLeft: 8 },
+  pointsValue: { color: "#fff", fontSize: 40, fontWeight: "800" },
   progressLabels: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
+
+  // Redeem button styles
+  redeemButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.15)",
+    paddingHorizontal: 8, // 20% smaller: 10 * 0.8 = 8
+    paddingVertical: 6.8, // 20% smaller: 8.5 * 0.8 = 6.8
+    borderRadius: 13.6, // 20% smaller: 17 * 0.8 = 13.6
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+    marginTop: 0, // Align with container's top padding (17.5px)
+  },
+  redeemButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
 
 });

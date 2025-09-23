@@ -275,7 +275,7 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
   },
   header: {
     flexDirection: "row",
@@ -283,7 +283,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 32,
     marginTop: 20,
-    maxWidth: 400,
+    maxWidth: 380,
     alignSelf: "center",
     width: "100%",
   },
@@ -346,7 +346,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     justifyContent: "center",
-    maxWidth: 400,
+    maxWidth: 380,
     alignSelf: "center",
     width: "100%",
   },
@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 40,
     paddingHorizontal: 0,
-    maxWidth: 400,
+    maxWidth: 380,
     alignSelf: "center",
     width: "100%",
   },

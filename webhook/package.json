@@ -1,0 +1,12 @@
+{
+  "name": "fleur-slack-webhook",
+  "version": "1.0.0",
+  "description": "Webhook handler for Slack support messages",
+  "main": "api/slack-webhook.js",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.38.0"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

@@ -13,7 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 const SCROLL_TEXT =
-  'Peptide Science     Natural Wellness     Personal Care     '.repeat(6);
+  'Peptide Science     Natural Wellness     Personal Care     '.repeat(8);
 
 // Feel tuning — adjust if you want
 const PX_PER_SEC = 60;       // constant speed (px/sec)
@@ -22,6 +22,7 @@ const MIN_LOOP_MS = 12000;   // never faster than this per loop
 export default function Welcome() {
   const x = useSharedValue(0);
   const [textW, setTextW] = useState<number | null>(null);
+  const [screenWidth, setScreenWidth] = useState<number>(0);
 
   // Measure the intrinsic width of one copy of the text without impacting layout
   const handleMeasure = (e: any) => {
@@ -31,14 +32,22 @@ export default function Welcome() {
     if (wFromLines > 0 && wFromLines !== textW) setTextW(wFromLines);
   };
 
+  // Measure screen width
+  const handleLayout = (e: any) => {
+    const { width } = e.nativeEvent.layout;
+    if (width > 0 && width !== screenWidth) setScreenWidth(width);
+  };
+
   useEffect(() => {
-    if (!textW) return;
+    if (!textW || !screenWidth) return;
     cancelAnimation(x);
+    
+    // Start from a centered position (text should already be visible on screen)
     x.value = 0;
 
     const duration = Math.max(MIN_LOOP_MS, Math.round((textW / PX_PER_SEC) * 1000));
 
-    // move exactly one text-width, loop forever
+    // Move exactly one text width to create seamless loop
     x.value = withRepeat(
       withTiming(-textW, { duration, easing: ReEasing.linear }),
       -1, // infinite
@@ -46,7 +55,7 @@ export default function Welcome() {
     );
 
     return () => cancelAnimation(x);
-  }, [textW]);
+  }, [textW, screenWidth]);
 
   const trackStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: x.value }],
@@ -69,10 +78,10 @@ export default function Welcome() {
       </ImageBackground>
 
       {/* Content */}
-      <View className="flex-1 items-center justify-center px-6 py-12">
-        <View className="w-full max-w-md items-center">
+      <View className="flex-1 items-center justify-center py-12">
+        <View className="w-full items-center">
           {/* Logo */}
-          <View>
+          <View className="px-6">
             <ImageBackground
               source={require('../../assets/logo.png')}
               resizeMode="contain"
@@ -97,11 +106,23 @@ export default function Welcome() {
           </Text>
 
           {/* Scrolling text bar – seamless, single-line, no gap */}
-          <View className="relative py-40 w-full" style={{ overflow: 'hidden' }}>
+          <View 
+            className="relative py-40 w-full" 
+            style={{ 
+              overflow: 'hidden',
+            }}
+            onLayout={handleLayout}
+          >
             {textW ? (
               <Animated.View
                 key={textW} // clean reset on width changes (rotation/font-scale)
-                style={[{ flexDirection: 'row' }, trackStyle]}
+                style={[
+                  { 
+                    flexDirection: 'row',
+                    width: textW * 2, // Make the text container 2x wider for seamless loop
+                  }, 
+                  trackStyle
+                ]}
               >
                 <Text
                   className="text-white/80 text-sm font-medium"
@@ -131,7 +152,7 @@ export default function Welcome() {
           </View>
 
           {/* CTAs */}
-          <View className="w-full items-center">
+          <View className="w-full items-center px-6">
             <CustomButton
               variant="wellness"
               fleurSize="lg"
