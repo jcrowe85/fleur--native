@@ -25,8 +25,9 @@ export default async function handler(req, res) {
     const body = req.body;
     console.log('Received webhook:', JSON.stringify(body, null, 2));
     
-    // Handle Slack URL verification
+    // Handle Slack URL verification challenge
     if (body.type === 'url_verification') {
+      console.log('URL verification challenge:', body.challenge);
       return res.status(200).send(body.challenge);
     }
 
@@ -76,6 +77,9 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true });
   } catch (error) {
     console.error('Webhook error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      message: error.message 
+    });
   }
 }

@@ -19,8 +19,8 @@ interface SupportMessage {
   created_at?: string;
 }
 
-// Slack webhook URL - replace with your actual Slack webhook URL
-const SLACK_WEBHOOK_URL = process.env.EXPO_PUBLIC_SLACK_WEBHOOK_URL || "YOUR_WEBHOOK_URL_HERE";
+// Slack webhook URL - replace with your new Slack App webhook URL
+const SLACK_WEBHOOK_URL = process.env.EXPO_PUBLIC_SLACK_WEBHOOK_URL || "YOUR_NEW_APP_WEBHOOK_URL_HERE";
 
 export async function sendMessageToSlack(message: SlackMessage): Promise<boolean> {
   try {
