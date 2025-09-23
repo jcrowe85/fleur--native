@@ -37,10 +37,9 @@ export async function sendMessageToSlack(message: SlackMessage): Promise<boolean
     // Generate unique thread timestamp for this conversation
     const threadTs = message.timestamp.getTime() / 1000 + "." + Math.random().toString(36).substr(2, 9);
     
-    // Format message for Slack
+    // Format message for Slack webhook (no thread_ts support)
     const slackPayload = {
       text: `New support message from ${userEmail}:`,
-      thread_ts: threadTs,
       attachments: [
         {
           color: "good",
@@ -51,7 +50,7 @@ export async function sendMessageToSlack(message: SlackMessage): Promise<boolean
               short: true,
             },
             {
-              title: "Email",
+              title: "Email", 
               value: userEmail,
               short: true,
             },
@@ -59,6 +58,11 @@ export async function sendMessageToSlack(message: SlackMessage): Promise<boolean
               title: "Message",
               value: message.text,
               short: false,
+            },
+            {
+              title: "Thread ID",
+              value: threadTs,
+              short: true,
             },
             {
               title: "Timestamp",
@@ -149,10 +153,15 @@ export async function checkForReplies(): Promise<SupportMessage[]> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     
+    if (!user?.id) {
+      console.log("No user found, skipping reply check");
+      return [];
+    }
+    
     const { data, error } = await supabase
       .from("support_messages")
       .select("*")
-      .eq("user_id", user?.id)
+      .eq("user_id", user.id)
       .eq("is_from_user", false)
       .order("created_at", { ascending: true });
 
@@ -161,10 +170,32 @@ export async function checkForReplies(): Promise<SupportMessage[]> {
       return [];
     }
 
+    console.log("Found replies:", data?.length || 0);
     return data || [];
   } catch (error) {
     console.error("Error checking for replies:", error);
     return [];
+  }
+}
+
+// Test database connection
+export async function testDatabaseConnection(): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("support_messages")
+      .select("count")
+      .limit(1);
+    
+    if (error) {
+      console.error("Database test failed:", error);
+      return false;
+    }
+    
+    console.log("Database connection successful");
+    return true;
+  } catch (error) {
+    console.error("Database test error:", error);
+    return false;
   }
 }
 
