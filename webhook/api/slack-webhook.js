@@ -22,13 +22,21 @@ export default async function handler(req, res) {
   }
 
   try {
-    const body = req.body;
+    // Parse the request body
+    let body;
+    if (typeof req.body === 'string') {
+      body = JSON.parse(req.body);
+    } else {
+      body = req.body;
+    }
+    
     console.log('Received webhook:', JSON.stringify(body, null, 2));
     
     // Handle Slack URL verification challenge
     if (body.type === 'url_verification') {
       console.log('URL verification challenge:', body.challenge);
-      return res.status(200).send(body.challenge);
+      res.status(200).send(body.challenge);
+      return;
     }
 
     // Handle Slack events
