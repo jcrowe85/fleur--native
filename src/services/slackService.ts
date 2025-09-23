@@ -37,9 +37,10 @@ export async function sendMessageToSlack(message: SlackMessage): Promise<boolean
     // Generate unique thread timestamp for this conversation
     const threadTs = message.timestamp.getTime() / 1000 + "." + Math.random().toString(36).substr(2, 9);
     
-    // Format message for Slack webhook (no thread_ts support)
+    // Format message for Slack with thread support
     const slackPayload = {
       text: `New support message from ${userEmail}:`,
+      thread_ts: threadTs, // This works with Slack Apps, not basic webhooks
       attachments: [
         {
           color: "good",
@@ -58,11 +59,6 @@ export async function sendMessageToSlack(message: SlackMessage): Promise<boolean
               title: "Message",
               value: message.text,
               short: false,
-            },
-            {
-              title: "Thread ID",
-              value: threadTs,
-              short: true,
             },
             {
               title: "Timestamp",

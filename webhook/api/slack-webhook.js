@@ -39,9 +39,54 @@ export default async function handler(req, res) {
       return;
     }
 
-    // For basic webhooks, just log the message
-    // Bi-directional messaging requires the full Slack App setup
-    console.log('Webhook message received:', body);
+    // Handle Slack events for bi-directional messaging
+    if (body.event && body.event.type === 'message') {
+      const event = body.event;
+      
+      // Only process messages in threads (replies to support messages)
+      // and not from bots or the app itself
+      if (event.thread_ts && !event.bot_id && event.subtype !== 'bot_message' && event.user) {
+        console.log('Processing thread reply:', event);
+        
+        const userId = event.user; // This is the Slack user ID of the replier
+        const messageText = event.text;
+        const threadTs = event.thread_ts;
+        const messageTs = event.ts;
+
+        // Find the original user_id from our database using the thread_ts
+        const { data: originalMessage, error: fetchError } = await supabase
+          .from('support_messages')
+          .select('user_id')
+          .eq('slack_thread_ts', threadTs)
+          .eq('is_from_user', true) // Find the original user message in this thread
+          .single();
+
+        if (fetchError || !originalMessage) {
+          console.error('Could not find original user for thread:', threadTs, fetchError);
+          return res.status(200).json({ error: 'Original user not found for thread' });
+        }
+
+        const appUserId = originalMessage.user_id;
+
+        // Store the reply in Supabase
+        const { error: insertError } = await supabase
+          .from('support_messages')
+          .insert({
+            user_id: appUserId,
+            message_text: messageText,
+            is_from_user: false, // Support team message
+            slack_thread_ts: threadTs,
+            slack_message_ts: messageTs,
+          });
+
+        if (insertError) {
+          console.error('Error storing support reply in Supabase:', insertError);
+          return res.status(500).json({ error: 'Failed to store reply' });
+        }
+
+        console.log('Support reply stored successfully for user:', appUserId);
+      }
+    }
 
     return res.status(200).json({ success: true });
   } catch (error) {
