@@ -151,9 +151,12 @@ export default function SupportChatScreen() {
                  const existingIds = new Set(prev.map(msg => msg.id));
                  const trulyNewReplies = formattedReplies.filter(reply => !existingIds.has(reply.id));
                  
-                 // Clear typing indicator immediately when real message arrives
+                 // Clear typing indicator when real message arrives
                  if (trulyNewReplies.length > 0) {
-                   setIsSupportTyping(false);
+                   // Clear typing indicator with a small delay to ensure smooth transition
+                   setTimeout(() => {
+                     setIsSupportTyping(false);
+                   }, 200);
                  }
                  
                  return [...prev, ...trulyNewReplies];
@@ -172,8 +175,16 @@ export default function SupportChatScreen() {
   const checkForSupportTyping = async () => {
     try {
       const isTyping = await checkSupportTyping();
-      // Only update if the state is actually changing to prevent flickering
-      setIsSupportTyping(prev => prev !== isTyping ? isTyping : prev);
+      // Only set to true if we detect typing, but allow clearing when false
+      setIsSupportTyping(prev => {
+        if (isTyping) {
+          return true; // Always show typing when detected
+        } else if (prev) {
+          // Only clear if we were previously showing typing
+          return false;
+        }
+        return prev; // Keep current state if no change
+      });
     } catch (error) {
       console.error("Error checking support typing:", error);
     }
