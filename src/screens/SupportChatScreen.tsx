@@ -70,8 +70,6 @@ export default function SupportChatScreen() {
   const [inputText, setInputText] = useState("");
   const [isSupportTyping, setIsSupportTyping] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
-  const [pendingMessageText, setPendingMessageText] = useState<string | null>(null);
-  const [pendingMessageTimestamp, setPendingMessageTimestamp] = useState<number | null>(null);
   const [hasLoadedMessages, setHasLoadedMessages] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -154,19 +152,6 @@ export default function SupportChatScreen() {
                .filter(msg => 
                  !messages.some(existingMsg => existingMsg.id === msg.id)
                )
-               .filter(msg => {
-                 // Skip user messages that match pending message text and timestamp
-                 if (msg.is_from_user && pendingMessageText && pendingMessageTimestamp) {
-                   const msgTime = new Date(msg.created_at).getTime();
-                   const timeDiff = Math.abs(msgTime - pendingMessageTimestamp);
-                   
-                   // Skip if same text and within 5 seconds
-                   if (msg.message_text === pendingMessageText && timeDiff < 5000) {
-                     return false;
-                   }
-                 }
-                 return true;
-               });
              
              if (newMessages.length > 0) {
                const formattedMessages = newMessages.map(msg => ({
@@ -220,26 +205,8 @@ export default function SupportChatScreen() {
     if (!inputText.trim() || isSendingMessage) return;
 
     const messageText = inputText.trim();
-    const messageTimestamp = Date.now();
     setInputText(""); // Clear input immediately
     setIsSendingMessage(true);
-    setPendingMessageText(messageText); // Track pending message
-    setPendingMessageTimestamp(messageTimestamp); // Track timestamp
-
-    // Add message to UI immediately for good UX
-    const tempMessage: Message = {
-      id: `temp-${Date.now()}`,
-      text: messageText,
-      isUser: true,
-      timestamp: new Date(),
-    };
-
-    setMessages(prev => [...prev, tempMessage]);
-
-    // Scroll to bottom
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }, 100);
 
     try {
       // Send message to Slack (this also stores in database)
@@ -249,21 +216,20 @@ export default function SupportChatScreen() {
       });
       
       if (slackSuccess) {
-        // Keep pending message text for a few seconds to prevent polling from adding it
+        // Reload messages to get the new message with proper ID
         setTimeout(() => {
-          setPendingMessageText(null);
-          setPendingMessageTimestamp(null);
-        }, 5000); // 5 second delay
+          loadMessages();
+          // Scroll to bottom after loading
+          setTimeout(() => {
+            scrollViewRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+        }, 500);
       }
 
     } catch (error) {
       console.error("Error sending message:", error);
       Alert.alert("Error", "Failed to send message. Please try again.");
-        // Remove temp message and restore input
-        setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
-        setInputText(messageText);
-        setPendingMessageText(null);
-        setPendingMessageTimestamp(null);
+      setInputText(messageText); // Restore input on error
     } finally {
       setIsSendingMessage(false);
     }
