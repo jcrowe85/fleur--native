@@ -131,6 +131,7 @@ export async function sendMessageToSlack(message: SlackMessage): Promise<boolean
 // Store messages in Supabase with thread tracking
 export async function storeSupportMessage(message: string, threadTs?: string): Promise<boolean> {
   try {
+    console.log("💾 storeSupportMessage called with:", message, "threadTs:", threadTs);
     const { data: { user } } = await supabase.auth.getUser();
     
     const { error } = await supabase
@@ -147,7 +148,7 @@ export async function storeSupportMessage(message: string, threadTs?: string): P
       return false;
     }
 
-    console.log("Support message stored successfully");
+    console.log("💾 Support message stored successfully");
     return true;
   } catch (error) {
     console.error("Error storing support message:", error);

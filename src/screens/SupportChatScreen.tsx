@@ -246,15 +246,19 @@ export default function SupportChatScreen() {
     }, 100);
 
     try {
+      console.log("📤 Sending message:", messageText);
       // Send message to Slack (this also stores in database)
       const slackSuccess = await sendMessageToSlack({
         text: messageText,
         timestamp: new Date(),
       });
       
+      console.log("📤 Slack success:", slackSuccess);
+      
       if (slackSuccess) {
         // Clear pending message text so polling can handle it
         setPendingMessageText(null);
+        console.log("📤 Pending message cleared");
       }
 
     } catch (error) {
