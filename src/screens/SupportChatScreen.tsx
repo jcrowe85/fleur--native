@@ -223,7 +223,7 @@ export default function SupportChatScreen() {
           setTimeout(() => {
             scrollViewRef.current?.scrollToEnd({ animated: true });
           }, 100);
-        }, 500);
+        }, 200); // Reduced from 500ms to 200ms
       }
 
     } catch (error) {
