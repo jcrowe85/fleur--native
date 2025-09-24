@@ -71,11 +71,15 @@ export default function SupportChatScreen() {
   const [isSupportTyping, setIsSupportTyping] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [pendingMessageText, setPendingMessageText] = useState<string | null>(null);
+  const [hasLoadedMessages, setHasLoadedMessages] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
   // Load existing messages and check for replies
   useEffect(() => {
-    loadMessages();
+    if (!hasLoadedMessages) {
+      loadMessages();
+      setHasLoadedMessages(true);
+    }
     checkForSupportTyping();
     
     // Check for new replies every 2 seconds, typing every 2 seconds
@@ -86,7 +90,7 @@ export default function SupportChatScreen() {
       clearInterval(replyInterval);
       clearInterval(typingInterval);
     };
-  }, []);
+  }, [hasLoadedMessages]);
 
   const loadMessages = async () => {
     try {
