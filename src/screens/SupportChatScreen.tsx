@@ -298,7 +298,7 @@ export default function SupportChatScreen() {
                 onChangeText={setInputText}
                 multiline
                 maxLength={500}
-                editable={!isLoading}
+                editable={true}
                 returnKeyType="default"
                 blurOnSubmit={false}
               />
