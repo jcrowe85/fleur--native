@@ -49,10 +49,10 @@ export default async function handler(req, res) {
     if (body.event && body.event.type === 'message') {
       const event = body.event;
       
-      // Only process messages in threads (replies to support messages)
-      // and not from bots or the app itself
-      if (event.thread_ts && !event.bot_id && event.subtype !== 'bot_message' && event.user) {
-        console.log('Processing thread reply:', event);
+      // Process messages from support team (not from bots or the app itself)
+      // This includes both new messages and thread replies
+      if (!event.bot_id && event.subtype !== 'bot_message' && event.user) {
+        console.log('Processing support message:', event);
         
         const userId = event.user; // This is the Slack user ID of the replier
         const messageText = event.text;
@@ -61,7 +61,7 @@ export default async function handler(req, res) {
 
         // Check if this is a typing indicator command
         if (messageText === 'typing...' || messageText === 'typing' || messageText === 'typing now') {
-          console.log('Typing indicator detected for thread:', threadTs);
+          console.log('Typing indicator detected');
           
           // Find the most recent user message to link this typing indicator to
           const { data: originalMessage, error: findError } = await supabase
@@ -99,8 +99,7 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true });
         }
 
-        // Find the most recent user message to link this reply to
-        // Since we don't have exact thread matching, we'll link to the latest user message
+        // Find the most recent user message to link this support message to
         const { data: originalMessage, error: fetchError } = await supabase
           .from('support_messages')
           .select('user_id')
@@ -110,20 +109,20 @@ export default async function handler(req, res) {
           .single();
 
         if (fetchError || !originalMessage) {
-          console.error('Could not find original user for thread:', threadTs, fetchError);
-          return res.status(200).json({ error: 'Original user not found for thread' });
+          console.error('Could not find original user for support message:', fetchError);
+          return res.status(200).json({ error: 'Original user not found for support message' });
         }
 
         const appUserId = originalMessage.user_id;
 
-        // Clear any existing typing indicators for this user BEFORE storing the reply
+        // Clear any existing typing indicators for this user BEFORE storing the message
         await supabase
           .from('support_messages')
           .delete()
           .eq('user_id', appUserId)
           .eq('message_text', 'TYPING_INDICATOR');
 
-        // Store the reply in Supabase
+        // Store the support message in Supabase
         const { error: insertError } = await supabase
           .from('support_messages')
           .insert({
@@ -135,11 +134,11 @@ export default async function handler(req, res) {
           });
 
         if (insertError) {
-          console.error('Error storing support reply in Supabase:', insertError);
-          return res.status(500).json({ error: 'Failed to store reply' });
+          console.error('Error storing support message in Supabase:', insertError);
+          return res.status(500).json({ error: 'Failed to store support message' });
         }
 
-        console.log('Support reply stored successfully for user:', appUserId);
+        console.log('Support message stored successfully for user:', appUserId);
       }
     }
 
