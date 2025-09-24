@@ -169,6 +169,7 @@ export default function SupportChatScreen() {
                .filter(msg => {
                  // Skip user messages that match pending message text
                  if (msg.is_from_user && pendingMessageText && msg.message_text === pendingMessageText) {
+                   console.log("🚫 Skipping pending message:", msg.message_text);
                    return false;
                  }
                  return true;
@@ -256,9 +257,11 @@ export default function SupportChatScreen() {
       console.log("📤 Slack success:", slackSuccess);
       
       if (slackSuccess) {
-        // Clear pending message text so polling can handle it
-        setPendingMessageText(null);
-        console.log("📤 Pending message cleared");
+        // Keep pending message text for a few seconds to prevent polling from adding it
+        setTimeout(() => {
+          setPendingMessageText(null);
+          console.log("📤 Pending message cleared after delay");
+        }, 3000); // 3 second delay
       }
 
     } catch (error) {
