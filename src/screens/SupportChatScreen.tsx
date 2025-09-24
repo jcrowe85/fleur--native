@@ -76,9 +76,13 @@ export default function SupportChatScreen() {
 
   // Load existing messages and check for replies
   useEffect(() => {
+    console.log("🚀 useEffect called, hasLoadedMessages:", hasLoadedMessages);
     if (!hasLoadedMessages) {
+      console.log("📋 Loading messages for first time");
       loadMessages();
       setHasLoadedMessages(true);
+    } else {
+      console.log("⏭️ Skipping loadMessages, already loaded");
     }
     checkForSupportTyping();
     
@@ -87,6 +91,7 @@ export default function SupportChatScreen() {
     const typingInterval = setInterval(checkForSupportTyping, 2000);
     
     return () => {
+      console.log("🧹 Cleaning up intervals");
       clearInterval(replyInterval);
       clearInterval(typingInterval);
     };
@@ -94,7 +99,10 @@ export default function SupportChatScreen() {
 
   const loadMessages = async () => {
     try {
+      console.log("🔍 loadMessages called");
       const dbMessages = await getSupportMessages();
+      console.log("📥 Raw DB messages:", dbMessages.length, dbMessages);
+      
       const formattedMessages = dbMessages
         .filter(msg => msg.message_text !== 'TYPING_INDICATOR') // Filter out typing indicators
         .map(msg => ({
@@ -104,6 +112,8 @@ export default function SupportChatScreen() {
           timestamp: new Date(msg.created_at || Date.now()),
         }));
       
+      console.log("📝 Formatted messages:", formattedMessages.length, formattedMessages);
+      
       // Remove duplicates by ID and also by content+timestamp to catch edge cases
       const uniqueMessages = formattedMessages.filter((msg, index, self) => 
         index === self.findIndex(m => 
@@ -112,14 +122,18 @@ export default function SupportChatScreen() {
         )
       );
       
+      console.log("✨ Unique messages:", uniqueMessages.length, uniqueMessages);
+      
       // Check if user has ever sent a message
       const hasUserMessages = uniqueMessages.some(msg => msg.isUser);
       
       if (hasUserMessages) {
         // User has sent messages, show conversation history
+        console.log("💬 Setting user messages");
         setMessages(uniqueMessages);
       } else if (uniqueMessages.length === 0) {
         // No messages at all, show welcome message
+        console.log("👋 Setting welcome message");
         setMessages([
           {
             id: "welcome-1",
@@ -130,6 +144,7 @@ export default function SupportChatScreen() {
         ]);
       } else {
         // Only support messages exist, show them without welcome
+        console.log("🤖 Setting support messages only");
         setMessages(uniqueMessages);
       }
     } catch (error) {
