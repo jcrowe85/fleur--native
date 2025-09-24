@@ -34,9 +34,9 @@ export async function sendMessageToSlack(message: SlackMessage): Promise<boolean
     const userId = user?.id || "anonymous";
     const userEmail = user?.email || "unknown@example.com";
 
-    // Generate unique thread timestamp for this conversation
-    // Use current timestamp in Slack's expected format
-    const threadTs = (message.timestamp.getTime() / 1000).toString();
+    // Don't generate our own thread timestamp - let Slack create the thread
+    // We'll store the message without a thread_ts initially
+    const threadTs = undefined;
     
     // Format message for Slack (simplified for incoming webhook)
     const slackPayload = {

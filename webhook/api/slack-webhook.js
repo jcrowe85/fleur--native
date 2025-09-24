@@ -59,12 +59,14 @@ export default async function handler(req, res) {
         const threadTs = event.thread_ts;
         const messageTs = event.ts;
 
-        // Find the original user_id from our database using the thread_ts
+        // Find the most recent user message to link this reply to
+        // Since we don't have exact thread matching, we'll link to the latest user message
         const { data: originalMessage, error: fetchError } = await supabase
           .from('support_messages')
           .select('user_id')
-          .eq('slack_thread_ts', threadTs)
-          .eq('is_from_user', true) // Find the original user message in this thread
+          .eq('is_from_user', true) // Find user messages
+          .order('created_at', { ascending: false }) // Get the most recent
+          .limit(1)
           .single();
 
         if (fetchError || !originalMessage) {
