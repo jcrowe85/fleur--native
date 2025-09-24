@@ -194,46 +194,21 @@ export default function SupportChatScreen() {
     const messageText = inputText.trim();
     setInputText(""); // Clear input immediately
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      text: messageText,
-      isUser: true,
-      timestamp: new Date(),
-    };
-
-    // Add message to UI immediately with robust duplicate check
-    setMessages(prev => {
-      // Check for duplicates by ID and content+timestamp
-      const isDuplicate = prev.some(msg => 
-        msg.id === userMessage.id || 
-        (msg.text === userMessage.text && 
-         msg.timestamp.getTime() === userMessage.timestamp.getTime() && 
-         msg.isUser === userMessage.isUser)
-      );
-      
-      if (isDuplicate) {
-        return prev; // Don't add if already exists
-      }
-      return [...prev, userMessage];
-    });
-
-    // Scroll to bottom
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }, 100);
-
     try {
-      // Send message to Slack and store in database
+      // Send message to Slack and store in database first
       const slackSuccess = await sendMessageToSlack({
         text: messageText,
-        timestamp: userMessage.timestamp,
+        timestamp: new Date(),
       });
       
       const dbSuccess = await storeSupportMessage(messageText);
       
-      // No auto-response needed - real support team will respond
+      if (dbSuccess) {
+        // Reload messages to get the actual database ID and avoid duplicates
+        await loadMessages();
+      }
       
-      // Scroll to bottom after response
+      // Scroll to bottom after message is sent
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
