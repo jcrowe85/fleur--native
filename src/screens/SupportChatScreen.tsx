@@ -63,14 +63,7 @@ function AnimatedDot({ delay }: { delay: number }) {
 }
 
 export default function SupportChatScreen() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      text: "Hi! I'm here to help with any questions about your hair care journey. How can I assist you today?",
-      isUser: false,
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
@@ -97,6 +90,16 @@ export default function SupportChatScreen() {
       
       if (formattedMessages.length > 0) {
         setMessages(formattedMessages);
+      } else {
+        // Only show welcome message if no messages exist
+        setMessages([
+          {
+            id: "welcome-1",
+            text: "Hi! I'm here to help with any questions about your hair care journey. How can I assist you today?",
+            isUser: false,
+            timestamp: new Date(),
+          },
+        ]);
       }
     } catch (error) {
       console.error("Error loading messages:", error);
