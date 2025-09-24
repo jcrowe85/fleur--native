@@ -288,3 +288,27 @@ export async function checkSupportTyping(): Promise<boolean> {
     return false;
   }
 }
+
+// Clear typing indicators from database
+export async function clearTypingIndicators(): Promise<boolean> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.id) return false;
+
+    const { error } = await supabase
+      .from("support_messages")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("message_text", "TYPING_INDICATOR");
+
+    if (error) {
+      console.error("Error clearing typing indicators:", error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Error clearing typing indicators:", error);
+    return false;
+  }
+}

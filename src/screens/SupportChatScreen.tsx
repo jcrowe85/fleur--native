@@ -25,7 +25,7 @@ import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { BlurView } from "expo-blur";
-import { sendMessageToSlack, storeSupportMessage, getSupportMessages, checkForReplies, checkSupportTyping } from "@/services/slackService";
+import { sendMessageToSlack, storeSupportMessage, getSupportMessages, checkForReplies, checkSupportTyping, clearTypingIndicators } from "@/services/slackService";
 // import { ScreenScrollView } from "@/components/UI/bottom-space";
 
 interface Message {
@@ -153,10 +153,10 @@ export default function SupportChatScreen() {
                  
                  // Clear typing indicator when real message arrives
                  if (trulyNewReplies.length > 0) {
-                   // Clear typing indicator with a small delay to ensure smooth transition
-                   setTimeout(() => {
-                     setIsSupportTyping(false);
-                   }, 200);
+                   // Clear typing indicator immediately and from database
+                   setIsSupportTyping(false);
+                   // Clear typing indicators from database to prevent reappearing
+                   clearTypingIndicators();
                  }
                  
                  return [...prev, ...trulyNewReplies];
