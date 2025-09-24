@@ -35,12 +35,12 @@ export async function sendMessageToSlack(message: SlackMessage): Promise<boolean
     const userEmail = user?.email || "unknown@example.com";
 
     // Generate unique thread timestamp for this conversation
-    const threadTs = message.timestamp.getTime() / 1000 + "." + Math.random().toString(36).substr(2, 9);
+    // Use current timestamp in Slack's expected format
+    const threadTs = (message.timestamp.getTime() / 1000).toString();
     
-    // Format message for Slack with thread support
+    // Format message for Slack (simplified for incoming webhook)
     const slackPayload = {
       text: `New support message from ${userEmail}:`,
-      thread_ts: threadTs, // This works with Slack Apps, not basic webhooks
       attachments: [
         {
           color: "good",
@@ -61,6 +61,11 @@ export async function sendMessageToSlack(message: SlackMessage): Promise<boolean
               short: false,
             },
             {
+              title: "Thread ID",
+              value: threadTs,
+              short: true,
+            },
+            {
               title: "Timestamp",
               value: message.timestamp.toISOString(),
               short: true,
@@ -69,6 +74,9 @@ export async function sendMessageToSlack(message: SlackMessage): Promise<boolean
         },
       ],
     };
+
+    console.log("Sending to Slack webhook:", SLACK_WEBHOOK_URL);
+    console.log("Slack payload:", JSON.stringify(slackPayload, null, 2));
 
     const response = await fetch(SLACK_WEBHOOK_URL, {
       method: "POST",
@@ -79,7 +87,9 @@ export async function sendMessageToSlack(message: SlackMessage): Promise<boolean
     });
 
     if (!response.ok) {
-      throw new Error(`Slack webhook failed: ${response.status}`);
+      const errorText = await response.text();
+      console.error("Slack webhook error response:", errorText);
+      throw new Error(`Slack webhook failed: ${response.status} - ${errorText}`);
     }
 
     // Store the message with thread information
