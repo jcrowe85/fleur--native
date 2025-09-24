@@ -59,6 +59,46 @@ export default async function handler(req, res) {
         const threadTs = event.thread_ts;
         const messageTs = event.ts;
 
+        // Check if this is a typing indicator command
+        if (messageText === '/typing') {
+          console.log('Typing indicator detected for thread:', threadTs);
+          
+          // Find the most recent user message to link this typing indicator to
+          const { data: originalMessage, error: findError } = await supabase
+            .from('support_messages')
+            .select('user_id')
+            .eq('is_from_user', true)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+          if (findError || !originalMessage) {
+            console.error('Could not find original user for typing indicator:', findError);
+            return res.status(200).json({ error: 'Original user not found for typing indicator' });
+          }
+
+          const appUserId = originalMessage.user_id;
+
+          // Store typing indicator in Supabase
+          const { error: insertError } = await supabase
+            .from('support_messages')
+            .insert({
+              user_id: appUserId,
+              message_text: 'TYPING_INDICATOR',
+              is_from_user: false,
+              slack_thread_ts: threadTs,
+              slack_message_ts: messageTs,
+            });
+
+          if (insertError) {
+            console.error('Error storing typing indicator:', insertError);
+            return res.status(500).json({ error: 'Failed to store typing indicator' });
+          }
+
+          console.log('Typing indicator stored successfully for user:', appUserId);
+          return res.status(200).json({ success: true });
+        }
+
         // Find the most recent user message to link this reply to
         // Since we don't have exact thread matching, we'll link to the latest user message
         const { data: originalMessage, error: fetchError } = await supabase
