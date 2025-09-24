@@ -46,13 +46,16 @@ function AnimatedDot({ delay }: { delay: number }) {
           withTiming(-8, { duration: 400, easing: Easing.out(Easing.quad) }),
           withTiming(0, { duration: 400, easing: Easing.in(Easing.quad) })
         ),
-        -1,
+        -1, // Infinite repeat
         false
       );
     };
 
     const timer = setTimeout(startAnimation, delay);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      // Don't stop animation on cleanup - let it continue
+    };
   }, [delay, translateY]);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -74,12 +77,14 @@ export default function SupportChatScreen() {
     checkForNewReplies();
     checkForSupportTyping();
     
-    // Check for new replies and typing every 2 seconds
-    const interval = setInterval(() => {
-      checkForNewReplies();
-      checkForSupportTyping();
-    }, 2000);
-    return () => clearInterval(interval);
+    // Check for new replies every 2 seconds, typing every 1 second for responsiveness
+    const replyInterval = setInterval(checkForNewReplies, 2000);
+    const typingInterval = setInterval(checkForSupportTyping, 1000);
+    
+    return () => {
+      clearInterval(replyInterval);
+      clearInterval(typingInterval);
+    };
   }, []);
 
   const loadMessages = async () => {
