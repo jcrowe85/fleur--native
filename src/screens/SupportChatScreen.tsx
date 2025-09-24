@@ -140,11 +140,16 @@ export default function SupportChatScreen() {
           // Use a Set to ensure no duplicates by ID
           const existingIds = new Set(prev.map(msg => msg.id));
           const trulyNewReplies = formattedReplies.filter(reply => !existingIds.has(reply.id));
+          
+          // Clear typing indicator when real message arrives (with small delay)
+          if (trulyNewReplies.length > 0) {
+            setTimeout(() => {
+              setIsSupportTyping(false);
+            }, 500); // Small delay to ensure message is displayed
+          }
+          
           return [...prev, ...trulyNewReplies];
         });
-        
-        // Clear typing indicator when real message arrives
-        setIsSupportTyping(false);
         
         // Scroll to bottom when new reply arrives
         setTimeout(() => {
