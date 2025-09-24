@@ -88,10 +88,14 @@ export default function SupportChatScreen() {
         timestamp: new Date(msg.created_at || Date.now()),
       }));
       
-      if (formattedMessages.length > 0) {
+      // Check if user has ever sent a message
+      const hasUserMessages = formattedMessages.some(msg => msg.isUser);
+      
+      if (hasUserMessages) {
+        // User has sent messages, show conversation history
         setMessages(formattedMessages);
-      } else {
-        // Only show welcome message if no messages exist
+      } else if (formattedMessages.length === 0) {
+        // No messages at all, show welcome message
         setMessages([
           {
             id: "welcome-1",
@@ -100,6 +104,9 @@ export default function SupportChatScreen() {
             timestamp: new Date(),
           },
         ]);
+      } else {
+        // Only support messages exist, show them without welcome
+        setMessages(formattedMessages);
       }
     } catch (error) {
       console.error("Error loading messages:", error);
