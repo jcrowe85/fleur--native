@@ -99,13 +99,18 @@ export default function SupportChatScreen() {
           timestamp: new Date(msg.created_at || Date.now()),
         }));
       
+      // Remove duplicates by ID
+      const uniqueMessages = formattedMessages.filter((msg, index, self) => 
+        index === self.findIndex(m => m.id === msg.id)
+      );
+      
       // Check if user has ever sent a message
-      const hasUserMessages = formattedMessages.some(msg => msg.isUser);
+      const hasUserMessages = uniqueMessages.some(msg => msg.isUser);
       
       if (hasUserMessages) {
         // User has sent messages, show conversation history
-        setMessages(formattedMessages);
-      } else if (formattedMessages.length === 0) {
+        setMessages(uniqueMessages);
+      } else if (uniqueMessages.length === 0) {
         // No messages at all, show welcome message
         setMessages([
           {
@@ -117,59 +122,58 @@ export default function SupportChatScreen() {
         ]);
       } else {
         // Only support messages exist, show them without welcome
-        setMessages(formattedMessages);
+        setMessages(uniqueMessages);
       }
     } catch (error) {
       console.error("Error loading messages:", error);
     }
   };
 
-  const checkForNewReplies = async () => {
-    try {
-      const replies = await checkForReplies();
-      const newReplies = replies
-        .filter(reply => reply.message_text !== 'TYPING_INDICATOR') // Filter out typing indicators
-        .filter(reply => 
-          !messages.some(msg => msg.id === reply.id)
-        );
-      
-      if (newReplies.length > 0) {
-        const formattedReplies = newReplies.map(reply => ({
-          id: reply.id || Date.now().toString(),
-          text: reply.message_text,
-          isUser: false,
-          timestamp: new Date(reply.created_at || Date.now()),
-        }));
-        
-        setMessages(prev => {
-          // Use a Set to ensure no duplicates by ID
-          const existingIds = new Set(prev.map(msg => msg.id));
-          const trulyNewReplies = formattedReplies.filter(reply => !existingIds.has(reply.id));
-          
-          // Clear typing indicator when real message arrives (with small delay)
-          if (trulyNewReplies.length > 0) {
-            setTimeout(() => {
-              setIsSupportTyping(false);
-            }, 500); // Small delay to ensure message is displayed
-          }
-          
-          return [...prev, ...trulyNewReplies];
-        });
-        
-        // Scroll to bottom when new reply arrives
-        setTimeout(() => {
-          scrollViewRef.current?.scrollToEnd({ animated: true });
-        }, 100);
-      }
-    } catch (error) {
-      console.error("Error checking for replies:", error);
-    }
-  };
+         const checkForNewReplies = async () => {
+           try {
+             const replies = await checkForReplies();
+             const newReplies = replies
+               .filter(reply => reply.message_text !== 'TYPING_INDICATOR') // Filter out typing indicators
+               .filter(reply => 
+                 !messages.some(msg => msg.id === reply.id)
+               );
+             
+             if (newReplies.length > 0) {
+               const formattedReplies = newReplies.map(reply => ({
+                 id: reply.id || Date.now().toString(),
+                 text: reply.message_text,
+                 isUser: false,
+                 timestamp: new Date(reply.created_at || Date.now()),
+               }));
+               
+               setMessages(prev => {
+                 // Use a Set to ensure no duplicates by ID
+                 const existingIds = new Set(prev.map(msg => msg.id));
+                 const trulyNewReplies = formattedReplies.filter(reply => !existingIds.has(reply.id));
+                 
+                 // Clear typing indicator immediately when real message arrives
+                 if (trulyNewReplies.length > 0) {
+                   setIsSupportTyping(false);
+                 }
+                 
+                 return [...prev, ...trulyNewReplies];
+               });
+               
+               // Scroll to bottom when new reply arrives
+               setTimeout(() => {
+                 scrollViewRef.current?.scrollToEnd({ animated: true });
+               }, 100);
+             }
+           } catch (error) {
+             console.error("Error checking for replies:", error);
+           }
+         };
 
   const checkForSupportTyping = async () => {
     try {
       const isTyping = await checkSupportTyping();
-      setIsSupportTyping(isTyping);
+      // Only update if the state is actually changing to prevent flickering
+      setIsSupportTyping(prev => prev !== isTyping ? isTyping : prev);
     } catch (error) {
       console.error("Error checking support typing:", error);
     }
@@ -178,15 +182,25 @@ export default function SupportChatScreen() {
   const sendMessage = async () => {
     if (!inputText.trim()) return;
 
+    const messageText = inputText.trim();
+    setInputText(""); // Clear input immediately
+
     const userMessage: Message = {
       id: Date.now().toString(),
-      text: inputText.trim(),
+      text: messageText,
       isUser: true,
       timestamp: new Date(),
     };
 
-    setMessages(prev => [...prev, userMessage]);
-    setInputText("");
+    // Add message to UI immediately with duplicate check
+    setMessages(prev => {
+      // Check for duplicates before adding
+      const existingIds = new Set(prev.map(msg => msg.id));
+      if (existingIds.has(userMessage.id)) {
+        return prev; // Don't add if already exists
+      }
+      return [...prev, userMessage];
+    });
 
     // Scroll to bottom
     setTimeout(() => {
@@ -196,11 +210,11 @@ export default function SupportChatScreen() {
     try {
       // Send message to Slack and store in database
       const slackSuccess = await sendMessageToSlack({
-        text: userMessage.text,
+        text: messageText,
         timestamp: userMessage.timestamp,
       });
       
-      const dbSuccess = await storeSupportMessage(userMessage.text);
+      const dbSuccess = await storeSupportMessage(messageText);
       
       // No auto-response needed - real support team will respond
       
@@ -212,6 +226,8 @@ export default function SupportChatScreen() {
     } catch (error) {
       console.error("Error sending message:", error);
       Alert.alert("Error", "Failed to send message. Please try again.");
+      // Restore input text if sending failed
+      setInputText(messageText);
     }
   };
 
