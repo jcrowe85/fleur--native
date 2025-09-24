@@ -22,6 +22,29 @@ interface SupportMessage {
 // Slack webhook URL - replace with your new Slack App webhook URL
 const SLACK_WEBHOOK_URL = process.env.EXPO_PUBLIC_SLACK_WEBHOOK_URL || "YOUR_NEW_APP_WEBHOOK_URL_HERE";
 
+// Get existing thread timestamp for a user
+async function getExistingThread(userId: string): Promise<string | undefined> {
+  try {
+    const { data, error } = await supabase
+      .from("support_messages")
+      .select("slack_thread_ts")
+      .eq("user_id", userId)
+      .not("slack_thread_ts", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error || !data) {
+      return undefined;
+    }
+
+    return data.slack_thread_ts;
+  } catch (error) {
+    console.error("Error getting existing thread:", error);
+    return undefined;
+  }
+}
+
 export async function sendMessageToSlack(message: SlackMessage): Promise<boolean> {
   try {
     if (!SLACK_WEBHOOK_URL) {
@@ -34,13 +57,14 @@ export async function sendMessageToSlack(message: SlackMessage): Promise<boolean
     const userId = user?.id || "anonymous";
     const userEmail = user?.email || "unknown@example.com";
 
-    // Don't generate our own thread timestamp - let Slack create the thread
-    // We'll store the message without a thread_ts initially
-    const threadTs = undefined;
+    // Check if we have an existing thread for this user
+    const existingThread = await getExistingThread(userId);
+    const threadTs = existingThread;
     
-    // Format message for Slack (simplified for incoming webhook)
+    // Format message for Slack with thread support
     const slackPayload = {
       text: `New support message from ${userEmail}:`,
+      ...(threadTs && { thread_ts: threadTs }), // Add thread_ts if we have one
       attachments: [
         {
           color: "good",
