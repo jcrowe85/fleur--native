@@ -76,13 +76,9 @@ export default function SupportChatScreen() {
 
   // Load existing messages and check for replies
   useEffect(() => {
-    console.log("🚀 useEffect called, hasLoadedMessages:", hasLoadedMessages);
     if (!hasLoadedMessages) {
-      console.log("📋 Loading messages for first time");
       loadMessages();
       setHasLoadedMessages(true);
-    } else {
-      console.log("⏭️ Skipping loadMessages, already loaded");
     }
     checkForSupportTyping();
     
@@ -91,7 +87,6 @@ export default function SupportChatScreen() {
     const typingInterval = setInterval(checkForSupportTyping, 2000);
     
     return () => {
-      console.log("🧹 Cleaning up intervals");
       clearInterval(replyInterval);
       clearInterval(typingInterval);
     };
@@ -99,9 +94,7 @@ export default function SupportChatScreen() {
 
   const loadMessages = async () => {
     try {
-      console.log("🔍 loadMessages called");
       const dbMessages = await getSupportMessages();
-      console.log("📥 Raw DB messages:", dbMessages.length, dbMessages);
       
       const formattedMessages = dbMessages
         .filter(msg => msg.message_text !== 'TYPING_INDICATOR') // Filter out typing indicators
@@ -112,28 +105,23 @@ export default function SupportChatScreen() {
           timestamp: new Date(msg.created_at || Date.now()),
         }));
       
-      console.log("📝 Formatted messages:", formattedMessages.length, formattedMessages);
-      
-      // Remove duplicates by ID and also by content+timestamp to catch edge cases
+      // Remove duplicates by content+timestamp+isUser (more aggressive deduplication)
       const uniqueMessages = formattedMessages.filter((msg, index, self) => 
         index === self.findIndex(m => 
-          m.id === msg.id || 
-          (m.text === msg.text && m.timestamp.getTime() === msg.timestamp.getTime() && m.isUser === msg.isUser)
+          m.text === msg.text && 
+          Math.abs(m.timestamp.getTime() - msg.timestamp.getTime()) < 1000 && // Within 1 second
+          m.isUser === msg.isUser
         )
       );
-      
-      console.log("✨ Unique messages:", uniqueMessages.length, uniqueMessages);
       
       // Check if user has ever sent a message
       const hasUserMessages = uniqueMessages.some(msg => msg.isUser);
       
       if (hasUserMessages) {
         // User has sent messages, show conversation history
-        console.log("💬 Setting user messages");
         setMessages(uniqueMessages);
       } else if (uniqueMessages.length === 0) {
         // No messages at all, show welcome message
-        console.log("👋 Setting welcome message");
         setMessages([
           {
             id: "welcome-1",
@@ -144,7 +132,6 @@ export default function SupportChatScreen() {
         ]);
       } else {
         // Only support messages exist, show them without welcome
-        console.log("🤖 Setting support messages only");
         setMessages(uniqueMessages);
       }
     } catch (error) {
@@ -169,7 +156,6 @@ export default function SupportChatScreen() {
                .filter(msg => {
                  // Skip user messages that match pending message text
                  if (msg.is_from_user && pendingMessageText && msg.message_text === pendingMessageText) {
-                   console.log("🚫 Skipping pending message:", msg.message_text);
                    return false;
                  }
                  return true;
@@ -247,20 +233,16 @@ export default function SupportChatScreen() {
     }, 100);
 
     try {
-      console.log("📤 Sending message:", messageText);
       // Send message to Slack (this also stores in database)
       const slackSuccess = await sendMessageToSlack({
         text: messageText,
         timestamp: new Date(),
       });
       
-      console.log("📤 Slack success:", slackSuccess);
-      
       if (slackSuccess) {
         // Keep pending message text for a few seconds to prevent polling from adding it
         setTimeout(() => {
           setPendingMessageText(null);
-          console.log("📤 Pending message cleared after delay");
         }, 3000); // 3 second delay
       }
 
