@@ -69,6 +69,7 @@ export default function SupportChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [isSupportTyping, setIsSupportTyping] = useState(false);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
   // Load existing messages and check for replies
@@ -189,35 +190,66 @@ export default function SupportChatScreen() {
   };
 
   const sendMessage = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || isSendingMessage) return;
 
     const messageText = inputText.trim();
+    const messageTimestamp = new Date();
     setInputText(""); // Clear input immediately
+    setIsSendingMessage(true);
+
+    // Add message to UI immediately with a temporary ID
+    const tempMessage: Message = {
+      id: `temp-${Date.now()}`,
+      text: messageText,
+      isUser: true,
+      timestamp: messageTimestamp,
+    };
+
+    setMessages(prev => [...prev, tempMessage]);
+
+    // Scroll to bottom
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
 
     try {
-      // Send message to Slack and store in database first
+      // Send message to Slack and store in database
       const slackSuccess = await sendMessageToSlack({
         text: messageText,
-        timestamp: new Date(),
+        timestamp: messageTimestamp,
       });
       
       const dbSuccess = await storeSupportMessage(messageText);
       
       if (dbSuccess) {
-        // Reload messages to get the actual database ID and avoid duplicates
-        await loadMessages();
+        // Replace the temporary message with the real one from database
+        const dbMessages = await getSupportMessages();
+        const realMessage = dbMessages
+          .filter(msg => msg.message_text === messageText && msg.is_from_user)
+          .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
+        
+        if (realMessage) {
+          setMessages(prev => prev.map(msg => 
+            msg.id === tempMessage.id 
+              ? {
+                  id: realMessage.id || tempMessage.id,
+                  text: realMessage.message_text,
+                  isUser: realMessage.is_from_user,
+                  timestamp: new Date(realMessage.created_at || messageTimestamp),
+                }
+              : msg
+          ));
+        }
       }
-      
-      // Scroll to bottom after message is sent
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 100);
 
     } catch (error) {
       console.error("Error sending message:", error);
       Alert.alert("Error", "Failed to send message. Please try again.");
-      // Restore input text if sending failed
+      // Remove the temporary message and restore input
+      setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
       setInputText(messageText);
+    } finally {
+      setIsSendingMessage(false);
     }
   };
 
