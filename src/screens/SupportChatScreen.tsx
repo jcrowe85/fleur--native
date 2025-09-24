@@ -71,6 +71,7 @@ export default function SupportChatScreen() {
   const [isSupportTyping, setIsSupportTyping] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [pendingMessageText, setPendingMessageText] = useState<string | null>(null);
+  const [pendingMessageTimestamp, setPendingMessageTimestamp] = useState<number | null>(null);
   const [hasLoadedMessages, setHasLoadedMessages] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -154,9 +155,15 @@ export default function SupportChatScreen() {
                  !messages.some(existingMsg => existingMsg.id === msg.id)
                )
                .filter(msg => {
-                 // Skip user messages that match pending message text
-                 if (msg.is_from_user && pendingMessageText && msg.message_text === pendingMessageText) {
-                   return false;
+                 // Skip user messages that match pending message text and timestamp
+                 if (msg.is_from_user && pendingMessageText && pendingMessageTimestamp) {
+                   const msgTime = new Date(msg.created_at).getTime();
+                   const timeDiff = Math.abs(msgTime - pendingMessageTimestamp);
+                   
+                   // Skip if same text and within 5 seconds
+                   if (msg.message_text === pendingMessageText && timeDiff < 5000) {
+                     return false;
+                   }
                  }
                  return true;
                });
@@ -213,9 +220,11 @@ export default function SupportChatScreen() {
     if (!inputText.trim() || isSendingMessage) return;
 
     const messageText = inputText.trim();
+    const messageTimestamp = Date.now();
     setInputText(""); // Clear input immediately
     setIsSendingMessage(true);
     setPendingMessageText(messageText); // Track pending message
+    setPendingMessageTimestamp(messageTimestamp); // Track timestamp
 
     // Add message to UI immediately for good UX
     const tempMessage: Message = {
@@ -243,16 +252,18 @@ export default function SupportChatScreen() {
         // Keep pending message text for a few seconds to prevent polling from adding it
         setTimeout(() => {
           setPendingMessageText(null);
-        }, 3000); // 3 second delay
+          setPendingMessageTimestamp(null);
+        }, 5000); // 5 second delay
       }
 
     } catch (error) {
       console.error("Error sending message:", error);
       Alert.alert("Error", "Failed to send message. Please try again.");
-      // Remove temp message and restore input
-      setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
-      setInputText(messageText);
-      setPendingMessageText(null);
+        // Remove temp message and restore input
+        setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
+        setInputText(messageText);
+        setPendingMessageText(null);
+        setPendingMessageTimestamp(null);
     } finally {
       setIsSendingMessage(false);
     }
