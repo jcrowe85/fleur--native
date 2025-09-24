@@ -246,15 +246,13 @@ export default function SupportChatScreen() {
     }, 100);
 
     try {
-      // Send message to Slack and store in database
+      // Send message to Slack (this also stores in database)
       const slackSuccess = await sendMessageToSlack({
         text: messageText,
         timestamp: new Date(),
       });
       
-      const dbSuccess = await storeSupportMessage(messageText);
-      
-      if (dbSuccess) {
+      if (slackSuccess) {
         // Clear pending message text so polling can handle it
         setPendingMessageText(null);
       }
