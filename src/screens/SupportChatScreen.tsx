@@ -75,12 +75,11 @@ export default function SupportChatScreen() {
   // Load existing messages and check for replies
   useEffect(() => {
     loadMessages();
-    checkForNewReplies();
     checkForSupportTyping();
     
-           // Check for new replies every 2 seconds, typing every 2 seconds
-           const replyInterval = setInterval(checkForNewReplies, 2000);
-           const typingInterval = setInterval(checkForSupportTyping, 2000);
+    // Check for new replies every 2 seconds, typing every 2 seconds
+    const replyInterval = setInterval(checkForNewReplies, 2000);
+    const typingInterval = setInterval(checkForSupportTyping, 2000);
     
     return () => {
       clearInterval(replyInterval);
