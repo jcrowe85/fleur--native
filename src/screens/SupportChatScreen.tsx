@@ -25,7 +25,7 @@ import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { BlurView } from "expo-blur";
-import { sendMessageToSlack, storeSupportMessage, getSupportMessages, checkForReplies, checkSupportTyping, clearTypingIndicators } from "@/services/slackService";
+import { sendMessageToSlack, storeSupportMessage, getSupportMessages, checkForReplies, checkSupportTyping } from "@/services/slackService";
 // import { ScreenScrollView } from "@/components/UI/bottom-space";
 
 interface Message {
@@ -69,7 +69,6 @@ export default function SupportChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [isSupportTyping, setIsSupportTyping] = useState(false);
-  const [typingCleared, setTypingCleared] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
   // Load existing messages and check for replies
@@ -78,9 +77,9 @@ export default function SupportChatScreen() {
     checkForNewReplies();
     checkForSupportTyping();
     
-           // Check for new replies every 2 seconds, typing every 3 seconds to reduce race conditions
+           // Check for new replies every 2 seconds, typing every 2 seconds
            const replyInterval = setInterval(checkForNewReplies, 2000);
-           const typingInterval = setInterval(checkForSupportTyping, 3000);
+           const typingInterval = setInterval(checkForSupportTyping, 2000);
     
     return () => {
       clearInterval(replyInterval);
@@ -154,15 +153,7 @@ export default function SupportChatScreen() {
                  
                  // Clear typing indicator when real message arrives
                  if (trulyNewReplies.length > 0) {
-                   // Clear typing indicator immediately and from database
                    setIsSupportTyping(false);
-                   setTypingCleared(true);
-                   // Clear typing indicators from database to prevent reappearing
-                   clearTypingIndicators();
-                   // Reset the flag after a delay to allow new typing indicators
-                   setTimeout(() => {
-                     setTypingCleared(false);
-                   }, 2000);
                  }
                  
                  return [...prev, ...trulyNewReplies];
@@ -180,22 +171,8 @@ export default function SupportChatScreen() {
 
   const checkForSupportTyping = async () => {
     try {
-      // Don't check for typing if we just cleared it
-      if (typingCleared) {
-        return;
-      }
-      
       const isTyping = await checkSupportTyping();
-      // Only set to true if we detect typing, but allow clearing when false
-      setIsSupportTyping(prev => {
-        if (isTyping) {
-          return true; // Always show typing when detected
-        } else if (prev) {
-          // Only clear if we were previously showing typing
-          return false;
-        }
-        return prev; // Keep current state if no change
-      });
+      setIsSupportTyping(isTyping);
     } catch (error) {
       console.error("Error checking support typing:", error);
     }
