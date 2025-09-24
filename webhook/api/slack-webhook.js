@@ -116,6 +116,13 @@ export default async function handler(req, res) {
 
         const appUserId = originalMessage.user_id;
 
+        // Clear any existing typing indicators for this user
+        await supabase
+          .from('support_messages')
+          .delete()
+          .eq('user_id', appUserId)
+          .eq('message_text', 'TYPING_INDICATOR');
+
         // Store the reply in Supabase
         const { error: insertError } = await supabase
           .from('support_messages')

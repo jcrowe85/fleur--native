@@ -274,7 +274,7 @@ export async function checkSupportTyping(): Promise<boolean> {
       .eq("user_id", user.id)
       .eq("is_from_user", false)
       .eq("message_text", "TYPING_INDICATOR") // Special message type for typing
-      .gte("created_at", new Date(Date.now() - 5000).toISOString()) // Last 5 seconds
+      .gte("created_at", new Date(Date.now() - 30000).toISOString()) // Last 30 seconds (longer timeout)
       .order("created_at", { ascending: false })
       .limit(1);
 
