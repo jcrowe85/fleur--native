@@ -118,7 +118,12 @@ export default function SupportChatScreen() {
           timestamp: new Date(reply.created_at || Date.now()),
         }));
         
-        setMessages(prev => [...prev, ...formattedReplies]);
+        setMessages(prev => {
+          // Use a Set to ensure no duplicates by ID
+          const existingIds = new Set(prev.map(msg => msg.id));
+          const trulyNewReplies = formattedReplies.filter(reply => !existingIds.has(reply.id));
+          return [...prev, ...trulyNewReplies];
+        });
         
         // Scroll to bottom when new reply arrives
         setTimeout(() => {
