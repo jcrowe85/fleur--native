@@ -85,12 +85,14 @@ export default function SupportChatScreen() {
   const loadMessages = async () => {
     try {
       const dbMessages = await getSupportMessages();
-      const formattedMessages = dbMessages.map(msg => ({
-        id: msg.id || Date.now().toString(),
-        text: msg.message_text,
-        isUser: msg.is_from_user,
-        timestamp: new Date(msg.created_at || Date.now()),
-      }));
+      const formattedMessages = dbMessages
+        .filter(msg => msg.message_text !== 'TYPING_INDICATOR') // Filter out typing indicators
+        .map(msg => ({
+          id: msg.id || Date.now().toString(),
+          text: msg.message_text,
+          isUser: msg.is_from_user,
+          timestamp: new Date(msg.created_at || Date.now()),
+        }));
       
       // Check if user has ever sent a message
       const hasUserMessages = formattedMessages.some(msg => msg.isUser);
@@ -120,9 +122,11 @@ export default function SupportChatScreen() {
   const checkForNewReplies = async () => {
     try {
       const replies = await checkForReplies();
-      const newReplies = replies.filter(reply => 
-        !messages.some(msg => msg.id === reply.id)
-      );
+      const newReplies = replies
+        .filter(reply => reply.message_text !== 'TYPING_INDICATOR') // Filter out typing indicators
+        .filter(reply => 
+          !messages.some(msg => msg.id === reply.id)
+        );
       
       if (newReplies.length > 0) {
         const formattedReplies = newReplies.map(reply => ({
