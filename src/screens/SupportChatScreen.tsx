@@ -173,25 +173,7 @@ export default function SupportChatScreen() {
       
       const dbSuccess = await storeSupportMessage(userMessage.text);
       
-      // Simulate response time
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      let responseText = "Thank you for your message! Our support team has been notified and will respond to you shortly. In the meantime, feel free to ask any other questions.";
-      
-      if (!slackSuccess && !dbSuccess) {
-        responseText = "We're experiencing technical difficulties. Please try again in a few moments or contact us directly.";
-      } else if (!slackSuccess) {
-        responseText = "Your message has been saved. Our team will get back to you soon!";
-      }
-      
-      const botResponse: Message = {
-        id: (Date.now() + 1).toString(),
-        text: responseText,
-        isUser: false,
-        timestamp: new Date(),
-      };
-
-      setMessages(prev => [...prev, botResponse]);
+      // No auto-response needed - real support team will respond
       
       // Scroll to bottom after response
       setTimeout(() => {
