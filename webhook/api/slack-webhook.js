@@ -60,7 +60,7 @@ export default async function handler(req, res) {
         const messageTs = event.ts;
 
         // Check if this is a typing indicator command
-        if (messageText === '/typing') {
+        if (messageText === '/typing' || messageText === 'typing...' || messageText === 'typing') {
           console.log('Typing indicator detected for thread:', threadTs);
           
           // Find the most recent user message to link this typing indicator to
