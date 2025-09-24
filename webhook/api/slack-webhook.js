@@ -31,6 +31,12 @@ export default async function handler(req, res) {
     }
     
     console.log('Received webhook:', JSON.stringify(body, null, 2));
+    console.log('Webhook body type:', body.type);
+    console.log('Webhook has event:', !!body.event);
+    if (body.event) {
+      console.log('Event type:', body.event.type);
+      console.log('Event has thread_ts:', !!body.event.thread_ts);
+    }
     
     // Handle Slack URL verification challenge
     if (body.type === 'url_verification') {

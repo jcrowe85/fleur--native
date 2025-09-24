@@ -76,6 +76,7 @@ export async function sendMessageToSlack(message: SlackMessage): Promise<boolean
     };
 
     console.log("Sending to Slack webhook:", SLACK_WEBHOOK_URL);
+    console.log("Webhook URL starts with:", SLACK_WEBHOOK_URL?.substring(0, 50) + "...");
     console.log("Slack payload:", JSON.stringify(slackPayload, null, 2));
 
     const response = await fetch(SLACK_WEBHOOK_URL, {
