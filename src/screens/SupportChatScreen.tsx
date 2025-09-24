@@ -70,6 +70,7 @@ export default function SupportChatScreen() {
   const [inputText, setInputText] = useState("");
   const [isSupportTyping, setIsSupportTyping] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [pendingMessageText, setPendingMessageText] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
   // Load existing messages and check for replies
@@ -145,7 +146,14 @@ export default function SupportChatScreen() {
                .filter(msg => msg.message_text !== 'TYPING_INDICATOR') // Filter out typing indicators
                .filter(msg => 
                  !messages.some(existingMsg => existingMsg.id === msg.id)
-               );
+               )
+               .filter(msg => {
+                 // Skip user messages that match pending message text
+                 if (msg.is_from_user && pendingMessageText && msg.message_text === pendingMessageText) {
+                   return false;
+                 }
+                 return true;
+               });
              
              if (newMessages.length > 0) {
                const formattedMessages = newMessages.map(msg => ({
@@ -201,6 +209,22 @@ export default function SupportChatScreen() {
     const messageText = inputText.trim();
     setInputText(""); // Clear input immediately
     setIsSendingMessage(true);
+    setPendingMessageText(messageText); // Track pending message
+
+    // Add message to UI immediately for good UX
+    const tempMessage: Message = {
+      id: `temp-${Date.now()}`,
+      text: messageText,
+      isUser: true,
+      timestamp: new Date(),
+    };
+
+    setMessages(prev => [...prev, tempMessage]);
+
+    // Scroll to bottom
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
 
     try {
       // Send message to Slack and store in database
@@ -211,19 +235,18 @@ export default function SupportChatScreen() {
       
       const dbSuccess = await storeSupportMessage(messageText);
       
-      // Don't reload messages here - let the polling handle it
-      // This prevents the immediate duplication issue
-      
-      // Scroll to bottom after message is sent
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+      if (dbSuccess) {
+        // Clear pending message text so polling can handle it
+        setPendingMessageText(null);
+      }
 
     } catch (error) {
       console.error("Error sending message:", error);
       Alert.alert("Error", "Failed to send message. Please try again.");
-      // Restore input text if sending failed
+      // Remove temp message and restore input
+      setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
       setInputText(messageText);
+      setPendingMessageText(null);
     } finally {
       setIsSendingMessage(false);
     }
