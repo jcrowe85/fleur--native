@@ -25,7 +25,7 @@ import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { BlurView } from "expo-blur";
-import { sendMessageToSlack, storeSupportMessage, getSupportMessages, checkForReplies } from "@/services/slackService";
+import { sendMessageToSlack, storeSupportMessage, getSupportMessages, checkForReplies, checkSupportTyping } from "@/services/slackService";
 // import { ScreenScrollView } from "@/components/UI/bottom-space";
 
 interface Message {
@@ -65,16 +65,20 @@ function AnimatedDot({ delay }: { delay: number }) {
 export default function SupportChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSupportTyping, setIsSupportTyping] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
   // Load existing messages and check for replies
   useEffect(() => {
     loadMessages();
     checkForNewReplies();
+    checkForSupportTyping();
     
-    // Check for new replies every 5 seconds
-    const interval = setInterval(checkForNewReplies, 5000);
+    // Check for new replies and typing every 2 seconds
+    const interval = setInterval(() => {
+      checkForNewReplies();
+      checkForSupportTyping();
+    }, 2000);
     return () => clearInterval(interval);
   }, []);
 
@@ -145,8 +149,17 @@ export default function SupportChatScreen() {
     }
   };
 
+  const checkForSupportTyping = async () => {
+    try {
+      const isTyping = await checkSupportTyping();
+      setIsSupportTyping(isTyping);
+    } catch (error) {
+      console.error("Error checking support typing:", error);
+    }
+  };
+
   const sendMessage = async () => {
-    if (!inputText.trim() || isLoading) return;
+    if (!inputText.trim()) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -157,7 +170,6 @@ export default function SupportChatScreen() {
 
     setMessages(prev => [...prev, userMessage]);
     setInputText("");
-    setIsLoading(true);
 
     // Scroll to bottom
     setTimeout(() => {
@@ -183,8 +195,6 @@ export default function SupportChatScreen() {
     } catch (error) {
       console.error("Error sending message:", error);
       Alert.alert("Error", "Failed to send message. Please try again.");
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -260,7 +270,7 @@ export default function SupportChatScreen() {
                 </View>
               ))}
               
-            {isLoading && (
+            {isSupportTyping && (
               <View style={styles.loadingContainer}>
                 <View style={styles.typingIndicator}>
                   <AnimatedDot delay={0} />
@@ -295,20 +305,16 @@ export default function SupportChatScreen() {
               <Pressable
                 style={[
                   styles.sendButton,
-                  (!inputText.trim() || isLoading) && styles.sendButtonDisabled,
+                  !inputText.trim() && styles.sendButtonDisabled,
                 ]}
                 onPress={sendMessage}
-                disabled={!inputText.trim() || isLoading}
+                disabled={!inputText.trim()}
               >
-                {isLoading ? (
-                  <Feather name="loader" size={18} color="rgba(255,255,255,0.3)" />
-                ) : (
-                  <Feather 
-                    name="send" 
-                    size={18} 
-                    color={(!inputText.trim() || isLoading) ? "rgba(255,255,255,0.3)" : "#fff"} 
-                  />
-                )}
+                <Feather 
+                  name="send" 
+                  size={18} 
+                  color={!inputText.trim() ? "rgba(255,255,255,0.3)" : "#fff"} 
+                />
               </Pressable>
             </View>
           </View>

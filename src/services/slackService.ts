@@ -260,3 +260,31 @@ export async function addSupportReply(
     return false;
   }
 }
+
+// Check if support team is typing
+export async function checkSupportTyping(): Promise<boolean> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.id) return false;
+
+    // Check for recent typing indicators in the database
+    const { data, error } = await supabase
+      .from("support_messages")
+      .select("created_at")
+      .eq("user_id", user.id)
+      .eq("is_from_user", false)
+      .eq("message_text", "TYPING_INDICATOR") // Special message type for typing
+      .gte("created_at", new Date(Date.now() - 10000).toISOString()) // Last 10 seconds
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (error || !data || data.length === 0) {
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Error checking support typing:", error);
+    return false;
+  }
+}
