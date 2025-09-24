@@ -140,48 +140,50 @@ export default function SupportChatScreen() {
                return;
              }
              
-             const replies = await checkForReplies();
-             const newReplies = replies
-               .filter(reply => reply.message_text !== 'TYPING_INDICATOR') // Filter out typing indicators
-               .filter(reply => 
-                 !messages.some(msg => msg.id === reply.id)
+             // Check for ALL new messages (both user and support)
+             const allMessages = await getSupportMessages();
+             const newMessages = allMessages
+               .filter(msg => msg.message_text !== 'TYPING_INDICATOR') // Filter out typing indicators
+               .filter(msg => 
+                 !messages.some(existingMsg => existingMsg.id === msg.id)
                );
              
-             if (newReplies.length > 0) {
-               const formattedReplies = newReplies.map(reply => ({
-                 id: reply.id || Date.now().toString(),
-                 text: reply.message_text,
-                 isUser: false,
-                 timestamp: new Date(reply.created_at || Date.now()),
+             if (newMessages.length > 0) {
+               const formattedMessages = newMessages.map(msg => ({
+                 id: msg.id || Date.now().toString(),
+                 text: msg.message_text,
+                 isUser: msg.is_from_user,
+                 timestamp: new Date(msg.created_at || Date.now()),
                }));
                
                setMessages(prev => {
                  // Use robust deduplication by ID and content+timestamp
                  const existingIds = new Set(prev.map(msg => msg.id));
-                 const trulyNewReplies = formattedReplies.filter(reply => 
-                   !existingIds.has(reply.id) && 
-                   !prev.some(msg => 
-                     msg.text === reply.text && 
-                     msg.timestamp.getTime() === reply.timestamp.getTime() && 
-                     msg.isUser === reply.isUser
+                 const trulyNewMessages = formattedMessages.filter(msg => 
+                   !existingIds.has(msg.id) && 
+                   !prev.some(existingMsg => 
+                     existingMsg.text === msg.text && 
+                     existingMsg.timestamp.getTime() === msg.timestamp.getTime() && 
+                     existingMsg.isUser === msg.isUser
                    )
                  );
                  
-                 // Clear typing indicator when real message arrives
-                 if (trulyNewReplies.length > 0) {
+                 // Clear typing indicator when support message arrives
+                 const supportMessages = trulyNewMessages.filter(msg => !msg.isUser);
+                 if (supportMessages.length > 0) {
                    setIsSupportTyping(false);
                  }
                  
-                 return [...prev, ...trulyNewReplies];
+                 return [...prev, ...trulyNewMessages];
                });
                
-               // Scroll to bottom when new reply arrives
+               // Scroll to bottom when new message arrives
                setTimeout(() => {
                  scrollViewRef.current?.scrollToEnd({ animated: true });
                }, 100);
              }
            } catch (error) {
-             console.error("Error checking for replies:", error);
+             console.error("Error checking for new messages:", error);
            }
          };
 
@@ -210,10 +212,8 @@ export default function SupportChatScreen() {
       
       const dbSuccess = await storeSupportMessage(messageText);
       
-      if (dbSuccess) {
-        // Just reload all messages to ensure consistency
-        await loadMessages();
-      }
+      // Don't reload messages here - let the polling handle it
+      // This prevents the immediate duplication issue
       
       // Scroll to bottom after message is sent
       setTimeout(() => {
