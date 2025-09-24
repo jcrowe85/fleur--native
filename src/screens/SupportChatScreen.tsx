@@ -99,9 +99,12 @@ export default function SupportChatScreen() {
           timestamp: new Date(msg.created_at || Date.now()),
         }));
       
-      // Remove duplicates by ID
+      // Remove duplicates by ID and also by content+timestamp to catch edge cases
       const uniqueMessages = formattedMessages.filter((msg, index, self) => 
-        index === self.findIndex(m => m.id === msg.id)
+        index === self.findIndex(m => 
+          m.id === msg.id || 
+          (m.text === msg.text && m.timestamp.getTime() === msg.timestamp.getTime() && m.isUser === msg.isUser)
+        )
       );
       
       // Check if user has ever sent a message
@@ -147,9 +150,16 @@ export default function SupportChatScreen() {
                }));
                
                setMessages(prev => {
-                 // Use a Set to ensure no duplicates by ID
+                 // Use robust deduplication by ID and content+timestamp
                  const existingIds = new Set(prev.map(msg => msg.id));
-                 const trulyNewReplies = formattedReplies.filter(reply => !existingIds.has(reply.id));
+                 const trulyNewReplies = formattedReplies.filter(reply => 
+                   !existingIds.has(reply.id) && 
+                   !prev.some(msg => 
+                     msg.text === reply.text && 
+                     msg.timestamp.getTime() === reply.timestamp.getTime() && 
+                     msg.isUser === reply.isUser
+                   )
+                 );
                  
                  // Clear typing indicator when real message arrives
                  if (trulyNewReplies.length > 0) {
@@ -191,11 +201,17 @@ export default function SupportChatScreen() {
       timestamp: new Date(),
     };
 
-    // Add message to UI immediately with duplicate check
+    // Add message to UI immediately with robust duplicate check
     setMessages(prev => {
-      // Check for duplicates before adding
-      const existingIds = new Set(prev.map(msg => msg.id));
-      if (existingIds.has(userMessage.id)) {
+      // Check for duplicates by ID and content+timestamp
+      const isDuplicate = prev.some(msg => 
+        msg.id === userMessage.id || 
+        (msg.text === userMessage.text && 
+         msg.timestamp.getTime() === userMessage.timestamp.getTime() && 
+         msg.isUser === userMessage.isUser)
+      );
+      
+      if (isDuplicate) {
         return prev; // Don't add if already exists
       }
       return [...prev, userMessage];
