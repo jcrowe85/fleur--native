@@ -143,6 +143,9 @@ export default function SupportChatScreen() {
           return [...prev, ...trulyNewReplies];
         });
         
+        // Clear typing indicator when real message arrives
+        setIsSupportTyping(false);
+        
         // Scroll to bottom when new reply arrives
         setTimeout(() => {
           scrollViewRef.current?.scrollToEnd({ animated: true });
