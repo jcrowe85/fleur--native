@@ -135,6 +135,11 @@ export default function SupportChatScreen() {
 
          const checkForNewReplies = async () => {
            try {
+             // Don't check for replies if we're currently sending a message
+             if (isSendingMessage) {
+               return;
+             }
+             
              const replies = await checkForReplies();
              const newReplies = replies
                .filter(reply => reply.message_text !== 'TYPING_INDICATOR') // Filter out typing indicators
@@ -193,60 +198,32 @@ export default function SupportChatScreen() {
     if (!inputText.trim() || isSendingMessage) return;
 
     const messageText = inputText.trim();
-    const messageTimestamp = new Date();
     setInputText(""); // Clear input immediately
     setIsSendingMessage(true);
-
-    // Add message to UI immediately with a temporary ID
-    const tempMessage: Message = {
-      id: `temp-${Date.now()}`,
-      text: messageText,
-      isUser: true,
-      timestamp: messageTimestamp,
-    };
-
-    setMessages(prev => [...prev, tempMessage]);
-
-    // Scroll to bottom
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }, 100);
 
     try {
       // Send message to Slack and store in database
       const slackSuccess = await sendMessageToSlack({
         text: messageText,
-        timestamp: messageTimestamp,
+        timestamp: new Date(),
       });
       
       const dbSuccess = await storeSupportMessage(messageText);
       
       if (dbSuccess) {
-        // Replace the temporary message with the real one from database
-        const dbMessages = await getSupportMessages();
-        const realMessage = dbMessages
-          .filter(msg => msg.message_text === messageText && msg.is_from_user)
-          .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
-        
-        if (realMessage) {
-          setMessages(prev => prev.map(msg => 
-            msg.id === tempMessage.id 
-              ? {
-                  id: realMessage.id || tempMessage.id,
-                  text: realMessage.message_text,
-                  isUser: realMessage.is_from_user,
-                  timestamp: new Date(realMessage.created_at || messageTimestamp),
-                }
-              : msg
-          ));
-        }
+        // Just reload all messages to ensure consistency
+        await loadMessages();
       }
+      
+      // Scroll to bottom after message is sent
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
 
     } catch (error) {
       console.error("Error sending message:", error);
       Alert.alert("Error", "Failed to send message. Please try again.");
-      // Remove the temporary message and restore input
-      setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
+      // Restore input text if sending failed
       setInputText(messageText);
     } finally {
       setIsSendingMessage(false);
