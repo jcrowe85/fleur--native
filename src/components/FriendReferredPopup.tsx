@@ -27,7 +27,6 @@ export default function FriendReferredPopup({
   pointsEarned,
   totalReferrals 
 }: FriendReferredPopupProps) {
-  console.log("FriendReferredPopup props:", { visible, friendName, pointsEarned, totalReferrals });
   const handleRewardsPress = () => {
     onClose();
     router.push("/(app)/rewards");

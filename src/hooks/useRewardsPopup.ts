@@ -37,7 +37,7 @@ export function useRewardsPopup() {
       "seven_day_streak_bonus",
       "post_engagement_likes", 
       "post_engagement_comments",
-      "refer_friend",
+      // "refer_friend" - handled by custom FriendReferredPopup
     ].includes(latestEntry.reason);
 
     if (shouldShowPopup && latestEntry.delta > 0) {
