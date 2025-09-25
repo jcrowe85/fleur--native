@@ -21,6 +21,7 @@ import { useRewardsStore } from "@/state/rewardsStore";
 import { onReferralConfirmed } from "@/services/rewards";
 import RewardsPill from "@/components/UI/RewardsPill";
 import { generateReferralCode, createInviteMessage } from "@/utils/referralUtils";
+import FriendReferredPopup from "@/components/FriendReferredPopup";
 
 type Contact = {
   id: string;
@@ -37,6 +38,8 @@ export default function InviteFriendsScreen() {
   const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [permissionGranted, setPermissionGranted] = useState(false);
+  const [showReferralPopup, setShowReferralPopup] = useState(false);
+  const [lastReferredFriend, setLastReferredFriend] = useState<string | null>(null);
 
   const referralCount = useRewardsStore((s) => s.referralCount);
   const maxReferrals = 20;
@@ -150,16 +153,14 @@ export default function InviteFriendsScreen() {
         }
       }
 
-      Alert.alert(
-        "Invites Sent!",
-        `You've earned ${selectedContacts.size * 20} points for referring ${selectedContacts.size} friend${selectedContacts.size > 1 ? 's' : ''}!\n\nEach invite includes a unique referral code for tracking.`,
-        [
-          {
-            text: "Great!",
-            onPress: () => router.back(),
-          },
-        ]
-      );
+      // Show the referral popup instead of alert
+      if (selectedContacts.size === 1) {
+        const friendName = selectedContactData[0]?.name;
+        setLastReferredFriend(friendName);
+      } else {
+        setLastReferredFriend(null); // Multiple friends, don't show specific name
+      }
+      setShowReferralPopup(true);
     } catch (error) {
       console.error("Error sending invites:", error);
       Alert.alert("Error", "Failed to send some invites. Please try again.");
@@ -311,6 +312,18 @@ export default function InviteFriendsScreen() {
           )}
         </ScrollView>
       </SafeAreaView>
+
+      {/* Friend Referred Popup */}
+      <FriendReferredPopup
+        visible={showReferralPopup}
+        onClose={() => {
+          setShowReferralPopup(false);
+          setLastReferredFriend(null);
+        }}
+        friendName={lastReferredFriend}
+        pointsEarned={selectedContacts.size * 20}
+        totalReferrals={referralCount}
+      />
     </View>
   );
 }
