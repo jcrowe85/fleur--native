@@ -509,7 +509,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4, // Industry standard: 2-4px spacing
-    paddingVertical: 6, // Reduced for better proportion
+    paddingVertical: 10, // Match horizontal padding for balanced pill
     paddingHorizontal: 10, // Reduced for tighter pill
     backgroundColor: "rgba(255,255,255,0.1)", // Pill background
     borderRadius: 12, // Industry standard: 8-12px for pill shape
