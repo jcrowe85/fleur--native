@@ -43,7 +43,7 @@ function AnimatedDot({ delay }: { delay: number }) {
     const startAnimation = () => {
       translateY.value = withRepeat(
         withSequence(
-          withTiming(-8, { duration: 400, easing: Easing.out(Easing.quad) }),
+          withTiming(-5, { duration: 400, easing: Easing.out(Easing.quad) }), // Reduced from -8 to -5
           withTiming(0, { duration: 400, easing: Easing.in(Easing.quad) })
         ),
         -1, // Infinite repeat
@@ -508,14 +508,14 @@ const styles = StyleSheet.create({
   typingIndicator: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 3, // Reduced from 6 to 3 for closer spacing
     paddingVertical: 8,
     paddingHorizontal: 12,
   },
   typingDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 4, // Reduced from 6 to 4 for smaller dots
+    height: 4, // Reduced from 6 to 4 for smaller dots
+    borderRadius: 2, // Reduced from 3 to 2 for smaller dots
     backgroundColor: "rgba(255,255,255,0.7)",
   },
 
