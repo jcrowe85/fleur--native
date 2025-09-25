@@ -171,6 +171,7 @@ export default function InviteFriendsScreen() {
         setLastReferredFriend(null); // Multiple friends, don't show specific name
       }
       setPopupPointsEarned(selectedContacts.size * 20);
+      console.log("Setting popup to show with points:", selectedContacts.size * 20);
       setShowReferralPopup(true);
       
       // Clear selected contacts after showing popup
