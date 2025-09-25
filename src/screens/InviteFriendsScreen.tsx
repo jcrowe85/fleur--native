@@ -16,6 +16,7 @@ import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Contacts from "expo-contacts";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useRewardsStore } from "@/state/rewardsStore";
 import { onReferralConfirmed } from "@/services/rewards";
@@ -50,7 +51,31 @@ export default function InviteFriendsScreen() {
 
   useEffect(() => {
     requestContactsPermission();
+    loadInvitedContacts();
   }, []);
+
+  // Load invited contacts from AsyncStorage
+  const loadInvitedContacts = async () => {
+    try {
+      const invitedContactsJson = await AsyncStorage.getItem('invitedContacts');
+      if (invitedContactsJson) {
+        const invitedContactsArray = JSON.parse(invitedContactsJson);
+        setInvitedContacts(new Set(invitedContactsArray));
+      }
+    } catch (error) {
+      console.error('Error loading invited contacts:', error);
+    }
+  };
+
+  // Save invited contacts to AsyncStorage
+  const saveInvitedContacts = async (invitedSet: Set<string>) => {
+    try {
+      const invitedArray = Array.from(invitedSet);
+      await AsyncStorage.setItem('invitedContacts', JSON.stringify(invitedArray));
+    } catch (error) {
+      console.error('Error saving invited contacts:', error);
+    }
+  };
 
   // Clean up popup state when component unmounts or user navigates away
   useEffect(() => {
@@ -189,6 +214,8 @@ export default function InviteFriendsScreen() {
       setInvitedContacts((prev) => {
         const newSet = new Set(prev);
         selectedContacts.forEach(contactId => newSet.add(contactId));
+        // Save to AsyncStorage
+        saveInvitedContacts(newSet);
         return newSet;
       });
       
@@ -364,7 +391,8 @@ export default function InviteFriendsScreen() {
                         )}
                       </View>
                     </Pressable>
-                  ))}
+                  );
+                })}
                 </View>
               )}
 

@@ -45,7 +45,8 @@ export async function resetLocalData() {
       "routine:v2",
       "checkin:v1",
       "fleur-purchases-v1",
-      "recs:v1"
+      "recs:v1",
+      "invitedContacts"
     ];
     const toRemove = Array.from(new Set([...sbKeys, ...appKeys]));
     if (toRemove.length) await AsyncStorage.multiRemove(toRemove);
