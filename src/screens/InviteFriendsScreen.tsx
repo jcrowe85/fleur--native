@@ -40,6 +40,7 @@ export default function InviteFriendsScreen() {
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [showReferralPopup, setShowReferralPopup] = useState(false);
   const [lastReferredFriend, setLastReferredFriend] = useState<string | null>(null);
+  const [popupPointsEarned, setPopupPointsEarned] = useState(0);
 
   const referralCount = useRewardsStore((s) => s.referralCount);
   const maxReferrals = 20;
@@ -47,6 +48,15 @@ export default function InviteFriendsScreen() {
 
   useEffect(() => {
     requestContactsPermission();
+  }, []);
+
+  // Clean up popup state when component unmounts or user navigates away
+  useEffect(() => {
+    return () => {
+      setShowReferralPopup(false);
+      setLastReferredFriend(null);
+      setPopupPointsEarned(0);
+    };
   }, []);
 
   const requestContactsPermission = async () => {
@@ -160,7 +170,11 @@ export default function InviteFriendsScreen() {
       } else {
         setLastReferredFriend(null); // Multiple friends, don't show specific name
       }
+      setPopupPointsEarned(selectedContacts.size * 20);
       setShowReferralPopup(true);
+      
+      // Clear selected contacts after showing popup
+      setSelectedContacts(new Set());
     } catch (error) {
       console.error("Error sending invites:", error);
       Alert.alert("Error", "Failed to send some invites. Please try again.");
@@ -319,9 +333,10 @@ export default function InviteFriendsScreen() {
         onClose={() => {
           setShowReferralPopup(false);
           setLastReferredFriend(null);
+          setPopupPointsEarned(0);
         }}
         friendName={lastReferredFriend}
-        pointsEarned={selectedContacts.size * 20}
+        pointsEarned={popupPointsEarned}
         totalReferrals={referralCount}
       />
     </View>
