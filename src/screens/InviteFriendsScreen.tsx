@@ -294,42 +294,50 @@ export default function InviteFriendsScreen() {
             </Text>
           </View>
 
-          {/* Manual Share */}
-          <View style={styles.manualShareCard}>
-            <View style={styles.manualShareHeader}>
-              <Feather name="share-2" size={20} color="#fff" />
-              <Text style={styles.manualShareTitle}>Share Manually</Text>
+          {/* Primary: Manual Share */}
+          <View style={styles.primaryShareCard}>
+            <View style={styles.primaryShareHeader}>
+              <View style={styles.primaryShareIcon}>
+                <Feather name="share-2" size={24} color="#fff" />
+              </View>
+              <View style={styles.primaryShareContent}>
+                <Text style={styles.primaryShareTitle}>Share with Friends</Text>
+                <Text style={styles.primaryShareSubtitle}>
+                  Send your unique referral link via Messages, WhatsApp, or any app
+                </Text>
+              </View>
             </View>
-            <Text style={styles.manualShareDescription}>
-              Share Fleur with friends via any app. Each share includes a unique referral code for tracking.
-            </Text>
-            <Pressable style={styles.manualShareButton} onPress={shareManually}>
-              <Text style={styles.manualShareButtonText}>Share App Link</Text>
+            <Pressable style={styles.primaryShareButton} onPress={shareManually}>
+              <Feather name="send" size={20} color="#2d241f" />
+              <Text style={styles.primaryShareButtonText}>Share App Link</Text>
             </Pressable>
+            <Text style={styles.primaryShareNote}>
+              Earn 20 points when your friend downloads the app
+            </Text>
           </View>
 
-          {/* Contacts Section */}
-          {!permissionRequested ? (
-            <View style={styles.contactsSection}>
-              <View style={styles.contactsHeader}>
-                <Text style={styles.contactsTitle}>Import Your Contacts</Text>
-                <Text style={styles.contactsSubtitle}>
-                  Access your contacts to easily invite friends
-                </Text>
-              </View>
-              <Pressable style={styles.importButton} onPress={requestContactsPermission}>
-                <Feather name="users" size={20} color="#fff" />
-                <Text style={styles.importButtonText}>Import Contacts</Text>
-              </Pressable>
+          {/* Secondary: Contact Import */}
+          <View style={styles.secondarySection}>
+            <View style={styles.secondaryHeader}>
+              <Text style={styles.secondaryTitle}>Want to invite multiple friends?</Text>
+              <Text style={styles.secondarySubtitle}>
+                Import your contacts to select and invite several friends at once
+              </Text>
             </View>
-          ) : permissionGranted ? (
-            <View style={styles.contactsSection}>
-              <View style={styles.contactsHeader}>
-                <Text style={styles.contactsTitle}>Select Friends</Text>
-                <Text style={styles.contactsSubtitle}>
-                  Choose up to {remainingReferrals} friends
-                </Text>
-              </View>
+            
+            {!permissionRequested ? (
+              <Pressable style={styles.secondaryButton} onPress={requestContactsPermission}>
+                <Feather name="users" size={18} color="#fff" />
+                <Text style={styles.secondaryButtonText}>Import Contacts</Text>
+              </Pressable>
+            ) : permissionGranted ? (
+              <View style={styles.contactsSection}>
+                <View style={styles.contactsHeader}>
+                  <Text style={styles.contactsTitle}>Select Friends</Text>
+                  <Text style={styles.contactsSubtitle}>
+                    Choose up to {remainingReferrals} friends
+                  </Text>
+                </View>
 
               {loading ? (
                 <View style={styles.loadingContainer}>
@@ -402,22 +410,23 @@ export default function InviteFriendsScreen() {
                     Send Invites ({selectedContacts.size})
                   </Text>
                 </Pressable>
-              )}
-            </View>
-          ) : (
-            <View style={styles.contactsSection}>
-              <View style={styles.contactsHeader}>
-                <Text style={styles.contactsTitle}>Contacts Access Denied</Text>
-                <Text style={styles.contactsSubtitle}>
-                  You can still invite friends manually using the share button above
-                </Text>
+                )}
               </View>
-              <Pressable style={styles.retryButton} onPress={requestContactsPermission}>
-                <Feather name="refresh-cw" size={20} color="#fff" />
-                <Text style={styles.retryButtonText}>Try Again</Text>
-              </Pressable>
-            </View>
-          )}
+            ) : (
+              <View style={styles.contactsSection}>
+                <View style={styles.contactsHeader}>
+                  <Text style={styles.contactsTitle}>Contacts Access Denied</Text>
+                  <Text style={styles.contactsSubtitle}>
+                    You can still invite friends manually using the share button above
+                  </Text>
+                </View>
+                <Pressable style={styles.retryButton} onPress={requestContactsPermission}>
+                  <Feather name="refresh-cw" size={20} color="#fff" />
+                  <Text style={styles.retryButtonText}>Try Again</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
         </ScrollView>
       </SafeAreaView>
 
@@ -546,6 +555,103 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 14,
     fontWeight: "700",
+  },
+
+  // Primary Share Card (Manual Sharing)
+  primaryShareCard: {
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderRadius: 20,
+    padding: 24,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  primaryShareHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 20,
+  },
+  primaryShareIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 16,
+  },
+  primaryShareContent: {
+    flex: 1,
+  },
+  primaryShareTitle: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  primaryShareSubtitle: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  primaryShareButton: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  primaryShareButtonText: {
+    color: "#2d241f",
+    fontSize: 17,
+    fontWeight: "700",
+  },
+  primaryShareNote: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 13,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+
+  // Secondary Section (Contact Import)
+  secondarySection: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+  },
+  secondaryHeader: {
+    marginBottom: 16,
+  },
+  secondaryTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 6,
+  },
+  secondarySubtitle: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  secondaryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  secondaryButtonText: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 15,
+    fontWeight: "600",
   },
   contactsSection: {
     marginBottom: 20,
