@@ -36,8 +36,10 @@ type Contact = {
 export default function InviteFriendsScreen() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
+  const [invitedContacts, setInvitedContacts] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [permissionGranted, setPermissionGranted] = useState(false);
+  const [permissionRequested, setPermissionRequested] = useState(false);
   const [showReferralPopup, setShowReferralPopup] = useState(false);
   const [lastReferredFriend, setLastReferredFriend] = useState<string | null>(null);
   const [popupPointsEarned, setPopupPointsEarned] = useState(0);
@@ -61,6 +63,7 @@ export default function InviteFriendsScreen() {
 
   const requestContactsPermission = async () => {
     try {
+      setPermissionRequested(true);
       const { status } = await Contacts.requestPermissionsAsync();
       if (status === "granted") {
         setPermissionGranted(true);
@@ -105,6 +108,15 @@ export default function InviteFriendsScreen() {
   };
 
   const toggleContact = (contactId: string) => {
+    // Prevent selecting already invited contacts
+    if (invitedContacts.has(contactId)) {
+      Alert.alert(
+        "Already Invited",
+        "This person has already been invited. You can only invite each person once."
+      );
+      return;
+    }
+
     if (selectedContacts.size >= remainingReferrals && !selectedContacts.has(contactId)) {
       Alert.alert(
         "Limit Reached",
@@ -173,6 +185,13 @@ export default function InviteFriendsScreen() {
       setPopupPointsEarned(selectedContacts.size * 20);
       setShowReferralPopup(true);
       
+      // Move selected contacts to invited list
+      setInvitedContacts((prev) => {
+        const newSet = new Set(prev);
+        selectedContacts.forEach(contactId => newSet.add(contactId));
+        return newSet;
+      });
+      
       // Clear selected contacts after showing popup
       setSelectedContacts(new Set());
     } catch (error) {
@@ -211,16 +230,18 @@ export default function InviteFriendsScreen() {
 
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
         {/* Header */}
-        <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <Feather name="arrow-left" size={24} color="#fff" />
-          </Pressable>
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle}>Invite Friends</Text>
-            <Text style={styles.headerSubtitle}>Earn 20 points per friend</Text>
-          </View>
-          <View style={styles.rewardsContainer}>
-            <RewardsPill compact />
+        <View style={styles.headerWrap}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, position: "relative" }}>
+            <Pressable onPress={() => router.push("/(app)/rewards")} style={styles.backButton}>
+              <Feather name="arrow-left" size={24} color="#fff" />
+            </Pressable>
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text style={styles.headerTitle}>Invite Friends</Text>
+              <Text style={styles.headerSubtitle}>Earn 20 points per friend</Text>
+            </View>
+            <View style={[styles.rewardsPillContainer, { padding: 8, borderRadius: 20 }]}>
+              <RewardsPill compact />
+            </View>
           </View>
         </View>
 
@@ -261,7 +282,20 @@ export default function InviteFriendsScreen() {
           </View>
 
           {/* Contacts Section */}
-          {permissionGranted && (
+          {!permissionRequested ? (
+            <View style={styles.contactsSection}>
+              <View style={styles.contactsHeader}>
+                <Text style={styles.contactsTitle}>Import Your Contacts</Text>
+                <Text style={styles.contactsSubtitle}>
+                  Access your contacts to easily invite friends
+                </Text>
+              </View>
+              <Pressable style={styles.importButton} onPress={requestContactsPermission}>
+                <Feather name="users" size={20} color="#fff" />
+                <Text style={styles.importButtonText}>Import Contacts</Text>
+              </Pressable>
+            </View>
+          ) : permissionGranted ? (
             <View style={styles.contactsSection}>
               <View style={styles.contactsHeader}>
                 <Text style={styles.contactsTitle}>Select Friends</Text>
@@ -276,15 +310,21 @@ export default function InviteFriendsScreen() {
                 </View>
               ) : (
                 <View style={styles.contactsList}>
-                  {contacts.map((contact) => (
-                    <Pressable
-                      key={contact.id}
-                      style={[
-                        styles.contactItem,
-                        selectedContacts.has(contact.id) && styles.contactItemSelected,
-                      ]}
-                      onPress={() => toggleContact(contact.id)}
-                    >
+                  {contacts.map((contact) => {
+                    const isInvited = invitedContacts.has(contact.id);
+                    const isSelected = selectedContacts.has(contact.id);
+                    
+                    return (
+                      <Pressable
+                        key={contact.id}
+                        style={[
+                          styles.contactItem,
+                          isSelected && styles.contactItemSelected,
+                          isInvited && styles.contactItemInvited,
+                        ]}
+                        onPress={() => toggleContact(contact.id)}
+                        disabled={isInvited}
+                      >
                       <View style={styles.contactInfo}>
                         <View style={styles.contactAvatar}>
                           <Text style={styles.contactAvatarText}>
@@ -292,9 +332,18 @@ export default function InviteFriendsScreen() {
                           </Text>
                         </View>
                         <View style={styles.contactDetails}>
-                          <Text style={styles.contactName}>{contact.name}</Text>
+                          <Text style={[
+                            styles.contactName,
+                            isInvited && styles.contactNameInvited
+                          ]}>
+                            {contact.name}
+                            {isInvited && " (Invited)"}
+                          </Text>
                           {contact.phoneNumbers && contact.phoneNumbers.length > 0 && (
-                            <Text style={styles.contactPhone}>
+                            <Text style={[
+                              styles.contactPhone,
+                              isInvited && styles.contactPhoneInvited
+                            ]}>
                               {contact.phoneNumbers[0]}
                             </Text>
                           )}
@@ -303,11 +352,15 @@ export default function InviteFriendsScreen() {
                       <View
                         style={[
                           styles.checkbox,
-                          selectedContacts.has(contact.id) && styles.checkboxSelected,
+                          isSelected && styles.checkboxSelected,
+                          isInvited && styles.checkboxInvited,
                         ]}
                       >
-                        {selectedContacts.has(contact.id) && (
+                        {isSelected && (
                           <Feather name="check" size={16} color="#fff" />
+                        )}
+                        {isInvited && (
+                          <Feather name="check-circle" size={16} color="rgba(255,255,255,0.6)" />
                         )}
                       </View>
                     </Pressable>
@@ -322,6 +375,19 @@ export default function InviteFriendsScreen() {
                   </Text>
                 </Pressable>
               )}
+            </View>
+          ) : (
+            <View style={styles.contactsSection}>
+              <View style={styles.contactsHeader}>
+                <Text style={styles.contactsTitle}>Contacts Access Denied</Text>
+                <Text style={styles.contactsSubtitle}>
+                  You can still invite friends manually using the share button above
+                </Text>
+              </View>
+              <Pressable style={styles.retryButton} onPress={requestContactsPermission}>
+                <Feather name="refresh-cw" size={20} color="#fff" />
+                <Text style={styles.retryButtonText}>Try Again</Text>
+              </Pressable>
             </View>
           )}
         </ScrollView>
@@ -344,34 +410,34 @@ export default function InviteFriendsScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row",
+  // Match Dashboard header
+  headerWrap: {
+    paddingTop: 32,
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 12,
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  headerTitle: {
+    color: "#fff",
+    fontSize: 22,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  headerSubtitle: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 12,
+    marginTop: 4,
+    textAlign: "center",
   },
   backButton: {
     padding: 8,
     borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.15)",
   },
-  headerCenter: {
-    flex: 1,
-    alignItems: "center",
-  },
-  headerTitle: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "600",
-  },
-  headerSubtitle: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 12,
-    marginTop: 4,
-  },
-  rewardsContainer: {
-    padding: 8,
-    borderRadius: 20,
+  rewardsPillContainer: {
+    position: "absolute",
+    right: 16,
+    top: -24,
   },
   content: {
     flex: 1,
@@ -540,6 +606,21 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderColor: "#fff",
   },
+  contactItemInvited: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderColor: "rgba(255,255,255,0.1)",
+    opacity: 0.6,
+  },
+  contactNameInvited: {
+    color: "rgba(255,255,255,0.6)",
+  },
+  contactPhoneInvited: {
+    color: "rgba(255,255,255,0.4)",
+  },
+  checkboxInvited: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderColor: "rgba(255,255,255,0.2)",
+  },
   inviteButton: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -550,5 +631,35 @@ const styles = StyleSheet.create({
     color: "#2d241f",
     fontSize: 16,
     fontWeight: "700",
+  },
+  importButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    gap: 8,
+  },
+  importButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  retryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  retryButtonText: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 14,
+    fontWeight: "500",
   },
 });
