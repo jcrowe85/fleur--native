@@ -20,6 +20,7 @@ import * as Contacts from "expo-contacts";
 import { useRewardsStore } from "@/state/rewardsStore";
 import { onReferralConfirmed } from "@/services/rewards";
 import RewardsPill from "@/components/UI/RewardsPill";
+import { generateReferralCode, createInviteMessage } from "@/utils/referralUtils";
 
 type Contact = {
   id: string;
@@ -29,7 +30,7 @@ type Contact = {
   selected: boolean;
 };
 
-const APP_LINK = "https://fleur.app/download"; // Replace with your actual app link
+// APP_LINK is now generated dynamically with referral codes
 
 export default function InviteFriendsScreen() {
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -120,7 +121,11 @@ export default function InviteFriendsScreen() {
     
     try {
       for (const contact of selectedContactData) {
-        const message = `Hey! I've been using Fleur for my hair care routine and it's been amazing. Check it out: ${APP_LINK}`;
+        // Generate unique referral code for this contact
+        const referralCode = generateReferralCode();
+        const message = createInviteMessage(referralCode, contact.name);
+        
+        console.log(`Sending invite to ${contact.name} with referral code: ${referralCode}`);
         
         // Try to send via SMS if phone number available
         if (contact.phoneNumbers && contact.phoneNumbers.length > 0) {
@@ -134,16 +139,20 @@ export default function InviteFriendsScreen() {
           }
         }
         
-        // Award points for each referral
-        const result = onReferralConfirmed({ contactName: contact.name });
+        // Award points for each referral (Phase 1: immediate reward)
+        const result = onReferralConfirmed({ 
+          contactName: contact.name,
+          referralCode: referralCode,
+          contactId: contact.id
+        });
         if (result.ok) {
-          console.log(`Points awarded for referring ${contact.name}`);
+          console.log(`Points awarded for referring ${contact.name} with code ${referralCode}`);
         }
       }
 
       Alert.alert(
         "Invites Sent!",
-        `You've earned ${selectedContacts.size * 20} points for referring ${selectedContacts.size} friend${selectedContacts.size > 1 ? 's' : ''}!`,
+        `You've earned ${selectedContacts.size * 20} points for referring ${selectedContacts.size} friend${selectedContacts.size > 1 ? 's' : ''}!\n\nEach invite includes a unique referral code for tracking.`,
         [
           {
             text: "Great!",
@@ -159,10 +168,16 @@ export default function InviteFriendsScreen() {
 
   const shareManually = async () => {
     try {
-      const message = `Hey! I've been using Fleur for my hair care routine and it's been amazing. Check it out: ${APP_LINK}`;
+      // Generate referral code for manual share
+      const referralCode = generateReferralCode();
+      const message = createInviteMessage(referralCode);
+      const referralLink = `https://fleur.app/download?ref=${referralCode}`;
+      
+      console.log(`Manual share with referral code: ${referralCode}`);
+      
       await Share.share({
         message,
-        url: APP_LINK,
+        url: referralLink,
         title: "Check out Fleur!",
       });
     } catch (error) {
@@ -223,7 +238,7 @@ export default function InviteFriendsScreen() {
               <Text style={styles.manualShareTitle}>Share Manually</Text>
             </View>
             <Text style={styles.manualShareDescription}>
-              Share Fleur with friends via any app
+              Share Fleur with friends via any app. Each share includes a unique referral code for tracking.
             </Text>
             <Pressable style={styles.manualShareButton} onPress={shareManually}>
               <Text style={styles.manualShareButtonText}>Share App Link</Text>
