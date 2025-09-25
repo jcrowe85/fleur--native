@@ -511,6 +511,9 @@ const styles = StyleSheet.create({
     gap: 3, // Reduced from 6 to 3 for closer spacing
     paddingVertical: 8,
     paddingHorizontal: 12,
+    backgroundColor: "rgba(255,255,255,0.1)", // Pill background
+    borderRadius: 20, // Pill shape
+    alignSelf: "flex-start", // Match message bubble alignment
   },
   typingDot: {
     width: 4, // Reduced from 6 to 4 for smaller dots
