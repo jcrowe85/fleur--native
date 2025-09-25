@@ -43,7 +43,7 @@ function AnimatedDot({ delay }: { delay: number }) {
     const startAnimation = () => {
       translateY.value = withRepeat(
         withSequence(
-          withTiming(-5, { duration: 400, easing: Easing.out(Easing.quad) }), // Reduced from -8 to -5
+          withTiming(-6, { duration: 400, easing: Easing.out(Easing.quad) }), // Adjusted for 5px dots
           withTiming(0, { duration: 400, easing: Easing.in(Easing.quad) })
         ),
         -1, // Infinite repeat
@@ -508,17 +508,17 @@ const styles = StyleSheet.create({
   typingIndicator: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3, // Reduced from 6 to 3 for closer spacing
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    gap: 4, // Industry standard: 2-4px spacing
+    paddingVertical: 6, // Reduced for better proportion
+    paddingHorizontal: 10, // Reduced for tighter pill
     backgroundColor: "rgba(255,255,255,0.1)", // Pill background
-    borderRadius: 20, // Pill shape
+    borderRadius: 12, // Industry standard: 8-12px for pill shape
     alignSelf: "flex-start", // Match message bubble alignment
   },
   typingDot: {
-    width: 4, // Reduced from 6 to 4 for smaller dots
-    height: 4, // Reduced from 6 to 4 for smaller dots
-    borderRadius: 2, // Reduced from 3 to 2 for smaller dots
+    width: 5, // Industry standard: 4-6px diameter
+    height: 5, // Industry standard: 4-6px diameter
+    borderRadius: 2.5, // Perfect circle
     backgroundColor: "rgba(255,255,255,0.7)",
   },
 
