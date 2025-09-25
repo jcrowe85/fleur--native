@@ -35,16 +35,16 @@ interface Message {
   timestamp: Date;
 }
 
-// Animated typing dot component
+// Animated typing dot component with opacity wave effect
 function AnimatedDot({ delay }: { delay: number }) {
-  const translateY = useSharedValue(0);
+  const opacity = useSharedValue(0.5); // Start at 50% opacity
 
   useEffect(() => {
     const startAnimation = () => {
-      translateY.value = withRepeat(
+      opacity.value = withRepeat(
         withSequence(
-          withTiming(-6, { duration: 400, easing: Easing.out(Easing.quad) }), // Adjusted for 5px dots
-          withTiming(0, { duration: 400, easing: Easing.in(Easing.quad) })
+          withTiming(1, { duration: 600, easing: Easing.out(Easing.quad) }), // Fade to full opacity
+          withTiming(0.5, { duration: 600, easing: Easing.in(Easing.quad) }) // Fade back to 50%
         ),
         -1, // Infinite repeat
         false
@@ -56,10 +56,10 @@ function AnimatedDot({ delay }: { delay: number }) {
       clearTimeout(timer);
       // Don't stop animation on cleanup - let it continue
     };
-  }, [delay, translateY]);
+  }, [delay, opacity]);
 
   const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
+    opacity: opacity.value,
   }));
 
   return <Animated.View style={[styles.typingDot, animatedStyle]} />;
@@ -311,8 +311,8 @@ export default function SupportChatScreen() {
               <View style={styles.loadingContainer}>
                 <View style={styles.typingIndicator}>
                   <AnimatedDot delay={0} />
-                  <AnimatedDot delay={200} />
                   <AnimatedDot delay={400} />
+                  <AnimatedDot delay={800} />
                 </View>
               </View>
             )}
