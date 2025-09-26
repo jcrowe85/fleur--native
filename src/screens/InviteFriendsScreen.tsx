@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ImageBackground,
   Pressable,
-  ScrollView,
   Alert,
   Linking,
   Share,
@@ -23,6 +22,7 @@ import { onReferralConfirmed } from "@/services/rewards";
 import RewardsPill from "@/components/UI/RewardsPill";
 import { generateReferralCode, createInviteMessage } from "@/utils/referralUtils";
 import FriendReferredPopup from "@/components/FriendReferredPopup";
+import { ScreenScrollView } from "@/components/UI/bottom-space";
 
 type Contact = {
   id: string;
@@ -38,29 +38,52 @@ export default function InviteFriendsScreen() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
   const [invitedContacts, setInvitedContacts] = useState<Set<string>>(new Set());
+  const [importedContacts, setImportedContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(false);
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [permissionRequested, setPermissionRequested] = useState(false);
   const [showReferralPopup, setShowReferralPopup] = useState(false);
   const [lastReferredFriend, setLastReferredFriend] = useState<string | null>(null);
   const [popupPointsEarned, setPopupPointsEarned] = useState(0);
+  const [justSentContact, setJustSentContact] = useState<string | null>(null);
+
+  // Generate a unique identifier for a contact
+  const getContactIdentifier = (contact: Contact): string => {
+    const name = contact.name.toLowerCase().trim();
+    const phone = contact.phoneNumbers?.[0] || '';
+    const email = contact.emails?.[0] || '';
+    return `${name}-${phone}-${email}`;
+  };
+
 
   const referralCount = useRewardsStore((s) => s.referralCount);
   const maxReferrals = 20;
   const remainingReferrals = maxReferrals - referralCount;
 
   useEffect(() => {
-    requestContactsPermission();
-    loadInvitedContacts();
+    const initializeContacts = async () => {
+      // Load invited contacts first
+      await loadInvitedContacts();
+      // Load imported contacts second
+      await loadImportedContacts();
+      // Then request permission and load phone contacts
+      await requestContactsPermission();
+    };
+    
+    initializeContacts();
   }, []);
 
   // Load invited contacts from AsyncStorage
   const loadInvitedContacts = async () => {
     try {
       const invitedContactsJson = await AsyncStorage.getItem('invitedContacts');
+      console.log('Loading invited contacts from storage:', invitedContactsJson);
       if (invitedContactsJson) {
         const invitedContactsArray = JSON.parse(invitedContactsJson);
+        console.log('Parsed invited contacts array:', invitedContactsArray);
         setInvitedContacts(new Set(invitedContactsArray));
+      } else {
+        console.log('No invited contacts found in storage');
       }
     } catch (error) {
       console.error('Error loading invited contacts:', error);
@@ -71,9 +94,39 @@ export default function InviteFriendsScreen() {
   const saveInvitedContacts = async (invitedSet: Set<string>) => {
     try {
       const invitedArray = Array.from(invitedSet);
+      console.log('Saving invited contacts to storage:', invitedArray);
       await AsyncStorage.setItem('invitedContacts', JSON.stringify(invitedArray));
+      console.log('Successfully saved invited contacts');
     } catch (error) {
       console.error('Error saving invited contacts:', error);
+    }
+  };
+
+  // Load imported contacts from AsyncStorage
+  const loadImportedContacts = async () => {
+    try {
+      const importedContactsJson = await AsyncStorage.getItem('importedContacts');
+      console.log('Loading imported contacts from storage:', importedContactsJson);
+      if (importedContactsJson) {
+        const importedContactsArray = JSON.parse(importedContactsJson);
+        console.log('Parsed imported contacts array:', importedContactsArray);
+        setImportedContacts(importedContactsArray);
+      } else {
+        console.log('No imported contacts found in storage');
+      }
+    } catch (error) {
+      console.error('Error loading imported contacts:', error);
+    }
+  };
+
+  // Save imported contacts to AsyncStorage
+  const saveImportedContacts = async (contacts: Contact[]) => {
+    try {
+      console.log('Saving imported contacts to storage:', contacts);
+      await AsyncStorage.setItem('importedContacts', JSON.stringify(contacts));
+      console.log('Successfully saved imported contacts');
+    } catch (error) {
+      console.error('Error saving imported contacts:', error);
     }
   };
 
@@ -92,7 +145,10 @@ export default function InviteFriendsScreen() {
       const { status } = await Contacts.requestPermissionsAsync();
       if (status === "granted") {
         setPermissionGranted(true);
-        loadContacts();
+        // Wait a bit to ensure imported contacts are loaded, then load phone contacts
+        setTimeout(() => {
+          loadContacts();
+        }, 100);
       } else {
         console.log("Contacts permission denied, user can still use manual sharing");
         // Don't show alert, just allow manual sharing
@@ -121,8 +177,19 @@ export default function InviteFriendsScreen() {
           selected: false,
         }));
 
-      console.log(`Loaded ${formattedContacts.length} contacts`);
-      setContacts(formattedContacts);
+      console.log(`Loaded ${formattedContacts.length} contacts from phone`);
+      
+      // Get current imported contacts from state
+      const currentImportedContacts = importedContacts;
+      console.log(`Current imported contacts: ${currentImportedContacts.length}`);
+      
+      // Merge with imported contacts, avoiding duplicates
+      const existingIds = new Set(formattedContacts.map(c => c.id));
+      const uniqueImportedContacts = currentImportedContacts.filter(c => !existingIds.has(c.id));
+      const allContacts = [...formattedContacts, ...uniqueImportedContacts];
+      
+      console.log(`Total contacts after merge: ${allContacts.length}`);
+      setContacts(allContacts);
     } catch (error) {
       console.error("Error loading contacts:", error);
       // Don't show alert, just continue with manual sharing
@@ -133,13 +200,87 @@ export default function InviteFriendsScreen() {
   };
 
   const loadMoreContacts = async () => {
-    // Load all contacts from phone (this will replace the current list)
-    await loadContacts();
+    try {
+      // Open native contact picker
+      const result = await Contacts.presentContactPickerAsync();
+      
+      if (result) {
+        // Extract contact name properly
+        const contactName = result.name || 
+                           result.firstName || 
+                           `${result.firstName || ''} ${result.lastName || ''}`.trim() ||
+                           'Unknown Contact';
+        
+        // Check if this contact is already in our list
+        const existingContact = contacts.find(c => c.id === result.id);
+        if (existingContact) {
+          Alert.alert(
+            "Contact Already Added",
+            `${contactName} is already in your contacts list.`
+          );
+          return;
+        }
+
+        // Check if this contact was already invited
+        if (invitedContacts.has(result.id || '')) {
+          Alert.alert(
+            "Already Invited",
+            `${contactName} has already been invited.`
+          );
+          return;
+        }
+
+        // Validate that contact has at least a phone number or email
+        const hasPhone = result.phoneNumbers && result.phoneNumbers.length > 0;
+        const hasEmail = result.emails && result.emails.length > 0;
+        
+        if (!hasPhone && !hasEmail) {
+          Alert.alert(
+            "Invalid Contact",
+            `${contactName} doesn't have a phone number or email address. Please select a contact with contact information.`
+          );
+          return;
+        }
+
+        // Add the selected contact to our contacts list
+        const newContact: Contact = {
+          id: result.id || Math.random().toString(),
+          name: contactName,
+          phoneNumbers: result.phoneNumbers?.map((p) => p.number),
+          emails: result.emails?.map((e) => e.email),
+          selected: false,
+        };
+
+        // Add to both current contacts and imported contacts
+        setContacts(prev => [...prev, newContact]);
+        setImportedContacts(prev => {
+          const updated = [...prev, newContact];
+          saveImportedContacts(updated);
+          return updated;
+        });
+        
+        Alert.alert(
+          "Contact Added",
+          `${contactName} has been added to your contacts list.`
+        );
+      }
+    } catch (error) {
+      console.error("Error opening contact picker:", error);
+      Alert.alert(
+        "Error",
+        "Failed to open contact picker. Please try again."
+      );
+    }
   };
 
   const toggleContact = (contactId: string) => {
+    const contact = contacts.find(c => c.id === contactId);
+    if (!contact) return;
+
+    const contactIdentifier = getContactIdentifier(contact);
+    
     // Prevent selecting already invited contacts
-    if (invitedContacts.has(contactId)) {
+    if (invitedContacts.has(contactIdentifier)) {
       Alert.alert(
         "Already Invited",
         "This person has already been invited. You can only invite each person once."
@@ -174,8 +315,167 @@ export default function InviteFriendsScreen() {
 
     const selectedContactData = contacts.filter((c) => selectedContacts.has(c.id));
     
+    if (selectedContactData.length === 1) {
+      // Single contact - send directly via SMS
+      await sendSingleInvite(selectedContactData[0]);
+    } else {
+      // Multiple contacts - default to send one by one
+      await sendNextInvite(selectedContactData);
+    }
+  };
+
+  const sendNextInvite = async (contacts: Contact[]) => {
+    // Find the first contact that hasn't been invited yet
+    const nextContact = contacts.find(contact => {
+      const identifier = getContactIdentifier(contact);
+      return !invitedContacts.has(identifier);
+    });
+    
+    if (!nextContact) {
+      // All contacts have been invited
+      Alert.alert(
+        "All Invites Sent!",
+        "You've successfully sent invites to all selected friends!",
+        [{ text: "Great!", onPress: () => setSelectedContacts(new Set()) }]
+      );
+      return;
+    }
+    
+    await sendSingleInvite(nextContact);
+  };
+
+  const sendSingleInvite = async (contact: Contact) => {
     try {
-      for (const contact of selectedContactData) {
+      // Generate unique referral code for this contact
+      const referralCode = generateReferralCode();
+      const message = createInviteMessage(referralCode, contact.name);
+      
+      console.log(`Sending invite to ${contact.name} with referral code: ${referralCode}`);
+      
+      // Mark this contact as just sent to disable the button
+      setJustSentContact(contact.id);
+      
+      // Try to send via SMS if phone number available
+      if (contact.phoneNumbers && contact.phoneNumbers.length > 0) {
+        const phoneNumber = contact.phoneNumbers[0];
+        const smsUrl = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
+        
+        try {
+          await Linking.openURL(smsUrl);
+          
+          // Show confirmation dialog after opening SMS
+          Alert.alert(
+            "Message Opened",
+            `The message has been opened in your Messages app. Did you send the invite to ${contact.name}?`,
+            [
+              {
+                text: "Yes, I sent it",
+                onPress: () => {
+                  // Award points and mark as invited
+                  const result = onReferralConfirmed({ 
+                    contactName: contact.name,
+                    referralCode: referralCode,
+                    contactId: contact.id
+                  });
+                  if (result.ok) {
+                    console.log(`Points awarded for referring ${contact.name} with code ${referralCode}`);
+                  }
+
+                  // Move to invited list
+                  const contactIdentifier = getContactIdentifier(contact);
+                  setInvitedContacts((prev) => {
+                    const newSet = new Set(prev);
+                    newSet.add(contactIdentifier);
+                    saveInvitedContacts(newSet);
+                    return newSet;
+                  });
+                  
+                  // Clear the just sent state
+                  setJustSentContact(null);
+                }
+              },
+              {
+                text: "No, I didn't send it",
+                onPress: () => {
+                  // Don't award points or mark as invited
+                  console.log(`User did not send invite to ${contact.name}`);
+                  setJustSentContact(null);
+                }
+              }
+            ]
+          );
+          
+        } catch (error) {
+          console.error("Error sending SMS:", error);
+          Alert.alert(
+            "SMS Error", 
+            "Could not open Messages app. You can copy the message and send it manually."
+          );
+          setJustSentContact(null);
+          return;
+        }
+      } else {
+        // No phone number, use share sheet instead
+        await Share.share({
+          message,
+          title: `Invite ${contact.name} to Fleur`,
+        });
+        
+        // For share sheet, we'll assume they shared it
+        Alert.alert(
+          "Share Opened",
+          `Did you share the invite with ${contact.name}?`,
+          [
+            {
+              text: "Yes, I shared it",
+              onPress: () => {
+                // Award points and mark as invited
+                const result = onReferralConfirmed({ 
+                  contactName: contact.name,
+                  referralCode: referralCode,
+                  contactId: contact.id
+                });
+                if (result.ok) {
+                  console.log(`Points awarded for referring ${contact.name} with code ${referralCode}`);
+                }
+
+                // Move to invited list
+                const contactIdentifier = getContactIdentifier(contact);
+                setInvitedContacts((prev) => {
+                  const newSet = new Set(prev);
+                  newSet.add(contactIdentifier);
+                  saveInvitedContacts(newSet);
+                  return newSet;
+                });
+                
+                setJustSentContact(null);
+              }
+            },
+            {
+              text: "No, I didn't share it",
+              onPress: () => {
+                setJustSentContact(null);
+              }
+            }
+          ]
+        );
+      }
+      
+    } catch (error) {
+      console.error("Error sending single invite:", error);
+      Alert.alert("Error", "Failed to send invite. Please try again.");
+      setJustSentContact(null);
+    }
+  };
+
+  const sendMultipleIndividually = async (contacts: Contact[]) => {
+    try {
+      let successCount = 0;
+      let pointsAwarded = 0;
+      
+      for (let i = 0; i < contacts.length; i++) {
+        const contact = contacts[i];
+        
         // Generate unique referral code for this contact
         const referralCode = generateReferralCode();
         const message = createInviteMessage(referralCode, contact.name);
@@ -189,46 +489,116 @@ export default function InviteFriendsScreen() {
           
           try {
             await Linking.openURL(smsUrl);
+            successCount++;
+            
+            // Award points for referral
+            const result = onReferralConfirmed({ 
+              contactName: contact.name,
+              referralCode: referralCode,
+              contactId: contact.id
+            });
+            if (result.ok) {
+              pointsAwarded += 20;
+              console.log(`Points awarded for referring ${contact.name} with code ${referralCode}`);
+            }
+            
+            // Move to invited list
+            setInvitedContacts((prev) => {
+              const newSet = new Set(prev);
+              newSet.add(contact.id);
+              saveInvitedContacts(newSet);
+              return newSet;
+            });
+            
           } catch (error) {
-            console.error("Error sending SMS:", error);
+            console.error(`Error sending SMS to ${contact.name}:`, error);
           }
+        } else {
+          // No phone number, skip this contact
+          console.log(`Skipping ${contact.name} - no phone number`);
         }
         
-        // Award points for each referral (Phase 1: immediate reward)
+        // Small delay between messages to avoid overwhelming the user
+        if (i < contacts.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      
+      // Show final results
+      if (successCount > 0) {
+        setLastReferredFriend(null); // Multiple friends
+        setPopupPointsEarned(pointsAwarded);
+        setShowReferralPopup(true);
+        
+        // Clear selection
+        setSelectedContacts(new Set());
+        
+        if (successCount < contacts.length) {
+          Alert.alert(
+            "Invites Sent",
+            `Successfully sent ${successCount} out of ${contacts.length} invites. Some contacts may not have phone numbers.`
+          );
+        }
+      } else {
+        Alert.alert(
+          "No Invites Sent",
+          "None of the selected contacts have phone numbers. Please use the manual share option instead."
+        );
+      }
+      
+    } catch (error) {
+      console.error("Error sending multiple invites:", error);
+      Alert.alert("Error", "Failed to send some invites. Please try again.");
+    }
+  };
+
+  const sendBulkInvites = async (contacts: Contact[]) => {
+    try {
+      // Generate a single referral code for bulk sharing
+      const referralCode = generateReferralCode();
+      const message = createInviteMessage(referralCode);
+      
+      console.log(`Bulk sharing with referral code: ${referralCode}`);
+      
+      // Use native share sheet for multiple contacts
+      await Share.share({
+        message,
+        title: "Invite friends to Fleur",
+      });
+      
+      // Award points for all selected contacts
+      let pointsAwarded = 0;
+      for (const contact of contacts) {
         const result = onReferralConfirmed({ 
           contactName: contact.name,
           referralCode: referralCode,
           contactId: contact.id
         });
         if (result.ok) {
+          pointsAwarded += 20;
           console.log(`Points awarded for referring ${contact.name} with code ${referralCode}`);
         }
       }
 
-      // Show the referral popup instead of alert
-      if (selectedContacts.size === 1) {
-        const friendName = selectedContactData[0]?.name;
-        setLastReferredFriend(friendName);
-      } else {
-        setLastReferredFriend(null); // Multiple friends, don't show specific name
-      }
-      setPopupPointsEarned(selectedContacts.size * 20);
+      // Show success popup
+      setLastReferredFriend(null); // Multiple friends
+      setPopupPointsEarned(pointsAwarded);
       setShowReferralPopup(true);
       
-      // Move selected contacts to invited list
+      // Move all to invited list
       setInvitedContacts((prev) => {
         const newSet = new Set(prev);
-        selectedContacts.forEach(contactId => newSet.add(contactId));
-        // Save to AsyncStorage
+        contacts.forEach(contact => newSet.add(contact.id));
         saveInvitedContacts(newSet);
         return newSet;
       });
       
-      // Clear selected contacts after showing popup
+      // Clear selection
       setSelectedContacts(new Set());
+      
     } catch (error) {
-      console.error("Error sending invites:", error);
-      Alert.alert("Error", "Failed to send some invites. Please try again.");
+      console.error("Error sending bulk invites:", error);
+      Alert.alert("Error", "Failed to share invites. Please try again.");
     }
   };
 
@@ -263,21 +633,28 @@ export default function InviteFriendsScreen() {
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
         {/* Header */}
         <View style={styles.headerWrap}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, position: "relative" }}>
-            <Pressable onPress={() => router.push("/(app)/rewards")} style={styles.backButton}>
-              <Feather name="arrow-left" size={24} color="#fff" />
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, position: "relative" }}>
+            <Pressable onPress={() => router.push("/(app)/rewards")} hitSlop={10} style={[styles.backButton, { padding: 8, borderRadius: 20 }]}>
+              <Feather name="arrow-left" size={18} color="#fff" />
             </Pressable>
+
             <View style={{ flex: 1, alignItems: "center" }}>
               <Text style={styles.headerTitle}>Invite Friends</Text>
               <Text style={styles.headerSubtitle}>Earn 20 points per friend</Text>
             </View>
+
             <View style={[styles.rewardsPillContainer, { padding: 8, borderRadius: 20 }]}>
               <RewardsPill compact />
             </View>
           </View>
         </View>
 
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScreenScrollView
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6 }}
+          bottomExtra={20}
+          showsVerticalScrollIndicator={false}
+        >
+
           {/* Progress */}
           <View style={styles.progressCard}>
             <View style={styles.progressHeader}>
@@ -305,30 +682,30 @@ export default function InviteFriendsScreen() {
               <View style={styles.primaryShareIcon}>
                 <Feather name="share-2" size={24} color="#fff" />
               </View>
-              <View style={styles.primaryShareContent}>
-                <Text style={styles.primaryShareTitle}>Share with Friends</Text>
-                <Text style={styles.primaryShareSubtitle}>
-                  Send your unique referral link via Messages, WhatsApp, or any app
-                </Text>
-              </View>
-            </View>
-            <Pressable style={styles.primaryShareButton} onPress={shareManually}>
-              <Feather name="send" size={20} color="#2d241f" />
-              <Text style={styles.primaryShareButtonText}>Share App Link</Text>
-            </Pressable>
-            <Text style={styles.primaryShareNote}>
-              Earn 20 points when your friend downloads the app
-            </Text>
+               <View style={styles.primaryShareContent}>
+                 <Text style={styles.primaryShareTitle}>Share Link with Anyone</Text>
+                 <Text style={styles.primaryShareSubtitle}>
+                   Send your unique referral link via Messages, WhatsApp, or any app
+                 </Text>
+               </View>
+             </View>
+             <Pressable style={styles.primaryShareButton} onPress={shareManually}>
+               <Feather name="send" size={20} color="#2d241f" />
+               <Text style={styles.primaryShareButtonText}>Share App Link</Text>
+             </Pressable>
+             <Text style={styles.primaryShareNote}>
+               Earn 20 points when your friend downloads the app
+             </Text>
           </View>
 
           {/* Secondary: Contact Import */}
           <View style={styles.secondarySection}>
-            <View style={styles.secondaryHeader}>
-              <Text style={styles.secondaryTitle}>Want to invite multiple friends?</Text>
-              <Text style={styles.secondarySubtitle}>
-                Import your contacts to select and invite several friends at once
-              </Text>
-            </View>
+             <View style={styles.secondaryHeader}>
+               <Text style={styles.secondaryTitle}>Share Link with Contacts</Text>
+               <Text style={styles.secondarySubtitle}>
+                 Import your contacts to select and invite several friends at once
+               </Text>
+             </View>
             
             {!permissionGranted ? (
               <Pressable style={styles.secondaryButton} onPress={requestContactsPermission}>
@@ -348,8 +725,8 @@ export default function InviteFriendsScreen() {
                       </Text>
                     </View>
                     <Pressable style={styles.importMoreButton} onPress={loadMoreContacts}>
-                      <Feather name="refresh-cw" size={16} color="#fff" />
-                      <Text style={styles.importMoreButtonText}>Import More</Text>
+                      <Feather name="user-plus" size={16} color="#fff" />
+                      <Text style={styles.importMoreButtonText}>Add Contact</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -373,9 +750,10 @@ export default function InviteFriendsScreen() {
                       </Pressable>
                     </View>
                   ) : (
-                    contacts.map((contact) => {
-                    const isInvited = invitedContacts.has(contact.id);
-                    const isSelected = selectedContacts.has(contact.id);
+                     contacts.map((contact) => {
+                     const contactIdentifier = getContactIdentifier(contact);
+                     const isInvited = invitedContacts.has(contactIdentifier);
+                     const isSelected = selectedContacts.has(contact.id);
                     
                     return (
                       <Pressable
@@ -412,20 +790,19 @@ export default function InviteFriendsScreen() {
                           )}
                         </View>
                       </View>
-                      <View
-                        style={[
-                          styles.checkbox,
-                          isSelected && styles.checkboxSelected,
-                          isInvited && styles.checkboxInvited,
-                        ]}
-                      >
-                        {isSelected && (
-                          <Feather name="check" size={16} color="#fff" />
-                        )}
-                        {isInvited && (
-                          <Feather name="check-circle" size={16} color="rgba(255,255,255,0.6)" />
-                        )}
-                      </View>
+                        <View
+                          style={[
+                            styles.checkbox,
+                            isSelected && styles.checkboxSelected,
+                            isInvited && styles.checkboxInvited,
+                          ]}
+                        >
+                          {isInvited ? (
+                            <Feather name="check-circle" size={16} color="rgba(255,255,255,0.6)" />
+                          ) : isSelected ? (
+                            <Feather name="check" size={16} color="#fff" />
+                          ) : null}
+                        </View>
                     </Pressable>
                   );
                 })
@@ -434,16 +811,53 @@ export default function InviteFriendsScreen() {
               )}
 
               {selectedContacts.size > 0 && (
-                <Pressable style={styles.inviteButton} onPress={sendInvites}>
-                  <Text style={styles.inviteButtonText}>
-                    Send Invites ({selectedContacts.size})
+                <Pressable 
+                  style={[
+                    styles.inviteButton, 
+                    justSentContact && styles.inviteButtonDisabled
+                  ]} 
+                  onPress={sendInvites}
+                  disabled={!!justSentContact}
+                >
+                  <Text style={[
+                    styles.inviteButtonText,
+                    justSentContact && styles.inviteButtonTextDisabled
+                  ]}>
+                    {(() => {
+                      const selectedContactData = contacts.filter((c) => selectedContacts.has(c.id));
+                      if (selectedContactData.length === 1) {
+                        const firstName = selectedContactData[0].name.split(' ')[0];
+                        return justSentContact === selectedContactData[0].id 
+                          ? "Message Sent - Confirm Above" 
+                          : `Send to ${firstName}`;
+                      } else {
+                        // Find next contact to send to
+                        const nextContact = selectedContactData.find(contact => {
+                          const identifier = getContactIdentifier(contact);
+                          return !invitedContacts.has(identifier);
+                        });
+                        const remainingCount = selectedContactData.filter(contact => {
+                          const identifier = getContactIdentifier(contact);
+                          return !invitedContacts.has(identifier);
+                        }).length;
+                        
+                        if (nextContact) {
+                          const firstName = nextContact.name.split(' ')[0];
+                          return justSentContact === nextContact.id
+                            ? "Message Sent - Confirm Above"
+                            : `Send to ${firstName} (${remainingCount} remaining)`;
+                        } else {
+                          return "All Invites Sent!";
+                        }
+                      }
+                    })()}
                   </Text>
                 </Pressable>
-                )}
+              )}
               </View>
             )}
           </View>
-        </ScrollView>
+        </ScreenScrollView>
       </SafeAreaView>
 
       {/* Friend Referred Popup */}
@@ -484,18 +898,14 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   backButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.15)",
+    position: "absolute",
+    left: 16,
+    top: -8,
   },
   rewardsPillContainer: {
     position: "absolute",
     right: 16,
-    top: -24,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 16,
+    top: -8,
   },
   progressCard: {
     backgroundColor: "rgba(255,255,255,0.08)",
@@ -773,10 +1183,15 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.4)",
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "transparent",
   },
   checkboxSelected: {
     backgroundColor: "#fff",
     borderColor: "#fff",
+  },
+  checkboxInvited: {
+    backgroundColor: "transparent",
+    borderColor: "transparent",
   },
   contactItemInvited: {
     backgroundColor: "rgba(255,255,255,0.05)",
@@ -799,10 +1214,16 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: "center",
   },
+  inviteButtonDisabled: {
+    backgroundColor: "rgba(255,255,255,0.3)",
+  },
   inviteButtonText: {
     color: "#2d241f",
     fontSize: 16,
     fontWeight: "700",
+  },
+  inviteButtonTextDisabled: {
+    color: "rgba(45,36,31,0.5)",
   },
   importButton: {
     flexDirection: "row",

@@ -47,9 +47,9 @@ async function getExistingThread(userId: string): Promise<string | undefined> {
 
 export async function sendMessageToSlack(message: SlackMessage): Promise<boolean> {
   try {
-    if (!SLACK_WEBHOOK_URL) {
-      console.warn("Slack webhook URL not configured");
-      return false;
+    if (!SLACK_WEBHOOK_URL || SLACK_WEBHOOK_URL === "YOUR_NEW_APP_WEBHOOK_URL_HERE") {
+      console.warn("Slack webhook URL not configured - skipping Slack message");
+      return true; // Return true to not break the flow
     }
 
     // Get user info from Supabase

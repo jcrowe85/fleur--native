@@ -16,6 +16,7 @@ import { BlurView } from "expo-blur";
 import { getArticleBySlug } from "@/lib/articles";
 import type { Article } from "../features/education/types";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ScreenScrollView } from "@/components/UI/bottom-space";
 
 export default function ArticleScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
@@ -57,29 +58,32 @@ export default function ArticleScreen() {
       />
 
       <SafeAreaView style={styles.safeBody} edges={["top", "left", "right"]}>
-        <ScrollView
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 28 }}
+        <ScreenScrollView
+          contentContainerStyle={{ paddingHorizontal: 16 }}
+          bottomExtra={20}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.topRow}>
-            <Pressable
-              onPress={() => {
-                if (router.canGoBack()) router.back();
-                else router.replace("/(app)/education");
-              }}
-              style={styles.backBtn}
-              hitSlop={8}
-              android_ripple={{ color: "rgba(255,255,255,0.12)", borderless: true }}
-            >
-              <Feather name="arrow-left" size={22} color="#fff" />
-            </Pressable>
-            <View style={{ width: 36 }} />
-          </View>
-
-          {/* Centered header */}
+          {/* Header */}
           <View style={styles.headerWrap}>
-            <Text style={styles.headerTitle}>{a.title}</Text>
-            <Text style={styles.headerSub}>Science-backed hair care knowledge</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, position: "relative" }}>
+              <Pressable
+                onPress={() => {
+                  if (router.canGoBack()) router.back();
+                  else router.replace("/(app)/education");
+                }}
+                hitSlop={10}
+                style={[styles.backButton, { padding: 8, borderRadius: 20 }]}
+              >
+                <Feather name="arrow-left" size={18} color="#fff" />
+              </Pressable>
+
+              <View style={{ alignItems: "center", paddingHorizontal: 50 }}>
+                <Text style={styles.headerTitle} numberOfLines={2} ellipsizeMode="tail">
+                  {a.title}
+                </Text>
+                <Text style={styles.headerSub}>Science-backed hair care knowledge</Text>
+              </View>
+            </View>
           </View>
 
           {/* Meta row */}
@@ -148,7 +152,7 @@ export default function ArticleScreen() {
               );
             })}
           </View>
-        </ScrollView>
+        </ScreenScrollView>
       </SafeAreaView>
     </View>
   );
@@ -249,24 +253,19 @@ const styles = StyleSheet.create({
   },
   safeBody: { flex: 1, justifyContent: "flex-start", alignItems: "stretch" },
 
-  topRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 0,
-    marginTop: 6,
-    marginBottom: 6,
-  },
-
-  backBtn: { padding: 8, borderRadius: 999 },
-
   headerWrap: {
-    paddingHorizontal: 16,
+    paddingTop: 32,
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 12,
   },
-  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" },
+  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "600", textAlign: "center" },
   headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
+  backButton: {
+    position: "absolute",
+    left: 16,
+    top: -8,
+  },
 
   metaRow: {
     flexDirection: "row",

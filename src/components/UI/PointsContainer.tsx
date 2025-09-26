@@ -27,28 +27,25 @@ function getProductProgressInfo(points: number) {
   const sortedProducts = allProducts.sort((a, b) => a.pointsRequired - b.pointsRequired);
   const currentProductIndex = sortedProducts.findIndex(p => p.pointsRequired > points);
   
+  // Calculate progress from 0 to the next product (not between previous and next)
+  const percent = Math.min(1, points / nextProduct.pointsRequired);
+  
   if (currentProductIndex === 0) {
     // User hasn't reached the first product yet
-    const firstProduct = sortedProducts[0];
-    const percent = Math.min(1, points / firstProduct.pointsRequired);
     return {
       currentLabel: "Getting Started",
-      nextLabel: firstProduct.name,
-      remainingLabel: `${pointsNeeded} pts to ${firstProduct.name}`,
+      nextLabel: nextProduct.name,
+      remainingLabel: `Next unlock in ${pointsNeeded} pts`,
       percent,
     };
   }
 
   // User is between products
   const previousProduct = sortedProducts[currentProductIndex - 1];
-  const nextProductPoints = nextProduct.pointsRequired;
-  const previousProductPoints = previousProduct.pointsRequired;
-  const percent = Math.min(1, (points - previousProductPoints) / (nextProductPoints - previousProductPoints));
-
   return {
     currentLabel: previousProduct.name,
     nextLabel: nextProduct.name,
-    remainingLabel: `${pointsNeeded} pts to ${nextProduct.name}`,
+    remainingLabel: `Next unlock in ${pointsNeeded} pts`,
     percent,
   };
 }

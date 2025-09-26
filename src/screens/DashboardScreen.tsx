@@ -22,7 +22,7 @@ import { useCheckInStore } from "@/state/checkinStore";
 import { getNextAffordableProduct, getAffordableProducts, getAllRedeemableProducts } from "@/data/productCatalog";
 import PointsContainer from "@/components/UI/PointsContainer";
 import { onRoutineTaskCompleted, onRoutineTaskUndone } from "@/services/rewards";
-import { checkFirstLogin, markFirstLoginComplete } from "@/services/firstTimeUser";
+import { checkFirstLogin, markFirstLoginComplete, retryMarkFirstLoginComplete } from "@/services/firstTimeUser";
 import { ScreenScrollView } from "@/components/UI/bottom-space"; // ✅ unified bottom-spacing helper
 
 // ⭐ Small Rewards Pill (compact variant supported)
@@ -32,6 +32,24 @@ import FirstPointPopup from "@/components/FirstPointPopup";
 import SignupBonusPopup from "@/components/SignupBonusPopup";
 
 /* ------------------------------- product progress math ------------------------------- */
+
+// Helper function to abbreviate product names
+function abbreviateProductName(name: string): string {
+  const abbreviations: Record<string, string> = {
+    "Gentle Cleanser": "Cleanser",
+    "Lightweight Conditioner": "Conditioner", 
+    "Growth Serum": "Serum",
+    "Scalp Scrub": "Scrub",
+    "Bond Repair Mask": "Mask",
+    "Heat Protectant Spray": "Heat Spray",
+    "Vitamin D Supplement": "Vitamin D",
+    "Biotin Supplement": "Biotin",
+    "Silk Pillowcase": "Pillowcase",
+    "Complete Hair Care Kit": "Complete Kit"
+  };
+  
+  return abbreviations[name] || name.split(' ')[0]; // Fallback to first word
+}
 
 function getProductProgressInfo(points: number) {
   const nextProduct = getNextAffordableProduct(points);
@@ -43,6 +61,7 @@ function getProductProgressInfo(points: number) {
       currentLabel: "All Products",
       nextLabel: "Unlocked",
       remainingLabel: "All products available!",
+      remainingPoints: 0,
       percent: 1,
     };
   }
@@ -52,28 +71,28 @@ function getProductProgressInfo(points: number) {
   const sortedProducts = allProducts.sort((a, b) => a.pointsRequired - b.pointsRequired);
   const currentProductIndex = sortedProducts.findIndex(p => p.pointsRequired > points);
   
+  // Calculate progress from 0 to the next product (not between previous and next)
+  const percent = Math.min(1, points / nextProduct.pointsRequired);
+  
   if (currentProductIndex === 0) {
     // User hasn't reached the first product yet
-    const firstProduct = sortedProducts[0];
-    const percent = Math.min(1, points / firstProduct.pointsRequired);
+    const abbreviatedName = abbreviateProductName(nextProduct.name);
     return {
       currentLabel: "Getting Started",
-      nextLabel: firstProduct.name,
-      remainingLabel: `To ${firstProduct.name}`,
+      nextLabel: nextProduct.name,
+      remainingLabel: `Next unlock in ${pointsNeeded} pts`,
+      remainingPoints: pointsNeeded,
       percent,
     };
   }
 
   // User is between products
   const previousProduct = sortedProducts[currentProductIndex - 1];
-  const nextProductPoints = nextProduct.pointsRequired;
-  const previousProductPoints = previousProduct.pointsRequired;
-  const percent = Math.min(1, (points - previousProductPoints) / (nextProductPoints - previousProductPoints));
-
   return {
     currentLabel: previousProduct.name,
     nextLabel: nextProduct.name,
-    remainingLabel: `To ${nextProduct.name}`,
+    remainingLabel: `Next unlock in ${pointsNeeded} pts`,
+    remainingPoints: pointsNeeded,
     percent,
   };
 }
@@ -316,9 +335,29 @@ export default function DashboardScreen() {
           const success = awardSignupBonus();
           console.log('DEBUG: Signup bonus award result:', success);
           if (success) {
-            // Mark in database that first login is complete
-            await markFirstLoginComplete();
-            console.log('DEBUG: Marked first login as complete');
+            // Mark in database that first login is complete (with retry logic)
+            const markComplete = async () => {
+              // First try immediate marking
+              const result = await markFirstLoginComplete();
+              if (result) {
+                console.log('DEBUG: Marked first login as complete');
+                return;
+              }
+              
+              // If immediate marking failed (no session), retry when session is ready
+              console.log('DEBUG: No session available, will retry marking first login complete');
+              const retryResult = await retryMarkFirstLoginComplete();
+              if (retryResult) {
+                console.log('DEBUG: Successfully marked first login as complete after retry');
+              } else {
+                console.log('DEBUG: Failed to mark first login complete after retries, but bonus was awarded locally');
+              }
+            };
+            
+            // Try to mark complete, but don't block the popup
+            markComplete().catch(err => {
+              console.log('DEBUG: Error marking first login complete:', err.message);
+            });
             
             // Show popup after small delay
             setTimeout(() => {
@@ -473,14 +512,14 @@ export default function DashboardScreen() {
             <GlassCard style={{ flex: 1, padding: 14, minHeight: 140 }}>
               <View style={styles.sectionHeaderLeft}>
                 <View style={styles.iconDot}>
-                  <Feather name="gift" size={14} color="#fff" />
+                  <Feather name="lock" size={14} color="#fff" />
                 </View>
-                <Text style={styles.sectionHeaderText}>Rewards</Text>
+                <Text style={styles.sectionHeaderText}>Next Unlock</Text>
               </View>
 
               <View
                 style={{
-                  marginTop: 10,
+                  marginTop: 8,
                   flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "space-between",
@@ -489,11 +528,13 @@ export default function DashboardScreen() {
                 <View>
                   <Text style={{ color: "rgba(255,255,255,0.85)", fontWeight: "600" }}>Points</Text>
                   <Text style={{ color: "#fff", fontSize: 28, fontWeight: "800", marginTop: 2 }}>
-                    {points}
+                    {progress.remainingPoints}
                   </Text>
                 </View>
-                <View style={styles.tierBadge}>
-                  <Text style={styles.tierBadgeText}>{progress.currentLabel}</Text>
+                <View style={[styles.tierBadge, { paddingHorizontal: 8, paddingVertical: 4 }]}>
+                  <Text style={[styles.tierBadgeText, { fontSize: 11 }]} numberOfLines={1}>
+                    {progress.nextLabel.length > 12 ? progress.nextLabel.substring(0, 12) + "..." : progress.nextLabel}
+                  </Text>
                 </View>
               </View>
 

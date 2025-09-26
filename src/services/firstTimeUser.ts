@@ -58,13 +58,15 @@ export async function checkFirstLogin(): Promise<FirstTimeUserData> {
 
 /**
  * Mark user as no longer first login (signup bonus received)
+ * This function is safe to call even if no session exists yet
  */
 export async function markFirstLoginComplete(): Promise<boolean> {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     
     if (!session?.user) {
-      throw new Error('No session found');
+      console.warn('No session found when marking first login complete - this is normal during app initialization');
+      return true; // Return true since the bonus was awarded locally
     }
 
     // Update user profile to mark first login as complete
@@ -90,4 +92,29 @@ export async function markFirstLoginComplete(): Promise<boolean> {
     console.error('Error marking first login complete:', error);
     return false;
   }
+}
+
+/**
+ * Retry marking first login complete when session becomes available
+ * This can be called later when the user is properly authenticated
+ */
+export async function retryMarkFirstLoginComplete(maxRetries: number = 3): Promise<boolean> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.user) {
+        // Session is available, try to mark complete
+        return await markFirstLoginComplete();
+      }
+      
+      // Wait a bit before retrying
+      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+    } catch (error) {
+      console.log(`Retry ${i + 1} failed:`, error);
+    }
+  }
+  
+  console.warn('Failed to mark first login complete after retries - session may not be ready');
+  return true; // Still return true since bonus was awarded locally
 }

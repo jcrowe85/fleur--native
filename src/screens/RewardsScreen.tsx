@@ -14,11 +14,31 @@ import { router } from "expo-router";
 import dayjs from "dayjs";
 
 import { useRewardsStore } from "@/state/rewardsStore";
+import { useCheckInStore } from "@/state/checkinStore";
 // ✅ Shared bottom spacing helper (same convention)
 import { ScreenScrollView } from "@/components/UI/bottom-space";
 import { getNextAffordableProduct, getPointsNeededForNext, getAllRedeemableProducts, getAffordableProducts, RedeemableProduct } from "@/data/productCatalog";
 import RewardsPill from "@/components/UI/RewardsPill";
 import PointsContainer from "@/components/UI/PointsContainer";
+import DailyCheckInPopup from "@/components/DailyCheckInPopup";
+
+// Helper function to abbreviate product names
+function abbreviateProductName(name: string): string {
+  const abbreviations: Record<string, string> = {
+    "Gentle Cleanser": "Cleanser",
+    "Lightweight Conditioner": "Conditioner", 
+    "Growth Serum": "Serum",
+    "Scalp Scrub": "Scrub",
+    "Bond Repair Mask": "Mask",
+    "Heat Protectant Spray": "Heat Spray",
+    "Vitamin D Supplement": "Vitamin D",
+    "Biotin Supplement": "Biotin",
+    "Silk Pillowcase": "Pillowcase",
+    "Complete Hair Care Kit": "Complete Kit"
+  };
+  
+  return abbreviations[name] || name.split(' ')[0]; // Fallback to first word
+}
 
 function getProductProgressInfo(points: number) {
   const nextProduct = getNextAffordableProduct(points);
@@ -46,7 +66,7 @@ function getProductProgressInfo(points: number) {
     return {
       currentLabel: "Getting Started",
       nextLabel: firstProduct.name,
-      remainingLabel: `${pointsNeeded} pts to ${firstProduct.name}`,
+      remainingLabel: `Next unlock in ${pointsNeeded} pts`,
       percent,
     };
   }
@@ -60,7 +80,7 @@ function getProductProgressInfo(points: number) {
   return {
     currentLabel: previousProduct.name,
     nextLabel: nextProduct.name,
-    remainingLabel: `${pointsNeeded} pts to ${nextProduct.name}`,
+    remainingLabel: `Next unlock in ${pointsNeeded} pts`,
     percent,
   };
 }
@@ -209,6 +229,10 @@ export default function RewardsScreen() {
   const ledger = useRewardsStore((s) => s.ledger);
   const scrollViewRef = React.useRef<any>(null);
 
+  // Check-in state
+  const { hasCheckedInToday } = useCheckInStore();
+  const [showDailyCheckInPopup, setShowDailyCheckInPopup] = React.useState(false);
+
   const progress = React.useMemo(() => getProductProgressInfo(points), [points]);
   const affordableProducts = getAffordableProducts(points);
   const allProducts = getAllRedeemableProducts();
@@ -220,6 +244,16 @@ export default function RewardsScreen() {
   const scrollToRedeemSection = () => {
     if (scrollViewRef.current) {
       scrollViewRef.current.scrollTo({ y: 400, animated: true }); // Adjust this value as needed
+    }
+  };
+
+  const handleDailyCheckInPress = () => {
+    if (hasCheckedInToday()) {
+      // Show message that check-in is already completed
+      alert("You've already completed your daily check-in today! Come back tomorrow for another point.");
+    } else {
+      // Open the daily check-in popup
+      setShowDailyCheckInPopup(true);
     }
   };
 
@@ -272,7 +306,7 @@ export default function RewardsScreen() {
               icon="check-circle"
               title="Daily check-in"
               points="+1"
-              onPress={() => router.push("/(app)/routine")}
+              onPress={handleDailyCheckInPress}
             />
             <EarnSquare
               icon="message-circle"
@@ -380,6 +414,12 @@ export default function RewardsScreen() {
           )}
         </ScreenScrollView>
       </SafeAreaView>
+
+      {/* Daily Check-in Popup */}
+      <DailyCheckInPopup 
+        visible={showDailyCheckInPopup} 
+        onClose={() => setShowDailyCheckInPopup(false)} 
+      />
     </View>
   );
 }
