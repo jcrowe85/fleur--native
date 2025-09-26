@@ -44,6 +44,8 @@ export default function InviteFriendsScreen() {
   const [showReferralPopup, setShowReferralPopup] = useState(false);
   const [lastReferredFriend, setLastReferredFriend] = useState<string | null>(null);
   const [popupPointsEarned, setPopupPointsEarned] = useState(0);
+  const [showContactPicker, setShowContactPicker] = useState(false);
+  const [allContacts, setAllContacts] = useState<Contact[]>([]);
 
   const referralCount = useRewardsStore((s) => s.referralCount);
   const maxReferrals = 20;
@@ -128,6 +130,35 @@ export default function InviteFriendsScreen() {
       console.error("Error loading contacts:", error);
       // Don't show alert, just continue with manual sharing
       setContacts([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadAllContactsForPicker = async () => {
+    try {
+      setLoading(true);
+      const { data } = await Contacts.getContactsAsync({
+        fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails],
+        sort: Contacts.SortTypes.FirstName,
+      });
+
+      const formattedContacts: Contact[] = data
+        .filter((contact) => contact.name && (contact.phoneNumbers?.length || contact.emails?.length))
+        .map((contact) => ({
+          id: contact.id || Math.random().toString(),
+          name: contact.name || "Unknown",
+          phoneNumbers: contact.phoneNumbers?.map((p) => p.number),
+          emails: contact.emails?.map((e) => e.email),
+          selected: false,
+        }));
+
+      console.log(`Loaded ${formattedContacts.length} contacts for picker`);
+      setAllContacts(formattedContacts);
+      setShowContactPicker(true);
+    } catch (error) {
+      console.error("Error loading all contacts:", error);
+      Alert.alert("Error", "Failed to load contacts. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -343,9 +374,9 @@ export default function InviteFriendsScreen() {
                         Choose up to {remainingReferrals} friends
                       </Text>
                     </View>
-                    <Pressable style={styles.importMoreButton} onPress={loadContacts}>
-                      <Feather name="refresh-cw" size={16} color="#fff" />
-                      <Text style={styles.importMoreButtonText}>Import More</Text>
+                    <Pressable style={styles.importMoreButton} onPress={loadAllContactsForPicker}>
+                      <Feather name="plus" size={16} color="#fff" />
+                      <Text style={styles.importMoreButtonText}>Add More</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -454,6 +485,106 @@ export default function InviteFriendsScreen() {
         pointsEarned={popupPointsEarned}
         totalReferrals={referralCount}
       />
+
+      {/* Contact Picker Modal */}
+      {showContactPicker && (
+        <View style={styles.contactPickerOverlay}>
+          <View style={styles.contactPickerModal}>
+            <View style={styles.contactPickerHeader}>
+              <Text style={styles.contactPickerTitle}>Select Contacts</Text>
+              <Pressable 
+                style={styles.contactPickerCloseButton}
+                onPress={() => setShowContactPicker(false)}
+              >
+                <Feather name="x" size={24} color="#fff" />
+              </Pressable>
+            </View>
+            
+            <ScrollView style={styles.contactPickerList}>
+              {allContacts.map((contact) => {
+                const isAlreadySelected = contacts.some(c => c.id === contact.id);
+                const isSelected = selectedContacts.has(contact.id);
+                
+                return (
+                  <Pressable
+                    key={contact.id}
+                    style={[
+                      styles.contactPickerItem,
+                      isSelected && styles.contactPickerItemSelected,
+                      isAlreadySelected && styles.contactPickerItemDisabled,
+                    ]}
+                    onPress={() => {
+                      if (!isAlreadySelected) {
+                        toggleContact(contact.id);
+                      }
+                    }}
+                    disabled={isAlreadySelected}
+                  >
+                    <View style={styles.contactPickerInfo}>
+                      <View style={styles.contactPickerAvatar}>
+                        <Text style={styles.contactPickerAvatarText}>
+                          {contact.name.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={styles.contactPickerDetails}>
+                        <Text style={[
+                          styles.contactPickerName,
+                          isAlreadySelected && styles.contactPickerNameDisabled
+                        ]}>
+                          {contact.name}
+                        </Text>
+                        {contact.phoneNumbers && contact.phoneNumbers.length > 0 && (
+                          <Text style={[
+                            styles.contactPickerPhone,
+                            isAlreadySelected && styles.contactPickerPhoneDisabled
+                          ]}>
+                            {contact.phoneNumbers[0]}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                    <View style={[
+                      styles.contactPickerCheckbox,
+                      isSelected && styles.contactPickerCheckboxSelected,
+                      isAlreadySelected && styles.contactPickerCheckboxDisabled,
+                    ]}>
+                      {isSelected && <Feather name="check" size={16} color="#fff" />}
+                      {isAlreadySelected && <Feather name="check-circle" size={16} color="rgba(255,255,255,0.4)" />}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            
+            <View style={styles.contactPickerActions}>
+              <Pressable 
+                style={styles.contactPickerCancelButton}
+                onPress={() => setShowContactPicker(false)}
+              >
+                <Text style={styles.contactPickerCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable 
+                style={[
+                  styles.contactPickerAddButton,
+                  selectedContacts.size === 0 && styles.contactPickerAddButtonDisabled
+                ]}
+                onPress={() => {
+                  // Add selected contacts to the main list
+                  const newContacts = allContacts.filter(contact => selectedContacts.has(contact.id));
+                  setContacts(prev => [...prev, ...newContacts]);
+                  setShowContactPicker(false);
+                  setSelectedContacts(new Set()); // Clear selection
+                }}
+                disabled={selectedContacts.size === 0}
+              >
+                <Text style={styles.contactPickerAddText}>
+                  Add Selected ({selectedContacts.size})
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -847,5 +978,146 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
     marginBottom: 20,
+  },
+  // Contact Picker Modal Styles
+  contactPickerOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.8)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1000,
+  },
+  contactPickerModal: {
+    backgroundColor: "#2d241f",
+    borderRadius: 16,
+    width: "90%",
+    maxHeight: "80%",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  contactPickerHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.1)",
+  },
+  contactPickerTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  contactPickerCloseButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  contactPickerList: {
+    maxHeight: 400,
+  },
+  contactPickerItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  contactPickerItemSelected: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  contactPickerItemDisabled: {
+    opacity: 0.5,
+  },
+  contactPickerInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  contactPickerAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  contactPickerAvatarText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  contactPickerDetails: {
+    flex: 1,
+  },
+  contactPickerName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff",
+    marginBottom: 2,
+  },
+  contactPickerNameDisabled: {
+    color: "rgba(255,255,255,0.5)",
+  },
+  contactPickerPhone: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.7)",
+  },
+  contactPickerPhoneDisabled: {
+    color: "rgba(255,255,255,0.3)",
+  },
+  contactPickerCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.3)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  contactPickerCheckboxSelected: {
+    backgroundColor: "#fff",
+    borderColor: "#fff",
+  },
+  contactPickerCheckboxDisabled: {
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+  contactPickerActions: {
+    flexDirection: "row",
+    padding: 20,
+    gap: 12,
+  },
+  contactPickerCancelButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+  },
+  contactPickerCancelText: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  contactPickerAddButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 12,
+    backgroundColor: "#fff",
+    alignItems: "center",
+  },
+  contactPickerAddButtonDisabled: {
+    backgroundColor: "rgba(255,255,255,0.3)",
+  },
+  contactPickerAddText: {
+    color: "#2d241f",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });
