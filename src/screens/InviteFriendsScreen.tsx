@@ -147,13 +147,23 @@ export default function InviteFriendsScreen() {
       });
 
       console.log(`Raw contacts data: ${data.length} contacts found`);
+      console.log("All raw contacts:", data.map(c => ({ name: c.name, hasPhone: !!c.phoneNumbers?.length, hasEmail: !!c.emails?.length })));
+      
+      // Get contacts that are already invited to show them as disabled
+      const invitedContactIds = new Set(invitedContacts);
       
       const formattedContacts: Contact[] = data
         .filter((contact) => {
           const hasName = contact.name && contact.name.trim().length > 0;
           const hasPhone = contact.phoneNumbers && contact.phoneNumbers.length > 0;
           const hasEmail = contact.emails && contact.emails.length > 0;
-          return hasName && (hasPhone || hasEmail);
+          const passesFilter = hasName && (hasPhone || hasEmail);
+          
+          if (!passesFilter) {
+            console.log(`Filtered out contact: ${contact.name} (hasName: ${hasName}, hasPhone: ${hasPhone}, hasEmail: ${hasEmail})`);
+          }
+          
+          return passesFilter;
         })
         .map((contact) => ({
           id: contact.id || Math.random().toString(),
@@ -165,6 +175,7 @@ export default function InviteFriendsScreen() {
 
       console.log(`Formatted ${formattedContacts.length} contacts for picker`);
       console.log("First few contacts:", formattedContacts.slice(0, 3));
+      console.log("Invited contact IDs:", Array.from(invitedContactIds));
       
       setAllContacts(formattedContacts);
     } catch (error) {
@@ -527,7 +538,6 @@ export default function InviteFriendsScreen() {
                 </View>
               ) : (
                 allContacts.map((contact) => {
-                const isAlreadySelected = contacts.some(c => c.id === contact.id);
                 const isSelected = selectedContacts.has(contact.id);
                 
                 return (
@@ -536,14 +546,10 @@ export default function InviteFriendsScreen() {
                     style={[
                       styles.contactPickerItem,
                       isSelected && styles.contactPickerItemSelected,
-                      isAlreadySelected && styles.contactPickerItemDisabled,
                     ]}
                     onPress={() => {
-                      if (!isAlreadySelected) {
-                        toggleContact(contact.id);
-                      }
+                      toggleContact(contact.id);
                     }}
-                    disabled={isAlreadySelected}
                   >
                     <View style={styles.contactPickerInfo}>
                       <View style={styles.contactPickerAvatar}>
@@ -552,17 +558,11 @@ export default function InviteFriendsScreen() {
                         </Text>
                       </View>
                       <View style={styles.contactPickerDetails}>
-                        <Text style={[
-                          styles.contactPickerName,
-                          isAlreadySelected && styles.contactPickerNameDisabled
-                        ]}>
+                        <Text style={styles.contactPickerName}>
                           {contact.name}
                         </Text>
                         {contact.phoneNumbers && contact.phoneNumbers.length > 0 && (
-                          <Text style={[
-                            styles.contactPickerPhone,
-                            isAlreadySelected && styles.contactPickerPhoneDisabled
-                          ]}>
+                          <Text style={styles.contactPickerPhone}>
                             {contact.phoneNumbers[0]}
                           </Text>
                         )}
@@ -571,10 +571,8 @@ export default function InviteFriendsScreen() {
                     <View style={[
                       styles.contactPickerCheckbox,
                       isSelected && styles.contactPickerCheckboxSelected,
-                      isAlreadySelected && styles.contactPickerCheckboxDisabled,
                     ]}>
                       {isSelected && <Feather name="check" size={16} color="#fff" />}
-                      {isAlreadySelected && <Feather name="check-circle" size={16} color="rgba(255,255,255,0.4)" />}
                     </View>
                     </Pressable>
                 );
@@ -595,9 +593,13 @@ export default function InviteFriendsScreen() {
                   selectedContacts.size === 0 && styles.contactPickerAddButtonDisabled
                 ]}
                 onPress={() => {
-                  // Add selected contacts to the main list
+                  // Add selected contacts to the main list (avoiding duplicates)
                   const newContacts = allContacts.filter(contact => selectedContacts.has(contact.id));
-                  setContacts(prev => [...prev, ...newContacts]);
+                  setContacts(prev => {
+                    const existingIds = new Set(prev.map(c => c.id));
+                    const uniqueNewContacts = newContacts.filter(contact => !existingIds.has(contact.id));
+                    return [...prev, ...uniqueNewContacts];
+                  });
                   setShowContactPicker(false);
                   setSelectedContacts(new Set()); // Clear selection
                 }}
