@@ -122,6 +122,7 @@ export default function InviteFriendsScreen() {
           selected: false,
         }));
 
+      console.log(`Loaded ${formattedContacts.length} contacts`);
       setContacts(formattedContacts);
     } catch (error) {
       console.error("Error loading contacts:", error);
@@ -347,7 +348,20 @@ export default function InviteFriendsScreen() {
                 </View>
               ) : (
                 <View style={styles.contactsList}>
-                  {contacts.map((contact) => {
+                  {contacts.length === 0 ? (
+                    <View style={styles.emptyContactsContainer}>
+                      <Feather name="users" size={32} color="rgba(255,255,255,0.4)" />
+                      <Text style={styles.emptyContactsTitle}>No Contacts Found</Text>
+                      <Text style={styles.emptyContactsSubtitle}>
+                        No contacts with phone numbers or emails were found. You can still invite friends manually using the share button above.
+                      </Text>
+                      <Pressable style={styles.retryButton} onPress={loadContacts}>
+                        <Feather name="refresh-cw" size={16} color="#fff" />
+                        <Text style={styles.retryButtonText}>Refresh Contacts</Text>
+                      </Pressable>
+                    </View>
+                  ) : (
+                    contacts.map((contact) => {
                     const isInvited = invitedContacts.has(contact.id);
                     const isSelected = selectedContacts.has(contact.id);
                     
@@ -402,7 +416,8 @@ export default function InviteFriendsScreen() {
                       </View>
                     </Pressable>
                   );
-                })}
+                })
+                  )}
                 </View>
               )}
 
@@ -784,5 +799,24 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.8)",
     fontSize: 14,
     fontWeight: "500",
+  },
+  emptyContactsContainer: {
+    alignItems: "center",
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+  },
+  emptyContactsTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.9)",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyContactsSubtitle: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.7)",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 20,
   },
 });
