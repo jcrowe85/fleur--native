@@ -325,12 +325,14 @@ export default function InviteFriendsScreen() {
               </Text>
             </View>
             
-            {!permissionRequested ? (
+            {!permissionGranted ? (
               <Pressable style={styles.secondaryButton} onPress={requestContactsPermission}>
                 <Feather name="users" size={18} color="#fff" />
-                <Text style={styles.secondaryButtonText}>Import Contacts</Text>
+                <Text style={styles.secondaryButtonText}>
+                  {permissionRequested ? "Try Again" : "Import Contacts"}
+                </Text>
               </Pressable>
-            ) : permissionGranted ? (
+            ) : (
               <View style={styles.contactsSection}>
                 <View style={styles.contactsHeader}>
                   <Text style={styles.contactsTitle}>Select Friends</Text>
@@ -411,19 +413,6 @@ export default function InviteFriendsScreen() {
                   </Text>
                 </Pressable>
                 )}
-              </View>
-            ) : (
-              <View style={styles.contactsSection}>
-                <View style={styles.contactsHeader}>
-                  <Text style={styles.contactsTitle}>Contacts Access Denied</Text>
-                  <Text style={styles.contactsSubtitle}>
-                    You can still invite friends manually using the share button above
-                  </Text>
-                </View>
-                <Pressable style={styles.retryButton} onPress={requestContactsPermission}>
-                  <Feather name="refresh-cw" size={20} color="#fff" />
-                  <Text style={styles.retryButtonText}>Try Again</Text>
-                </Pressable>
               </View>
             )}
           </View>
