@@ -113,7 +113,6 @@ export default function InviteFriendsScreen() {
 
       const formattedContacts: Contact[] = data
         .filter((contact) => contact.name && (contact.phoneNumbers?.length || contact.emails?.length))
-        .slice(0, 100) // Limit to first 100 contacts for performance
         .map((contact) => ({
           id: contact.id || Math.random().toString(),
           name: contact.name || "Unknown",
@@ -134,7 +133,7 @@ export default function InviteFriendsScreen() {
   };
 
   const loadMoreContacts = async () => {
-    // Simply reload contacts to get any new ones
+    // Load all contacts from phone (this will replace the current list)
     await loadContacts();
   };
 
