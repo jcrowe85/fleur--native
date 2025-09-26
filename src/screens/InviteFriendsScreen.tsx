@@ -137,14 +137,24 @@ export default function InviteFriendsScreen() {
 
   const loadAllContactsForPicker = async () => {
     try {
+      console.log("Starting to load all contacts for picker...");
       setLoading(true);
+      setShowContactPicker(true); // Show modal immediately
+      
       const { data } = await Contacts.getContactsAsync({
         fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails],
         sort: Contacts.SortTypes.FirstName,
       });
 
+      console.log(`Raw contacts data: ${data.length} contacts found`);
+      
       const formattedContacts: Contact[] = data
-        .filter((contact) => contact.name && (contact.phoneNumbers?.length || contact.emails?.length))
+        .filter((contact) => {
+          const hasName = contact.name && contact.name.trim().length > 0;
+          const hasPhone = contact.phoneNumbers && contact.phoneNumbers.length > 0;
+          const hasEmail = contact.emails && contact.emails.length > 0;
+          return hasName && (hasPhone || hasEmail);
+        })
         .map((contact) => ({
           id: contact.id || Math.random().toString(),
           name: contact.name || "Unknown",
@@ -153,12 +163,14 @@ export default function InviteFriendsScreen() {
           selected: false,
         }));
 
-      console.log(`Loaded ${formattedContacts.length} contacts for picker`);
+      console.log(`Formatted ${formattedContacts.length} contacts for picker`);
+      console.log("First few contacts:", formattedContacts.slice(0, 3));
+      
       setAllContacts(formattedContacts);
-      setShowContactPicker(true);
     } catch (error) {
       console.error("Error loading all contacts:", error);
       Alert.alert("Error", "Failed to load contacts. Please try again.");
+      setShowContactPicker(false);
     } finally {
       setLoading(false);
     }
@@ -501,7 +513,20 @@ export default function InviteFriendsScreen() {
             </View>
             
             <ScrollView style={styles.contactPickerList}>
-              {allContacts.map((contact) => {
+              {loading ? (
+                <View style={styles.contactPickerLoadingContainer}>
+                  <Text style={styles.contactPickerLoadingText}>Loading contacts...</Text>
+                </View>
+              ) : allContacts.length === 0 ? (
+                <View style={styles.contactPickerEmptyContainer}>
+                  <Feather name="users" size={32} color="rgba(255,255,255,0.4)" />
+                  <Text style={styles.contactPickerEmptyTitle}>No Contacts Found</Text>
+                  <Text style={styles.contactPickerEmptySubtitle}>
+                    No contacts with phone numbers or emails were found on your device.
+                  </Text>
+                </View>
+              ) : (
+                allContacts.map((contact) => {
                 const isAlreadySelected = contacts.some(c => c.id === contact.id);
                 const isSelected = selectedContacts.has(contact.id);
                 
@@ -551,9 +576,10 @@ export default function InviteFriendsScreen() {
                       {isSelected && <Feather name="check" size={16} color="#fff" />}
                       {isAlreadySelected && <Feather name="check-circle" size={16} color="rgba(255,255,255,0.4)" />}
                     </View>
-                  </Pressable>
+                    </Pressable>
                 );
-              })}
+              })
+              )}
             </ScrollView>
             
             <View style={styles.contactPickerActions}>
@@ -1119,5 +1145,30 @@ const styles = StyleSheet.create({
     color: "#2d241f",
     fontSize: 16,
     fontWeight: "600",
+  },
+  contactPickerLoadingContainer: {
+    padding: 40,
+    alignItems: "center",
+  },
+  contactPickerLoadingText: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 16,
+  },
+  contactPickerEmptyContainer: {
+    padding: 40,
+    alignItems: "center",
+  },
+  contactPickerEmptyTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.9)",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  contactPickerEmptySubtitle: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.7)",
+    textAlign: "center",
+    lineHeight: 20,
   },
 });
