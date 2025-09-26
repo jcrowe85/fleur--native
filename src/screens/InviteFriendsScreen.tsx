@@ -336,10 +336,18 @@ export default function InviteFriendsScreen() {
             ) : (
               <View style={styles.contactsSection}>
                 <View style={styles.contactsHeader}>
-                  <Text style={styles.contactsTitle}>Select Friends</Text>
-                  <Text style={styles.contactsSubtitle}>
-                    Choose up to {remainingReferrals} friends
-                  </Text>
+                  <View style={styles.contactsHeaderTop}>
+                    <View>
+                      <Text style={styles.contactsTitle}>Select Friends</Text>
+                      <Text style={styles.contactsSubtitle}>
+                        Choose up to {remainingReferrals} friends
+                      </Text>
+                    </View>
+                    <Pressable style={styles.importMoreButton} onPress={loadContacts}>
+                      <Feather name="refresh-cw" size={16} color="#fff" />
+                      <Text style={styles.importMoreButtonText}>Import More</Text>
+                    </Pressable>
+                  </View>
                 </View>
 
               {loading ? (
@@ -663,6 +671,11 @@ const styles = StyleSheet.create({
   contactsHeader: {
     marginBottom: 12,
   },
+  contactsHeaderTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
   contactsTitle: {
     color: "#fff",
     fontSize: 18,
@@ -672,6 +685,22 @@ const styles = StyleSheet.create({
   contactsSubtitle: {
     color: "rgba(255,255,255,0.8)",
     fontSize: 14,
+  },
+  importMoreButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    gap: 6,
+  },
+  importMoreButtonText: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 12,
+    fontWeight: "500",
   },
   loadingContainer: {
     padding: 20,
