@@ -1,5 +1,5 @@
 // src/screens/CommunityScreen.tsx
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useFeed } from "@/features/community/useFeed";
 import { PostCard } from "@/features/community/PostCard";
 import { usePostsService } from "@/features/community/posts.service";
+import { useLocalSearchParams } from "expo-router";
 
 // Uploader
 import { uploadAll } from "@/features/community/upload.service";
@@ -39,16 +40,17 @@ import RewardsPill from "@/components/UI/RewardsPill";
 import { ScreenFlatList } from "@/components/UI/bottom-space";
 
 /** UI labels shown in header row */
-const CATEGORY_LABELS = ["Hair Journeys", "Tips & Tricks", "Before & After", "Questions"] as const;
+const CATEGORY_LABELS = ["Hair Journeys", "Tips & Tricks", "Before & After", "Questions", "Reviews"] as const;
 type CategoryLabel = (typeof CATEGORY_LABELS)[number];
 
 /** DB codes expected by posts.category CHECK constraint */
-type CategoryCode = "hair_journeys" | "tips_tricks" | "before_after" | "questions";
+type CategoryCode = "hair_journeys" | "tips_tricks" | "before_after" | "questions" | "reviews";
 const CATEGORY_CODE: Record<CategoryLabel, CategoryCode> = {
   "Hair Journeys": "hair_journeys",
   "Tips & Tricks": "tips_tricks",
   "Before & After": "before_after",
   "Questions": "questions",
+  "Reviews": "reviews",
 };
 
 /** De-dupe helper to avoid duplicate FlatList keys when refresh + realtime merge */
@@ -80,9 +82,17 @@ export default function CommunityScreen() {
 
   const { profile } = useProfileStore();
   const { open: openPickHandle } = usePickHandleSheet();
+  const { tab } = useLocalSearchParams<{ tab?: string }>();
 
   // Header category (just filters UI)
   const [activeCat, setActiveCat] = useState<CategoryLabel>("Hair Journeys");
+
+  // Set initial tab based on URL params
+  useEffect(() => {
+    if (tab === "reviews") {
+      setActiveCat("Reviews");
+    }
+  }, [tab]);
 
   // Faux composer modal state
   const [composerOpen, setComposerOpen] = useState(false);

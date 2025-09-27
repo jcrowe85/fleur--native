@@ -147,7 +147,7 @@ const PRODUCTS_QUERY = /* GraphQL */ `
               currencyCode
             }
           }
-          images(first: 1) {
+          images(first: 5) {
             edges {
               node {
                 url
@@ -592,29 +592,64 @@ export async function createSeamlessCheckoutWithDiscount(
 async function createDiscountCodeViaAdminAPI(code: string, amount: number, userId: string, productSku: string): Promise<void> {
   const serverUrl = process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:3000';
   
-  try {
-    const response = await fetch(`${serverUrl}/api/shopify/discount-code`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        code,
-        amount,
-        userId,
-        productSku
-      }),
-    });
+  // Enhanced retry logic for network issues
+  const maxRetries = 4; // Increased from 3 to 4
+  let lastError: Error | null = null;
+  const baseTimeout = 35000; // Increased from 30s to 35s
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`Attempt ${attempt}/${maxRetries} to create discount code via server: ${code}`);
+      
+      // Progressive timeout: 35s, 50s, 65s, 80s
+      const timeout = baseTimeout + (attempt - 1) * 15000;
+      
+      const response = await fetch(`${serverUrl}/api/shopify/discount-code`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          code,
+          amount,
+          userId,
+          productSku
+        }),
+        // Add timeout for mobile (React Native compatible)
+        signal: (() => {
+          const controller = new AbortController();
+          setTimeout(() => controller.abort(), timeout);
+          return controller.signal;
+        })()
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to create discount code');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create discount code');
+      }
+      
+      // Success - break out of retry loop
+      console.log(`✅ Successfully created discount code on attempt ${attempt} (timeout: ${timeout}ms)`);
+      return;
+      
+    } catch (error) {
+      lastError = error as Error;
+      const isTimeout = lastError.message.includes('aborted') || lastError.message.includes('timeout');
+      const isNetworkError = lastError.message.includes('Network request failed') || lastError.message.includes('fetch failed');
+      
+      console.warn(`❌ Attempt ${attempt} failed (${isTimeout ? 'timeout' : isNetworkError ? 'network' : 'other'}):`, lastError.message);
+      
+      if (attempt === maxRetries) {
+        throw new Error(`Failed to create discount code after ${maxRetries} attempts. Last error: ${lastError.message}`);
+      }
+      
+      // Enhanced backoff with jitter: 1s, 2s, 4s, 8s + random 0-1s
+      const baseDelay = Math.pow(2, attempt - 1) * 1000;
+      const jitter = Math.random() * 1000; // 0-1s random
+      const delay = Math.floor(baseDelay + jitter);
+      
+      console.log(`⏳ Waiting ${delay}ms before retry...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
-
-    const result = await response.json();
-    console.log('Discount code created successfully:', result);
-  } catch (error) {
-    console.error('Error creating discount code:', error);
-    throw error;
   }
 }

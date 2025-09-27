@@ -13,7 +13,7 @@ if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_ACCESS_TOKEN || !SHOPIFY_STOREFRONT_
 }
 
 /**
- * Create a discount code using Shopify Admin API
+ * Create a discount code using Shopify Admin API with retry logic
  */
 export async function createDiscountCode(
   code: string, 
@@ -85,22 +85,64 @@ export async function createDiscountCode(
     }
   };
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "X-Shopify-Access-Token": SHOPIFY_ADMIN_ACCESS_TOKEN,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({ query: mutation, variables }),
-  });
+  // Enhanced retry logic for network issues
+  let lastError: Error | null = null;
+  let data: any = null;
+  const maxRetries = 5; // Increased from 3 to 5
+  const baseTimeout = 45000; // Increased from 30s to 45s
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`Attempt ${attempt}/${maxRetries} to create discount code: ${code}`);
+      
+      // Progressive timeout: 45s, 60s, 75s, 90s, 105s
+      const timeout = baseTimeout + (attempt - 1) * 15000;
+      
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "X-Shopify-Access-Token": SHOPIFY_ADMIN_ACCESS_TOKEN,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ query: mutation, variables }),
+        signal: (() => {
+          const controller = new AbortController();
+          setTimeout(() => controller.abort(), timeout);
+          return controller.signal;
+        })()
+      });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Shopify Admin API error: ${response.status} – ${text}`);
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Shopify Admin API error: ${response.status} – ${text}`);
+      }
+
+      data = await response.json();
+      
+      // If we get here, the request was successful
+      console.log(`✅ Successfully created discount code on attempt ${attempt} (timeout: ${timeout}ms)`);
+      break;
+    } catch (error) {
+      lastError = error as Error;
+      const isTimeout = lastError.message.includes('aborted') || lastError.message.includes('timeout');
+      const isNetworkError = lastError.message.includes('fetch failed') || lastError.message.includes('ETIMEDOUT');
+      
+      console.warn(`❌ Attempt ${attempt} failed (${isTimeout ? 'timeout' : isNetworkError ? 'network' : 'other'}):`, lastError.message);
+      
+      if (attempt === maxRetries) {
+        throw new Error(`Failed to create discount code after ${maxRetries} attempts. Last error: ${lastError.message}`);
+      }
+      
+      // Enhanced backoff with jitter: 1s, 2s, 4s, 8s, 16s + random 0-1s
+      const baseDelay = Math.pow(2, attempt - 1) * 1000;
+      const jitter = Math.random() * 1000; // 0-1s random
+      const delay = Math.floor(baseDelay + jitter);
+      
+      console.log(`⏳ Waiting ${delay}ms before retry...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
   }
-
-  const data = await response.json();
 
   if (data.errors) {
     throw new Error(`GraphQL errors: ${data.errors.map((e: any) => e.message).join(", ")}`);
@@ -319,17 +361,18 @@ async function fetchAllProducts(): Promise<any[]> {
 function getProductPointValue(sku: string): number {
   // This should match your product catalog from the mobile app
   const productPointValues: Record<string, number> = {
-    'bloom': 480,
+    'bloom': 850,
     'detangling-comb': 250,
-    'fleur-shampoo': 360,
-    'fleur-conditioner': 380,
-    'fleur-repair-mask': 550,
-    'fleur-heat-shield': 200,
-    'fleur-silk-pillowcase': 300,
-    'fleur-complete-kit': 1200,
-    'fleur-biotin': 150,
-    'fleur-vitamin-d3': 150,
-    'fleur-iron': 150,
+    'fleur-shampoo': 750,
+    'fleur-conditioner': 780,
+    'fleur-repair-mask': 900,
+    'fleur-heat-shield': 700,
+    'fleur-silk-pillowcase': 650,
+    'fleur-derma-stamp': 725,
+    'fleur-complete-kit': 3500,
+    'fleur-biotin': 500,
+    'fleur-vitamin-d3': 500,
+    'fleur-iron': 500,
   };
 
   return productPointValues[sku] || 0;

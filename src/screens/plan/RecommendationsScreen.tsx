@@ -10,7 +10,7 @@ import { router } from "expo-router";
 
 import { CustomButton } from "@/components/UI/CustomButton";
 import { usePlanStore } from "@/state/planStore";
-import type { FleurPlan } from "@/types/plans";
+import type { FleurPlan } from "@/types/plan";
 
 import {
   categorize,
@@ -19,6 +19,8 @@ import {
   preferredKitOrder,
   ProductCategory,
 } from "@/lib/products";
+import { fetchRedeemableProducts, ShopifyProduct } from "@/services/shopifyClient";
+import { getProductPointValue } from "@/data/productPointCatalog";
 
 // 🔹 shared cart store (now with addBySku)
 import { useCartStore } from "@/state/cartStore";
@@ -45,14 +47,14 @@ const DEFAULT_SLOT_IMAGES: Record<ProductCategory, any> = {
 };
 
 /** ----------------------------------------------------------------
- * Core products (always included)
+ * Core products (always included) - Updated to use Shopify catalog
  * ---------------------------------------------------------------- */
 const CORE_PRODUCTS = {
   serum: {
     slot: "treat" as const,
     product: {
-      sku: "fleur-serum",
-      name: "Fleur Peptide Hair Serum",
+      sku: "bloom",
+      name: "Bloom Hair+Scalp Serum",
       imageUrl: undefined,
     },
     title: "Daily follicle support",
@@ -63,7 +65,7 @@ const CORE_PRODUCTS = {
     slot: "protect" as const,
     product: {
       sku: "fleur-derma-stamp",
-      name: "Derma Stamp (Scalp Tool)",
+      name: "Derma Stamp",
       imageUrl: undefined,
     },
     title: "Weekly micro-stimulation",
@@ -79,7 +81,7 @@ function badgesFor(slot: Slot, sku?: string, plan?: FleurPlan | null): string[] 
   if (slot === "cleanse") badges.push("Wash days");
   if (slot === "protect") badges.push("1–2×/wk");
 
-  if (sku === "fleur-serum") {
+  if (sku === "bloom") {
     badges.splice(0, badges.length, "Daily PM", "Dry/clean scalp");
   }
   if (sku === "fleur-derma-stamp") {
@@ -467,7 +469,7 @@ function buildKitFromPlan(plan: FleurPlan | null) {
 function makeGenericCleanser() {
   return {
     slot: "cleanse" as const,
-    product: { sku: "fleur-cleanser-generic", name: "Gentle Cleanser", imageUrl: undefined },
+    product: { sku: "fleur-shampoo", name: "Gentle Shampoo", imageUrl: undefined },
     title: "Low-stripping wash",
     why: "Cleanses without over-drying; balances scalp on wash days.",
   };
@@ -476,7 +478,7 @@ function makeGenericCleanser() {
 function makeGenericConditioner() {
   return {
     slot: "condition" as const,
-    product: { sku: "fleur-conditioner-generic", name: "Lightweight Conditioner", imageUrl: undefined },
+    product: { sku: "fleur-conditioner", name: "Lightweight Conditioner", imageUrl: undefined },
     title: "Daily slip & softness",
     why: "Detangles and softens mid→ends without weighing roots down.",
   };

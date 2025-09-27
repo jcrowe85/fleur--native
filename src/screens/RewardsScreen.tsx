@@ -6,6 +6,7 @@ import {
   Pressable,
   StyleSheet,
   ImageBackground,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -17,10 +18,12 @@ import { useRewardsStore } from "@/state/rewardsStore";
 import { useCheckInStore } from "@/state/checkinStore";
 // ✅ Shared bottom spacing helper (same convention)
 import { ScreenScrollView } from "@/components/UI/bottom-space";
-import { getNextAffordableProduct, getPointsNeededForNext, getAllRedeemableProducts, getAffordableProducts, RedeemableProduct } from "@/data/productCatalog";
+import { fetchRedeemableProducts, ShopifyProduct } from "@/services/shopifyClient";
+import { getProductPointValue } from "@/data/productPointCatalog";
 import RewardsPill from "@/components/UI/RewardsPill";
 import PointsContainer from "@/components/UI/PointsContainer";
 import DailyCheckInPopup from "@/components/DailyCheckInPopup";
+import HowToEarnPointsPopup from "@/components/HowToEarnPointsPopup";
 
 // Helper function to abbreviate product names
 function abbreviateProductName(name: string): string {
@@ -41,21 +44,22 @@ function abbreviateProductName(name: string): string {
 }
 
 function getProductProgressInfo(points: number) {
-  const nextProduct = getNextAffordableProduct(points);
-  const pointsNeeded = getPointsNeededForNext(points);
+  // Get all products with their point values from Shopify catalog
+  const allProducts = [
+    { name: "Detangling Comb", pointsRequired: 250 },
+    { name: "Biotin Supplement", pointsRequired: 500 },
+    { name: "Vitamin D3 Supplement", pointsRequired: 500 },
+    { name: "Iron Supplement", pointsRequired: 500 },
+    { name: "Silk Pillowcase", pointsRequired: 650 },
+    { name: "Heat Shield Spray", pointsRequired: 700 },
+    { name: "Derma Stamp", pointsRequired: 725 },
+    { name: "Gentle Shampoo", pointsRequired: 750 },
+    { name: "Lightweight Conditioner", pointsRequired: 780 },
+    { name: "Bloom Hair+Scalp Serum", pointsRequired: 850 },
+    { name: "Bond Repair Mask", pointsRequired: 900 },
+    { name: "Complete Hair Kit", pointsRequired: 3500 },
+  ];
   
-  if (!nextProduct) {
-    // User can afford all products
-    return {
-      currentLabel: "All Products",
-      nextLabel: "Unlocked",
-      remainingLabel: "All products available!",
-      percent: 1,
-    };
-  }
-
-  // Calculate progress towards the next product
-  const allProducts = getAllRedeemableProducts();
   const sortedProducts = allProducts.sort((a, b) => a.pointsRequired - b.pointsRequired);
   const currentProductIndex = sortedProducts.findIndex(p => p.pointsRequired > points);
   
@@ -65,22 +69,31 @@ function getProductProgressInfo(points: number) {
     const percent = Math.min(1, points / firstProduct.pointsRequired);
     return {
       currentLabel: "Getting Started",
-      nextLabel: firstProduct.name,
-      remainingLabel: `Next unlock in ${pointsNeeded} pts`,
+      nextLabel: abbreviateProductName(firstProduct.name),
+      remainingLabel: `Next unlock in ${firstProduct.pointsRequired - points} pts`,
       percent,
+    };
+  }
+  
+  if (currentProductIndex === -1) {
+    // User can afford all products
+    return {
+      currentLabel: "All Products",
+      nextLabel: "Unlocked",
+      remainingLabel: "All products available!",
+      percent: 1,
     };
   }
 
   // User is between products
   const previousProduct = sortedProducts[currentProductIndex - 1];
-  const nextProductPoints = nextProduct.pointsRequired;
-  const previousProductPoints = previousProduct.pointsRequired;
-  const percent = Math.min(1, (points - previousProductPoints) / (nextProductPoints - previousProductPoints));
+  const nextProduct = sortedProducts[currentProductIndex];
+  const percent = Math.min(1, (points - previousProduct.pointsRequired) / (nextProduct.pointsRequired - previousProduct.pointsRequired));
 
   return {
-    currentLabel: previousProduct.name,
-    nextLabel: nextProduct.name,
-    remainingLabel: `Next unlock in ${pointsNeeded} pts`,
+    currentLabel: abbreviateProductName(previousProduct.name),
+    nextLabel: abbreviateProductName(nextProduct.name),
+    remainingLabel: `Next unlock in ${nextProduct.pointsRequired - points} pts`,
     percent,
   };
 }
@@ -108,13 +121,77 @@ function reasonLabel(reason: string) {
 
 // Redeemable Products Grid Component
 function RedeemableProductsGrid({ userPoints }: { userPoints: number }) {
-  const allProducts = getAllRedeemableProducts();
-  const affordableProducts = getAffordableProducts(userPoints);
+  const [shopifyProducts, setShopifyProducts] = React.useState<ShopifyProduct[]>([]);
+  const [loading, setLoading] = React.useState(true);
 
-  const handleRedeem = (product: RedeemableProduct) => {
-    // TODO: Implement redemption logic with Shopify integration
-    console.log(`Redeeming ${product.name} for ${product.pointsRequired} points`);
-    // For now, just navigate to shop with the product pre-selected
+  React.useEffect(() => {
+    loadProducts();
+  }, []);
+
+  const loadProducts = async () => {
+    try {
+      setLoading(true);
+      const products = await fetchRedeemableProducts();
+      setShopifyProducts(products);
+    } catch (error) {
+      console.error("Failed to load products:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Map Shopify products to our format with point values
+  const allProducts = shopifyProducts.map(product => {
+    const productSku = product.handle || 
+                     product.title.toLowerCase().replace(/\s+/g, '-') ||
+                     product.title.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    
+    let pointsRequired = getProductPointValue(productSku);
+    
+    // If no exact match, try to find by title keywords
+    if (pointsRequired === 0) {
+      const title = product.title.toLowerCase();
+      if (title.includes('serum')) {
+        pointsRequired = 850;
+      } else if (title.includes('shampoo')) {
+        pointsRequired = 750;
+      } else if (title.includes('conditioner')) {
+        pointsRequired = 780;
+      } else if (title.includes('mask') || title.includes('repair')) {
+        pointsRequired = 900;
+      } else if (title.includes('heat') || title.includes('shield')) {
+        pointsRequired = 700;
+      } else if (title.includes('comb')) {
+        pointsRequired = 250;
+      } else if (title.includes('pillowcase') || title.includes('silk')) {
+        pointsRequired = 650;
+      } else if (title.includes('derma') || title.includes('stamp')) {
+        pointsRequired = 725;
+      } else if (title.includes('biotin')) {
+        pointsRequired = 500;
+      } else if (title.includes('vitamin d') || title.includes('d3')) {
+        pointsRequired = 500;
+      } else if (title.includes('iron')) {
+        pointsRequired = 500;
+      } else if (title.includes('kit') || title.includes('complete')) {
+        pointsRequired = 3500;
+      }
+    }
+
+    return {
+      sku: productSku,
+      name: product.title,
+      priceCents: Math.round(parseFloat(product.priceRange.minVariantPrice.amount) * 100),
+      pointsRequired,
+      imageUrl: product.images?.edges?.[0]?.node?.url || null,
+      shopifyId: product.id, // Add the Shopify product ID
+    };
+  }).filter(product => product.pointsRequired > 0); // Only show products with point values
+
+  const affordableProducts = allProducts.filter(product => userPoints >= product.pointsRequired);
+
+  const handleRedeem = (product: any) => {
+    // Navigate to shop with the product pre-selected
     router.push(`/(app)/shop?redeem=${product.sku}`);
   };
 
@@ -126,7 +203,7 @@ function RedeemableProductsGrid({ userPoints }: { userPoints: number }) {
     }
     groups[points].push(product);
     return groups;
-  }, {} as Record<number, RedeemableProduct[]>);
+  }, {} as Record<number, any[]>);
 
   // Sort point groups in ascending order
   const sortedPointGroups = Object.keys(productsByPoints)
@@ -163,20 +240,41 @@ function RedeemableProductsGrid({ userPoints }: { userPoints: number }) {
                 const canAfford = userPoints >= product.pointsRequired;
                 
                 return (
-                  <View key={product.sku} style={[
-                    styles.productCard,
-                    !canAfford && styles.productCardDisabled
-                  ]}>
-                    {/* Product Image Placeholder */}
+                  <Pressable
+                    key={product.sku}
+                    onPress={() => router.push({
+                      pathname: "/shop/product-detail",
+                      params: { 
+                        productId: product.shopifyId,
+                        returnTo: "/rewards"
+                      }
+                    })}
+                    style={[
+                      styles.productCard,
+                      !canAfford && styles.productCardDisabled
+                    ]}
+                  >
+                    {/* Product Image */}
                     <View style={[
                       styles.productImage,
                       !canAfford && styles.productImageDisabled
                     ]}>
-                      <Feather 
-                        name="package" 
-                        size={24} 
-                        color={canAfford ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.3)"} 
-                      />
+                      {product.imageUrl ? (
+                        <Image
+                          source={{ uri: product.imageUrl }}
+                          style={{ width: "100%", height: "100%", borderRadius: 8 }}
+                          resizeMode="cover"
+                          onError={() => {
+                            // Fallback to icon if image fails
+                          }}
+                        />
+                      ) : (
+                        <Feather 
+                          name="package" 
+                          size={24} 
+                          color={canAfford ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.3)"} 
+                        />
+                      )}
                     </View>
 
                     {/* Product Info */}
@@ -213,7 +311,7 @@ function RedeemableProductsGrid({ userPoints }: { userPoints: number }) {
                         </View>
                       )}
                     </View>
-                  </View>
+                  </Pressable>
                 );
               })}
             </View>
@@ -232,14 +330,11 @@ export default function RewardsScreen() {
   // Check-in state
   const { hasCheckedInToday } = useCheckInStore();
   const [showDailyCheckInPopup, setShowDailyCheckInPopup] = React.useState(false);
+  const [showHowToEarnPopup, setShowHowToEarnPopup] = React.useState(false);
 
   const progress = React.useMemo(() => getProductProgressInfo(points), [points]);
-  const affordableProducts = getAffordableProducts(points);
-  const allProducts = getAllRedeemableProducts();
   const recent = ledger.slice(0, 8);
 
-  // accordion state (details only)
-  const [howOpen, setHowOpen] = React.useState(false);
 
   const scrollToRedeemSection = () => {
     if (scrollViewRef.current) {
@@ -330,48 +425,27 @@ export default function RewardsScreen() {
               icon="star"
               title="Write a review"
               points="+5"
-              onPress={() => router.push("/(app)/community")}
+              onPress={() => router.push("/(app)/community?tab=reviews")}
             />
           </View>
+
+          {/* How to earn points link */}
+            <Pressable
+            onPress={() => setShowHowToEarnPopup(true)}
+            style={styles.howToEarnLink}
+              accessibilityRole="button"
+            accessibilityLabel="View detailed points earning guide"
+          >
+            <View style={styles.howToEarnLinkContent}>
+              <Feather name="info" size={16} color="rgba(255,255,255,0.7)" />
+              <Text style={styles.howToEarnLinkText}>View detailed points guide</Text>
+              <Feather name="chevron-right" size={16} color="rgba(255,255,255,0.7)" />
+            </View>
+            </Pressable>
 
           {/* Redeemable Products Section */}
           <Text style={styles.sectionTitle}>Redeem with points</Text>
           <RedeemableProductsGrid userPoints={points} />
-
-          {/* How to earn (accordion with DETAILS ONLY) */}
-          <View style={styles.accordion}>
-            <Pressable
-              onPress={() => setHowOpen((v) => !v)}
-              style={styles.accHeader}
-              accessibilityRole="button"
-              accessibilityLabel="How to earn points"
-            >
-              <Text style={styles.accTitle}>How to earn points (details)</Text>
-              <Feather name={howOpen ? "chevron-up" : "chevron-down"} size={18} color="#fff" />
-            </Pressable>
-
-            {howOpen && (
-              <View style={styles.accBody}>
-                <Text style={styles.accLead}>
-                  Points accrue from activity and purchases. Highlights:
-                </Text>
-                <View style={styles.rulesWrap}>
-                  <Rule line="$1 spent = 1 point" sub="Points post after confirmed orders." />
-                  <Rule line="Daily check-in = +1 point" sub="Keep your streak going." />
-                  <Rule line="7-day streak = +2 bonus points" sub="Extra reward for consistency." />
-                  <Rule line="Daily routine tasks = +1 point each" sub="Max 5 points per day." />
-                  <Rule line="First routine step = +6 points" sub="5 bonus + 1 task point." />
-                  <Rule line="First community post = +5" sub="Say hi to the community." />
-                  <Rule line="First comment = +5" sub="Engage with the community." />
-                  <Rule line="First like = +1" sub="Show some love." />
-                  <Rule line="Post engagement = +1 per 100 likes" sub="Your content is popular!" />
-                  <Rule line="Post engagement = +5 per 10 comments" sub="Great discussions." />
-                  <Rule line="Refer a friend = +20" sub="Max 20 referrals." />
-                  <Rule line="Write a review = +5" sub="Share your experience to help others." />
-                </View>
-              </View>
-            )}
-          </View>
 
           {/* Recent activity (ledger) */}
           {recent.length > 0 && (
@@ -419,6 +493,12 @@ export default function RewardsScreen() {
       <DailyCheckInPopup 
         visible={showDailyCheckInPopup} 
         onClose={() => setShowDailyCheckInPopup(false)} 
+      />
+
+      {/* How to Earn Points Popup */}
+      <HowToEarnPointsPopup 
+        visible={showHowToEarnPopup} 
+        onClose={() => setShowHowToEarnPopup(false)} 
       />
     </View>
   );
@@ -589,6 +669,26 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 10,
   },
+  howToEarnLink: {
+    marginBottom: 24,
+  },
+  howToEarnLinkContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  howToEarnLinkText: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 14,
+    fontWeight: "500",
+    marginHorizontal: 8,
+  },
   square: {
     width: "48%",
     borderRadius: 12,
@@ -729,7 +829,7 @@ const styles = StyleSheet.create({
   },
   productImage: {
     width: "100%",
-    height: 60,
+    height: 120,
     backgroundColor: "rgba(255,255,255,0.1)",
     borderRadius: 8,
     alignItems: "center",
@@ -761,21 +861,6 @@ const styles = StyleSheet.create({
   },
   productAction: {
     alignItems: "center",
-  },
-  redeemButton: {
-    backgroundColor: "rgba(255,255,255,0.2)",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.35)",
-    width: "100%",
-    alignItems: "center",
-  },
-  redeemButtonText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "600",
   },
   pointsNeededContainer: {
     paddingHorizontal: 8,

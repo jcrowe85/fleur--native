@@ -276,6 +276,48 @@ export default function DashboardScreen() {
   // Daily check-in popup
   const [showDailyCheckInPopup, setShowDailyCheckInPopup] = useState(false);
   
+  // Simple text cycling animation
+  const [currentText, setCurrentText] = useState("Points");
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    
+    const cycleText = () => {
+      // Fade out
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }).start(() => {
+        // Change text when fade out completes
+        setCurrentText(prev => prev === "Points" ? "Needed" : "Points");
+        
+        // Fade in
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }).start();
+      });
+    };
+    
+    // Start the cycle after initial delay
+    timeoutId = setTimeout(() => {
+      cycleText();
+      
+      // Set up interval for subsequent cycles
+      const interval = setInterval(cycleText, 4000);
+      
+      // Cleanup function
+      return () => clearInterval(interval);
+    }, 2000);
+    
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, []);
+  
   // First point popup
   const [showFirstPointPopup, setShowFirstPointPopup] = useState(false);
   
@@ -526,7 +568,15 @@ export default function DashboardScreen() {
                 }}
               >
                 <View>
-                  <Text style={{ color: "rgba(255,255,255,0.85)", fontWeight: "600" }}>Points</Text>
+                  <Animated.Text 
+                    style={{ 
+                      color: "rgba(255,255,255,0.85)", 
+                      fontWeight: "600",
+                      opacity: fadeAnim
+                    }}
+                  >
+                    {currentText}
+                  </Animated.Text>
                   <Text style={{ color: "#fff", fontSize: 28, fontWeight: "800", marginTop: 2 }}>
                     {progress.remainingPoints}
                   </Text>

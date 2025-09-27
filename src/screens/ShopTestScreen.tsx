@@ -1,5 +1,5 @@
-// src/screens/ShopTestScreen.tsx
-import React, { useMemo, useState, useEffect } from "react";
+// src/screens/ShopScreen.tsx
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Modal,
+  Animated,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -41,6 +42,11 @@ import { getProductPointValue, canAffordProduct, getProductInfo } from "@/data/p
 /** Default placeholder images */
 const DEFAULT_PRODUCT_IMAGE = require("../../assets/kit/serum.png");
 
+/** Generic product placeholder */
+const GENERIC_PRODUCT_PLACEHOLDER = {
+  uri: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiBmaWxsPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMSkiLz4KPHN2ZyB4PSI1MCIgeT0iNTAiIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9InJnYmEoMjU1LDI1NSwyNTUsMC4zKSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgo8cGF0aCBkPSJtMjEgMTYtMy0zIDMtM0ExIDEgMCAwIDAgMTggOWwtMyAzLTMtM0ExIDEgMCAwIDAgMTAgOWwtMyAzIDMgM0ExIDEgMCAwIDAgMTIgMTVsMy0zIDMgM0ExIDEgMCAwIDAgMjEgMTZaIi8+Cjwvc3ZnPgo8L3N2Zz4K"
+};
+
 function GlassCard({ children, style }: { children: React.ReactNode; style?: any }) {
   return (
     <View style={[styles.glassCard, style]}>
@@ -50,27 +56,81 @@ function GlassCard({ children, style }: { children: React.ReactNode; style?: any
 }
 
 function ProductImage({ uri, title }: { uri?: string; title: string }) {
-  const [failed, setFailed] = useState(false);
-  const source = !uri || failed ? DEFAULT_PRODUCT_IMAGE : { uri };
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageError, setImageError] = useState(false);
+  const spinValue = useRef(new Animated.Value(0)).current;
+  
+  // Don't render anything if no valid URI
+  if (!uri || uri === "null") {
+    return (
+      <View style={[styles.productImageContainer, { backgroundColor: "rgba(255,255,255,0.1)" }]}>
+        <Feather name="image" size={24} color="rgba(255,255,255,0.3)" />
+      </View>
+    );
+  }
+
+  // Start spinning animation when component mounts
+  useEffect(() => {
+    if (!imageLoaded && !imageError) {
+      const spin = Animated.loop(
+        Animated.timing(spinValue, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        })
+      );
+      spin.start();
+      
+      return () => spin.stop();
+    }
+  }, [imageLoaded, imageError, spinValue]);
+
+  const handleImageLoad = () => {
+    setImageLoaded(true);
+  };
+
+  const handleImageError = () => {
+    console.log(`Failed to load product image: ${title} - ${uri}`);
+    setImageError(true);
+  };
+
+  const spin = spinValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
 
   return (
     <View style={styles.productImageContainer}>
-      <Image
-        source={source}
-        onError={() => setFailed(true)}
-        style={styles.productImage}
-        resizeMode="cover"
-      />
+      {!imageLoaded && !imageError && (
+        <View style={[styles.productImage, { position: "absolute", backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" }]}>
+          <Animated.View style={{ transform: [{ rotate: spin }] }}>
+            <Feather name="loader" size={20} color="rgba(255,255,255,0.5)" />
+          </Animated.View>
+        </View>
+      )}
+      {imageError ? (
+        <View style={[styles.productImage, { backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" }]}>
+          <Feather name="image" size={24} color="rgba(255,255,255,0.3)" />
+        </View>
+      ) : (
+        <Image
+          source={{ uri }}
+          onLoad={handleImageLoad}
+          onError={handleImageError}
+          style={[styles.productImage, { opacity: imageLoaded ? 1 : 0 }]}
+          resizeMode="cover"
+        />
+      )}
     </View>
   );
 }
 
 
-export default function ShopTestScreen() {
+export default function ShopScreen() {
   const { plan } = usePlanStore();
   const { purchases, hasPurchased, getPurchasedSkus } = usePurchaseStore();
-  const { items: cartItems, addBySku, remove } = useCartStore();
-  const { pointsTotal } = useRewardsStore();
+  const { items: cartItems, add, addBySku, remove } = useCartStore();
+  const { pointsTotal, earn } = useRewardsStore();
   const { user, session } = useAuthStore();
 
   // Shopify products state
@@ -133,11 +193,22 @@ export default function ShopTestScreen() {
     loadProducts(true);
   };
 
-  const toggleItemInCart = (sku: string) => {
-    if (inCartSet.has(sku)) {
-      remove(sku);
+  const toggleItemInCart = (product: ShopifyProduct) => {
+    const productSku = product.handle || 
+                     product.title.toLowerCase().replace(/\s+/g, '-') ||
+                     product.title.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    
+    if (inCartSet.has(productSku)) {
+      remove(productSku);
     } else {
-      addBySku(sku, 1);
+      // Add with actual Shopify product data
+      add({
+        sku: productSku,
+        name: product.title,
+        priceCents: Math.round(parseFloat(product.priceRange.minVariantPrice.amount) * 100),
+        imageUrl: product.images?.edges?.[0]?.node?.url || undefined,
+        variantId: product.variants?.edges?.[0]?.node?.id || undefined
+      });
     }
   };
 
@@ -160,37 +231,40 @@ export default function ShopTestScreen() {
       if (pointsRequired === 0) {
         const title = product.title.toLowerCase();
         if (title.includes('serum')) {
-          pointsRequired = 480;
+          pointsRequired = 850;
           finalSku = 'bloom';
         } else if (title.includes('shampoo')) {
-          pointsRequired = 360;
+          pointsRequired = 750;
           finalSku = 'fleur-shampoo';
         } else if (title.includes('conditioner')) {
-          pointsRequired = 380;
+          pointsRequired = 780;
           finalSku = 'fleur-conditioner';
         } else if (title.includes('mask') || title.includes('repair')) {
-          pointsRequired = 550;
+          pointsRequired = 900;
           finalSku = 'fleur-repair-mask';
         } else if (title.includes('heat') || title.includes('shield')) {
-          pointsRequired = 200;
+          pointsRequired = 700;
           finalSku = 'fleur-heat-shield';
         } else if (title.includes('comb')) {
           pointsRequired = 250;
           finalSku = 'detangling-comb';
         } else if (title.includes('pillowcase') || title.includes('silk')) {
-          pointsRequired = 300;
+          pointsRequired = 650;
           finalSku = 'fleur-silk-pillowcase';
+        } else if (title.includes('derma') || title.includes('stamp')) {
+          pointsRequired = 725;
+          finalSku = 'fleur-derma-stamp';
         } else if (title.includes('biotin')) {
-          pointsRequired = 150;
+          pointsRequired = 500;
           finalSku = 'fleur-biotin';
         } else if (title.includes('vitamin d') || title.includes('d3')) {
-          pointsRequired = 150;
+          pointsRequired = 500;
           finalSku = 'fleur-vitamin-d3';
         } else if (title.includes('iron')) {
-          pointsRequired = 150;
+          pointsRequired = 500;
           finalSku = 'fleur-iron';
         } else if (title.includes('kit') || title.includes('complete')) {
-          pointsRequired = 1200;
+          pointsRequired = 3500;
           finalSku = 'fleur-complete-kit';
         }
       }
@@ -219,10 +293,10 @@ export default function ShopTestScreen() {
       
       // Set active redemption for tracking
       setActiveRedemption({
-        productSku: finalSku,
         pointsUsed: pointsRequired,
         discountAmount: checkoutResult.discountAmount,
-        checkoutUrl: checkoutResult.checkoutUrl
+        discountCode: "",
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours from now
       });
       
     } catch (error) {
@@ -242,7 +316,22 @@ export default function ShopTestScreen() {
   };
 
   const getProductImage = (product: ShopifyProduct) => {
-    return product.images.edges[0]?.node.url;
+    // Try to find the first valid image URL
+    const images = product.images?.edges || [];
+    let imageUrl = null;
+    
+    for (const edge of images) {
+      if (edge?.node?.url) {
+        imageUrl = edge.node.url;
+        break;
+      }
+    }
+    
+    console.log(`Product: ${product.title}`);
+    console.log(`Total images: ${images.length}`);
+    console.log(`Selected image URL: ${imageUrl}`);
+    
+    return imageUrl;
   };
 
   return (
@@ -269,33 +358,11 @@ export default function ShopTestScreen() {
             </Pressable>
 
             <View style={{ flex: 1, alignItems: "center" }}>
-              <Text style={styles.headerTitle}>Shop Test (Shopify)</Text>
-              <Text style={styles.headerSub}>Testing Shopify API integration</Text>
+              <Text style={styles.headerTitle}>Shop</Text>
+              <Text style={styles.headerSub}>Redeem your points for products</Text>
             </View>
 
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              {/* Refresh Button */}
-              <Pressable
-                onPress={handleRefresh}
-                disabled={refreshing || loading}
-                hitSlop={8}
-                style={{ 
-                  padding: 8, 
-                  borderRadius: 20,
-                  backgroundColor: refreshing ? "rgba(255,255,255,0.1)" : "transparent",
-                  opacity: (refreshing || loading) ? 0.6 : 1
-                }}
-              >
-                <Feather 
-                  name="refresh-cw" 
-                  size={20} 
-                  color="#fff" 
-                  style={{ 
-                    transform: [{ rotate: refreshing ? '180deg' : '0deg' }] 
-                  }}
-                />
-              </Pressable>
-
               {/* Cart Button */}
               <View style={{ padding: 10, borderRadius: 20, position: "relative" }}>
                 <Pressable onPress={goToCart} hitSlop={8}>
@@ -369,9 +436,9 @@ export default function ShopTestScreen() {
 
           {/* Shopify Products */}
           {!loading && !error && shopifyProducts.length > 0 && (() => {
-            // Separate products into redeemable and non-redeemable
-            const redeemableProducts: ShopifyProduct[] = [];
-            const nonRedeemableProducts: ShopifyProduct[] = [];
+            // Separate products into affordable and need more points
+            const affordableProducts: ShopifyProduct[] = [];
+            const needMorePointsProducts: ShopifyProduct[] = [];
             
             shopifyProducts.forEach((product) => {
               const productSku = product.handle || 
@@ -384,64 +451,71 @@ export default function ShopTestScreen() {
               if (pointsRequired === 0) {
                 const title = product.title.toLowerCase();
                 if (title.includes('serum')) {
-                  pointsRequired = 480;
+                  pointsRequired = 850;
                 } else if (title.includes('shampoo')) {
-                  pointsRequired = 360;
+                  pointsRequired = 750;
                 } else if (title.includes('conditioner')) {
-                  pointsRequired = 380;
+                  pointsRequired = 780;
                 } else if (title.includes('mask') || title.includes('repair')) {
-                  pointsRequired = 550;
+                  pointsRequired = 900;
                 } else if (title.includes('heat') || title.includes('shield')) {
-                  pointsRequired = 200;
+                  pointsRequired = 700;
                 } else if (title.includes('comb')) {
                   pointsRequired = 250;
                 } else if (title.includes('pillowcase') || title.includes('silk')) {
-                  pointsRequired = 300;
+                  pointsRequired = 650;
+                } else if (title.includes('derma') || title.includes('stamp')) {
+                  pointsRequired = 725;
                 } else if (title.includes('biotin')) {
-                  pointsRequired = 150;
+                  pointsRequired = 500;
                 } else if (title.includes('vitamin d') || title.includes('d3')) {
-                  pointsRequired = 150;
+                  pointsRequired = 500;
                 } else if (title.includes('iron')) {
-                  pointsRequired = 150;
+                  pointsRequired = 500;
                 } else if (title.includes('kit') || title.includes('complete')) {
-                  pointsRequired = 1200;
+                  pointsRequired = 3500;
                 }
               }
               
+              // Check if user can afford this product
+              const canAfford = pointsTotal >= pointsRequired;
+              
               if (pointsRequired > 0) {
-                redeemableProducts.push(product);
-              } else {
-                nonRedeemableProducts.push(product);
+                if (canAfford) {
+                  affordableProducts.push(product);
+                } else {
+                  needMorePointsProducts.push(product);
+                }
               }
             });
             
             return (
               <View style={{ gap: 24, marginBottom: 24 }}>
-                {/* Redeemable Products Section */}
-                {redeemableProducts.length > 0 && (
+                {/* Affordable Products Section */}
+                {affordableProducts.length > 0 && (
                   <View style={{ gap: 16 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
                       <View style={{ 
                         width: 24, 
                         height: 24, 
                         borderRadius: 12, 
-                        backgroundColor: "rgba(34, 197, 94, 0.2)", 
+                        backgroundColor: "rgba(255, 255, 255, 0.1)", 
                         alignItems: "center", 
                         justifyContent: "center", 
                         marginRight: 12 
                       }}>
-                        <Text style={{ color: "#22c55e", fontSize: 14 }}>💎</Text>
+                        <Feather name="check-circle" size={14} color="#fff" />
                       </View>
                       <Text style={{ color: "#fff", fontSize: 18, fontWeight: "600" }}>
-                        Redeemable with Points ({redeemableProducts.length})
+                        Available to Redeem ({affordableProducts.length})
                       </Text>
                     </View>
                     
-                    {redeemableProducts.map((product) => {
+                    {affordableProducts.map((product) => {
                       const productSku = product.handle; // Use handle as SKU for now
                       const isPurchased = hasPurchased(productSku);
                       const inCart = inCartSet.has(productSku);
-                      const imageUrl = getProductImage(product);
+                      const imageUrl = getProductImage(product) || undefined;
                       const price = formatPrice(
                         product.priceRange.minVariantPrice.amount,
                         product.priceRange.minVariantPrice.currencyCode
@@ -458,27 +532,29 @@ export default function ShopTestScreen() {
                       if (pointsRequired === 0) {
                         const title = product.title.toLowerCase();
                         if (title.includes('serum')) {
-                          pointsRequired = 480;
+                          pointsRequired = 850;
                         } else if (title.includes('shampoo')) {
-                          pointsRequired = 360;
+                          pointsRequired = 750;
                         } else if (title.includes('conditioner')) {
-                          pointsRequired = 380;
+                          pointsRequired = 780;
                         } else if (title.includes('mask') || title.includes('repair')) {
-                          pointsRequired = 550;
+                          pointsRequired = 900;
                         } else if (title.includes('heat') || title.includes('shield')) {
-                          pointsRequired = 200;
+                          pointsRequired = 700;
                         } else if (title.includes('comb')) {
                           pointsRequired = 250;
                         } else if (title.includes('pillowcase') || title.includes('silk')) {
-                          pointsRequired = 300;
+                          pointsRequired = 650;
+                        } else if (title.includes('derma') || title.includes('stamp')) {
+                          pointsRequired = 725;
                         } else if (title.includes('biotin')) {
-                          pointsRequired = 150;
+                          pointsRequired = 500;
                         } else if (title.includes('vitamin d') || title.includes('d3')) {
-                          pointsRequired = 150;
+                          pointsRequired = 500;
                         } else if (title.includes('iron')) {
-                          pointsRequired = 150;
+                          pointsRequired = 500;
                         } else if (title.includes('kit') || title.includes('complete')) {
-                          pointsRequired = 1200;
+                          pointsRequired = 3500;
                         }
                       }
                       
@@ -488,8 +564,8 @@ export default function ShopTestScreen() {
                         <GlassCard key={product.id} style={{ padding: 20 }}>
                           {/* Header */}
                           <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
-                            <View style={{ padding: 6, borderRadius: 20, backgroundColor: "rgba(34, 197, 94, 0.2)", marginRight: 8 }}>
-                              <Feather name="gift" size={16} color="#22c55e" />
+                            <View style={{ padding: 6, borderRadius: 20, backgroundColor: "rgba(255, 255, 255, 0.1)", marginRight: 8 }}>
+                              <Feather name="gift" size={16} color="#fff" />
                             </View>
                             <Text style={{ color: "#fff", fontWeight: "600" }} numberOfLines={1} ellipsizeMode="tail">
                               {pointsRequired} Points
@@ -503,7 +579,13 @@ export default function ShopTestScreen() {
                           </View>
 
                           {/* Image + body */}
-                          <View style={{ flexDirection: "row", gap: 16, alignItems: "center" }}>
+                          <Pressable
+                            onPress={() => router.push({
+                              pathname: "/shop/product-detail",
+                              params: { productId: product.id }
+                            })}
+                            style={{ flexDirection: "row", gap: 16, alignItems: "center" }}
+                          >
                             <ProductImage uri={imageUrl} title={product.title} />
                             <View style={{ flex: 1, minWidth: 0 }}>
                               <Text style={{ color: "#fff", fontWeight: "500" }} numberOfLines={2} ellipsizeMode="tail">
@@ -513,72 +595,109 @@ export default function ShopTestScreen() {
                                 {product.description || "Product from Shopify"}
                               </Text>
                               <Text style={{ color: "rgba(255,255,255,0.6)", marginTop: 4, fontSize: 12 }} numberOfLines={1}>
-                                {price} • {pointsRequired} points (${(pointsRequired * 0.10).toFixed(2)})
+                                {price} • {pointsRequired} points
                               </Text>
                             </View>
-                          </View>
+                          </Pressable>
 
                           {/* Point Status */}
                           <View style={{ 
                             marginTop: 12, 
-                            padding: 12, 
-                            backgroundColor: canAfford ? "rgba(34, 197, 94, 0.1)" : "rgba(255, 193, 7, 0.1)", 
-                            borderRadius: 12, 
+                            padding: 8, 
+                            backgroundColor: "rgba(255, 255, 255, 0.05)", 
+                            borderRadius: 8, 
                             borderWidth: 1, 
-                            borderColor: canAfford ? "rgba(34, 197, 94, 0.3)" : "rgba(255, 193, 7, 0.3)"
+                            borderColor: "rgba(255, 255, 255, 0.1)",
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "center"
                           }}>
-            <Text style={{ 
-              color: canAfford ? "#22c55e" : "#ffc107", 
-              fontSize: 12, 
-              fontWeight: "600",
-              textAlign: "center"
-            }}>
-              {canAfford 
-                ? `✅ You can get this FREE with ${pointsRequired} points!` 
-                : `⚠️ Need ${pointsRequired - pointsTotal} more points to redeem`
-              }
-            </Text>
+                            <Feather name="check-circle" size={14} color="#fff" />
+                            <Text style={{ 
+                              color: "#fff", 
+                              fontSize: 11, 
+                              fontWeight: "500",
+                              marginLeft: 6
+                            }}>
+                              You can get this FREE with {pointsRequired} points!
+                            </Text>
                           </View>
 
                           {/* CTAs */}
-                          <View style={{ flexDirection: "row", gap: 12, marginTop: 16 }}>
-                            <Pressable
-                              onPress={() => toggleItemInCart(productSku)}
-                              style={{
-                                flex: 1,
-                                borderRadius: 20,
-                                alignItems: "center",
-                                paddingVertical: 12,
-                                backgroundColor: inCart ? "rgba(255,255,255,0.1)" : "#fff",
-                                borderWidth: inCart ? 1 : 0,
-                                borderColor: inCart ? "rgba(255,255,255,0.4)" : "transparent"
-                              }}
-                            >
-                              <Text style={{ color: inCart ? "#fff" : "#120d0a", fontWeight: "600" }}>
-                                {inCart ? "Remove from Cart" : "Add to Cart"}
-                              </Text>
-                            </Pressable>
-
-                            {!isPurchased && (
+                          {canAfford ? (
+                            // When user can afford - show side by side buttons
+                            <View style={{ flexDirection: "row", gap: 12, marginTop: 16 }}>
                               <Pressable
-                                onPress={() => handleRedeemPoints(product)}
-                                disabled={redeemingPoints || !canAfford}
+                                onPress={() => toggleItemInCart(product)}
                                 style={{
                                   flex: 1,
                                   borderRadius: 20,
                                   alignItems: "center",
                                   paddingVertical: 12,
-                                  backgroundColor: redeemingPoints ? "rgba(34, 197, 94, 0.3)" : "rgba(34, 197, 94, 0.2)",
-                                  borderWidth: 1,
-                                  borderColor: "rgba(34, 197, 94, 0.4)",
-                                  opacity: (redeemingPoints || !canAfford) ? 0.6 : 1
+                                  backgroundColor: inCart ? "rgba(255,255,255,0.1)" : "#fff",
+                                  borderWidth: inCart ? 1 : 0,
+                                  borderColor: inCart ? "rgba(255,255,255,0.4)" : "transparent"
                                 }}
                               >
-                <Text style={{ color: "#22c55e", fontWeight: "600", fontSize: 12 }}>
-                  {redeemingPoints ? "Creating..." : canAfford ? "Redeem & Checkout" : "Need More Points"}
-                </Text>
+                                <Text style={{ color: inCart ? "#fff" : "#120d0a", fontWeight: "600" }}>
+                                  {inCart ? "Remove from Cart" : "Add to Cart"}
+                                </Text>
                               </Pressable>
-                            )}
+
+                              {!isPurchased && (
+                                <Pressable
+                                  onPress={() => handleRedeemPoints(product)}
+                                  disabled={redeemingPoints}
+                                  style={{
+                                    flex: 1,
+                                    borderRadius: 20,
+                                    alignItems: "center",
+                                    paddingVertical: 12,
+                                    backgroundColor: redeemingPoints ? "rgba(255, 255, 255, 0.1)" : "rgba(255, 255, 255, 0.05)",
+                                    borderWidth: 1,
+                                    borderColor: "rgba(255, 255, 255, 0.2)",
+                                    opacity: redeemingPoints ? 0.6 : 1
+                                  }}
+                                >
+                                  <Text style={{ color: "#fff", fontWeight: "600", fontSize: 12 }}>
+                                    {redeemingPoints ? "Creating..." : "Redeem & Checkout"}
+                                  </Text>
+                                </Pressable>
+                              )}
+                            </View>
+                          ) : (
+                            // When user can't afford - show full width Add to Cart with learn link below
+                            <View style={{ marginTop: 16 }}>
+                  <Pressable
+                    onPress={() => toggleItemInCart(product)}
+                    style={{
+                      borderRadius: 20,
+                      alignItems: "center",
+                      paddingVertical: 12,
+                      backgroundColor: inCart ? "rgba(255,255,255,0.1)" : "#fff",
+                      borderWidth: inCart ? 1 : 0,
+                      borderColor: inCart ? "rgba(255,255,255,0.4)" : "transparent"
+                    }}
+                  >
+                                <Text style={{ color: inCart ? "#fff" : "#120d0a", fontWeight: "600" }}>
+                                  {inCart ? "Remove from Cart" : "Add to Cart"}
+                                </Text>
+                              </Pressable>
+                              
+                              <Pressable
+                                onPress={() => router.push("/rewards")}
+                                style={{ alignItems: "center", marginTop: 8 }}
+                              >
+                                <Text style={{ 
+                                  color: "rgba(255, 255, 255, 0.7)", 
+                                  fontSize: 12, 
+                                  textDecorationLine: "underline" 
+                                }}>
+                                  Learn how to earn points
+                                </Text>
+                              </Pressable>
+                            </View>
+                          )}
 
                             {isPurchased && (
                               <Pressable
@@ -597,42 +716,42 @@ export default function ShopTestScreen() {
                                 </Text>
                               </Pressable>
                             )}
-                          </View>
                         </GlassCard>
                       );
                     })}
                   </View>
                 )}
 
-                {/* Non-Redeemable Products Section */}
-                {nonRedeemableProducts.length > 0 && (
+                {/* Need More Points Products Section */}
+                {needMorePointsProducts.length > 0 && (
                   <View style={{ gap: 16 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
                       <View style={{ 
                         width: 24, 
                         height: 24, 
                         borderRadius: 12, 
-                        backgroundColor: "rgba(255,255,255,0.1)", 
+                        backgroundColor: "rgba(255, 255, 255, 0.1)", 
                         alignItems: "center", 
                         justifyContent: "center", 
                         marginRight: 12 
                       }}>
-                        <Feather name="shopping-bag" size={14} color="#fff" />
+                        <Feather name="trending-up" size={14} color="rgba(255, 255, 255, 0.6)" />
                       </View>
-                      <Text style={{ color: "#fff", fontSize: 18, fontWeight: "600" }}>
-                        Regular Products ({nonRedeemableProducts.length})
+                      <Text style={{ color: "rgba(255, 255, 255, 0.6)", fontSize: 18, fontWeight: "600" }}>
+                        Need More Points ({needMorePointsProducts.length})
                       </Text>
                     </View>
                     
-                    {nonRedeemableProducts.map((product) => {
+                    {needMorePointsProducts.map((product) => {
                       const productSku = product.handle;
                       const isPurchased = hasPurchased(productSku);
                       const inCart = inCartSet.has(productSku);
-                      const imageUrl = getProductImage(product);
+                      const imageUrl = getProductImage(product) || undefined;
                       const price = formatPrice(
                         product.priceRange.minVariantPrice.amount,
                         product.priceRange.minVariantPrice.currencyCode
                       );
+                      const pointsRequired = getProductPointValue(productSku);
                       
                       return (
                         <GlassCard key={product.id} style={{ padding: 20 }}>
@@ -653,7 +772,13 @@ export default function ShopTestScreen() {
                           </View>
 
                           {/* Image + body */}
-                          <View style={{ flexDirection: "row", gap: 16, alignItems: "center" }}>
+                          <Pressable
+                            onPress={() => router.push({
+                              pathname: "/shop/product-detail",
+                              params: { productId: product.id }
+                            })}
+                            style={{ flexDirection: "row", gap: 16, alignItems: "center" }}
+                          >
                             <ProductImage uri={imageUrl} title={product.title} />
                             <View style={{ flex: 1, minWidth: 0 }}>
                               <Text style={{ color: "#fff", fontWeight: "500" }} numberOfLines={2} ellipsizeMode="tail">
@@ -665,20 +790,22 @@ export default function ShopTestScreen() {
                               <Text style={{ color: "rgba(255,255,255,0.6)", marginTop: 4, fontSize: 12 }} numberOfLines={1}>
                                 {price}
                               </Text>
+                              <Text style={{ color: "rgba(255,255,255,0.4)", marginTop: 2, fontSize: 11, fontWeight: "500" }}>
+                                {pointsRequired} points
+                              </Text>
                               {product.tags.length > 0 && (
                                 <Text style={{ color: "rgba(255,255,255,0.5)", marginTop: 2, fontSize: 10 }}>
                                   Tags: {product.tags.slice(0, 3).join(", ")}
                                 </Text>
                               )}
                             </View>
-                          </View>
+                          </Pressable>
 
                           {/* CTAs */}
-                          <View style={{ flexDirection: "row", gap: 12, marginTop: 16 }}>
+                          <View style={{ marginTop: 16 }}>
                             <Pressable
-                              onPress={() => toggleItemInCart(productSku)}
+                              onPress={() => toggleItemInCart(product)}
                               style={{
-                                flex: 1,
                                 borderRadius: 20,
                                 alignItems: "center",
                                 paddingVertical: 12,
@@ -691,17 +818,30 @@ export default function ShopTestScreen() {
                                 {inCart ? "Remove from Cart" : "Add to Cart"}
                               </Text>
                             </Pressable>
+                            
+                            <Pressable
+                              onPress={() => router.push("/rewards")}
+                              style={{ alignItems: "center", marginTop: 8 }}
+                            >
+                              <Text style={{ 
+                                color: "rgba(255, 255, 255, 0.7)", 
+                                fontSize: 12, 
+                                textDecorationLine: "underline" 
+                              }}>
+                                Learn how to earn points
+                              </Text>
+                            </Pressable>
 
                             {isPurchased && (
                               <Pressable
                                 style={{ 
-                                  flex: 1, 
                                   borderRadius: 20, 
                                   borderWidth: 1, 
                                   borderColor: "rgba(255,255,255,0.4)", 
                                   backgroundColor: "rgba(255,255,255,0.1)", 
                                   alignItems: "center", 
-                                  paddingVertical: 12 
+                                  paddingVertical: 12,
+                                  marginTop: 8
                                 }}
                               >
                                 <Text style={{ color: "#fff", fontWeight: "600" }}>
@@ -762,7 +902,7 @@ export default function ShopTestScreen() {
                 • Cart items: {cartQty}
               </Text>
               <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 12 }}>
-                • Points available: {pointsTotal} (${(pointsTotal * 0.10).toFixed(2)} value)
+                • Points available: {pointsTotal}
               </Text>
               <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 12 }}>
                 • User ID: {user?.id ? `${user.id.slice(0, 8)}...` : "Not authenticated"}
@@ -823,13 +963,28 @@ export default function ShopTestScreen() {
           visible={!!checkoutUrl}
           url={checkoutUrl ?? undefined}
           onClose={() => setCheckoutUrl(null)}
-          onComplete={(finalUrl) => {
-            setCheckoutUrl(null);
-            if (activeRedemption) {
-              Alert.alert("Success!", `You've redeemed ${activeRedemption.pointsUsed} points for this product!`);
-              setActiveRedemption(null);
-            }
-          }}
+            onComplete={(finalUrl) => {
+              setCheckoutUrl(null);
+              if (activeRedemption) {
+                // Deduct points from user's account
+                earn(-activeRedemption.pointsUsed, "Product redemption", {
+                  discountAmount: activeRedemption.discountAmount,
+                  discountCode: activeRedemption.discountCode,
+                  completedAt: new Date().toISOString()
+                });
+                
+                // Redirect to thank you page with point redemption info
+                router.replace({ 
+                  pathname: "/(shop)/thank-you", 
+                  params: { 
+                    auto: "1",
+                    pointsUsed: activeRedemption.pointsUsed.toString(),
+                    newBalance: (pointsTotal - activeRedemption.pointsUsed).toString()
+                  } 
+                });
+                setActiveRedemption(null);
+              }
+            }}
         />
       </SafeAreaView>
     </View>
@@ -876,7 +1031,16 @@ function CheckoutSheet({ visible, url, onClose, onComplete }: CheckoutSheetProps
             <Text style={{ fontSize: 18, fontWeight: "600", color: "#000" }}>
               Complete Purchase
             </Text>
-            <Pressable onPress={onClose} style={{ padding: 8 }}>
+            <Pressable onPress={() => {
+              Alert.alert(
+                "Cancel Checkout?",
+                "Are you sure you want to close the checkout? Your points will not be deducted if you haven't completed the purchase.",
+                [
+                  { text: "Continue Shopping", style: "cancel" },
+                  { text: "Close", onPress: onClose }
+                ]
+              );
+            }} style={{ padding: 8 }}>
               <Feather name="x" size={24} color="#666" />
             </Pressable>
           </View>
@@ -886,10 +1050,27 @@ function CheckoutSheet({ visible, url, onClose, onComplete }: CheckoutSheetProps
             source={{ uri: url }}
             style={{ flex: 1 }}
             onNavigationStateChange={(navState) => {
-              // Check if checkout is complete (you can customize this logic)
-              if (navState.url.includes("thank-you") || navState.url.includes("success")) {
+              console.log("WebView navigation:", navState.url);
+              // Check if checkout is complete
+              if (navState.url.includes("thank-you") || 
+                  navState.url.includes("success") || 
+                  navState.url.includes("order") ||
+                  navState.url.includes("confirmation") ||
+                  navState.url.includes("checkout/success")) {
+                console.log("Checkout completed, calling onComplete");
                 onComplete?.(navState.url);
               }
+            }}
+            onShouldStartLoadWithRequest={(request) => {
+              console.log("WebView should start load:", request.url);
+              // Allow all requests for now to avoid blocking legitimate checkout flows
+              return true;
+            }}
+            onError={(error) => {
+              console.log("WebView error:", error);
+            }}
+            onHttpError={(error) => {
+              console.log("WebView HTTP error:", error);
             }}
           />
         </View>

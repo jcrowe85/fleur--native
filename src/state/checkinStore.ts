@@ -56,7 +56,7 @@ export const useCheckInStore = create<CheckInState>()(
         if (existingCheckIn) {
           // Update existing check-in for today
           set((state) => ({
-            checkIns: state.checkIns.map((checkIn) =>
+            checkIns: (state.checkIns || []).map((checkIn) =>
               checkIn.date === today
                 ? { ...checkIn, ...data, timestamp: Date.now() }
                 : checkIn
@@ -71,13 +71,17 @@ export const useCheckInStore = create<CheckInState>()(
             ...data,
           };
           set((state) => ({
-            checkIns: [newCheckIn, ...state.checkIns].slice(0, 365), // Keep last year
+            checkIns: [newCheckIn, ...(state.checkIns || [])].slice(0, 365), // Keep last year
           }));
         }
       },
 
       getCheckInForDate: (date) => {
-        return get().checkIns.find((checkIn) => checkIn.date === date) || null;
+        const checkIns = get().checkIns;
+        if (!checkIns || !Array.isArray(checkIns)) {
+          return null;
+        }
+        return checkIns.find((checkIn) => checkIn.date === date) || null;
       },
 
       hasCheckedInToday: () => {
@@ -90,7 +94,16 @@ export const useCheckInStore = create<CheckInState>()(
           dayjs().subtract(i, "day").format("YYYY-MM-DD")
         );
         
-        const recentCheckIns = get().checkIns.filter((checkIn) =>
+        const checkIns = get().checkIns;
+        if (!checkIns || !Array.isArray(checkIns)) {
+          return {
+            scalpCondition: null,
+            hairShedding: null,
+            overallFeeling: null,
+          };
+        }
+        
+        const recentCheckIns = checkIns.filter((checkIn) =>
           last7Days.includes(checkIn.date)
         );
 
