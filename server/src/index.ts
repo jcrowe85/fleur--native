@@ -6,6 +6,7 @@ import express from "express";
 import cors from "cors";
 import planRouter from "./plan.router";
 import shopifyRouter from "./shopify.router";
+import promotionRouter from "./promotion.router";
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -13,6 +14,7 @@ app.use(express.json({ limit: "1mb" }));
 
 app.use("/api/plan", planRouter);
 app.use("/api/shopify", shopifyRouter);
+app.use("/api/promotions", promotionRouter);
 
 const port = Number(process.env.PORT) || 3000;
 app.listen(port, "0.0.0.0", () => console.log(`API on :${port}`));

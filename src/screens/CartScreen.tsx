@@ -19,25 +19,24 @@ import { router, useLocalSearchParams } from "expo-router";
 import { WebView } from "react-native-webview";
 
 import { useCartStore } from "@/state/cartStore";
-import { createCheckout } from "@/services/shopifyClient";
-
-const FALLBACK_IMG = require("../../assets/kit/serum.png");
+import { usePlanStore } from "@/state/planStore";
+import { usePurchaseStore } from "@/state/purchaseStore";
+import { createCheckout, createKitDiscountCode } from "@/services/shopifyClient";
+import { useAuthStore } from "@/state/authStore";
 
 /* ========= Optional: kit SKUs for upsell ========= */
 const KIT_SKUS = [
-  "fleur-serum",
-  "fleur-derma-stamp",
-  "fleur-cleanser-generic",
-  "fleur-conditioner-generic",
+  "bloom",                 // bloom hair+scalp serum
+  "micro-roller",          // Derma Stamp
+  "shampoo",               // shampoo
+  "conditioner",           // conditioner
 ];
 
 /* ========= Checkout Sheet (inline) ========= */
-const CHECKOUT_TOP_OFFSET = 96;
 
 type CheckoutSheetProps = {
   visible: boolean;
   url?: string;
-  topOffset?: number;
   onClose: () => void;
   onComplete?: (finalUrl: string) => void;
 };
@@ -45,70 +44,80 @@ type CheckoutSheetProps = {
 function CheckoutSheet({
   visible,
   url,
-  topOffset = CHECKOUT_TOP_OFFSET,
   onClose,
   onComplete,
 }: CheckoutSheetProps) {
-  const insets = useSafeAreaInsets();
-  const sheetTop = Math.max(insets.top + 8, topOffset);
-  const HEADER_H = 48;
-
   if (!visible || !url) return null;
 
   return (
     <Modal
       animationType="slide"
       transparent
-      statusBarTranslucent
       visible={visible}
       onRequestClose={onClose}
     >
-      {/* dim background */}
       <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }}>
-        {/* sheet container */}
-        <View
-          style={{
-            position: "absolute",
-            top: sheetTop,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "#fff",
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            overflow: "hidden",
-          }}
-        >
-          {/* header */}
-          <View
-            style={{
-              height: HEADER_H,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: "rgba(255,255,255,0.96)",
-            }}
-          >
-            <Text style={{ fontWeight: "600" }}>Secure Checkout</Text>
-            <Pressable
-              onPress={onClose}
-              style={{ position: "absolute", right: 10, top: 6, padding: 8 }}
-              hitSlop={8}
-            >
-              <Feather name="x" size={22} color="#111" />
+        <View style={{ 
+          flex: 1, 
+          marginTop: 100, 
+          backgroundColor: "#fff", 
+          borderTopLeftRadius: 20, 
+          borderTopRightRadius: 20,
+          overflow: "hidden"
+        }}>
+          {/* Header */}
+          <View style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            paddingHorizontal: 20,
+            paddingVertical: 16,
+            borderBottomWidth: 1,
+            borderBottomColor: "#f0f0f0"
+          }}>
+            <Text style={{ fontSize: 18, fontWeight: "600", color: "#000" }}>
+              Complete Purchase
+            </Text>
+            <Pressable onPress={() => {
+              Alert.alert(
+                "Cancel Checkout?",
+                "Are you sure you want to close the checkout? Your order will be lost if you haven't completed the purchase.",
+                [
+                  { text: "Continue Shopping", style: "cancel" },
+                  { text: "Close", onPress: onClose }
+                ]
+              );
+            }} style={{ padding: 8 }}>
+              <Feather name="x" size={24} color="#666" />
             </Pressable>
           </View>
-
-          {/* webview */}
+          
+          {/* WebView */}
           <WebView
             source={{ uri: url }}
             style={{ flex: 1 }}
-            containerStyle={{ marginTop: 0 }}
-            contentInset={{ top: 0, left: 0, bottom: 0, right: 0 }}
-            onNavigationStateChange={(nav) => {
-              // Detect Shopify success URL (examples vary)
-              if (/thank[_-]?you|orders\/\d+\/thank[_-]?you/i.test(nav.url)) {
-                onComplete?.(nav.url);
+            onNavigationStateChange={(navState) => {
+              console.log("WebView navigation:", navState.url);
+              // Check if checkout is complete
+              if (navState.url.includes("thank-you") || 
+                  navState.url.includes("success") || 
+                  navState.url.includes("order") ||
+                  navState.url.includes("confirmation") ||
+                  navState.url.includes("checkout/success")) {
+                console.log("Checkout completed, calling onComplete");
+                onComplete?.(navState.url);
               }
+            }}
+            onShouldStartLoadWithRequest={(request) => {
+              console.log("WebView should start load:", request.url);
+              // Allow all requests for now to avoid blocking legitimate checkout flows
+              return true;
+            }}
+            onError={(error) => {
+              console.log("WebView error:", error);
+            }}
+            onHttpError={(error) => {
+              console.log("WebView HTTP error:", error);
             }}
           />
         </View>
@@ -121,6 +130,8 @@ function CheckoutSheet({
 export default function CartScreen() {
   const insets = useSafeAreaInsets();
   const { items, increment, decrement, remove, clear, addSkusQuick } = useCartStore();
+  const { user } = useAuthStore();
+  const { plan } = usePlanStore();
   const [busy, setBusy] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
@@ -140,26 +151,85 @@ export default function CartScreen() {
     [items]
   );
   const itemCount = useMemo(() => items.reduce((n, it) => n + it.qty, 0), [items]);
-  const total = subtotal;
-
+  
   const skuSet = useMemo(() => new Set(items.map((i) => i.sku)), [items]);
-  const hasFullKit = KIT_SKUS.every((sku) => skuSet.has(sku));
+  
+  // Check if user has all their recommended products (the actual "kit" for them)
+  const recommendedHandles = useMemo(() => 
+    plan?.recommendations?.map((rec: any) => rec.handle) || [], 
+    [plan?.recommendations]
+  );
+  
+  const hasFullKit = useMemo(() => {
+    if (recommendedHandles.length === 0) {
+      // Fallback to hardcoded KIT_SKUS if no recommendations available
+      return KIT_SKUS.every((sku) => skuSet.has(sku));
+    }
+    // Check if user has all their recommended products
+    return recommendedHandles.every((handle: string) => skuSet.has(handle));
+  }, [skuSet, recommendedHandles]);
+  
+  // Calculate kit discount (20% off when full kit is in cart)
+  const kitDiscount = useMemo(() => {
+    if (!hasFullKit) return 0;
+    return Math.round(subtotal * 0.2); // 20% discount
+  }, [hasFullKit, subtotal]);
+  
+  const total = subtotal - kitDiscount;
 
   async function onCheckout() {
     if (items.length === 0) return;
     try {
       setBusy(true);
+      // Only allow products that actually have valid variant IDs in Shopify
+      const VALID_SKUS = [
+        'bloom', 'micro-roller', 'detangling-comb', 'vegan-biotin', 'vitamin-d3', 'iron',
+        'shampoo', 'conditioner', 'hair-mask', 'heat-shield', 'silk-pillow',
+        // Legacy mappings (keep for backward compatibility)
+        'fleur-1', 'fleur-derma-stamp', 'fleur-detangling-comb', 'fleur-biotin', 'fleur-vitamin-d3', 'fleur-iron',
+        'fleur-shampoo', 'fleur-conditioner', 'fleur-hair-mask', 'fleur-heat-shield', 'fleur-silk-pillowcase',
+        'fleur-serum', 'fleur-repair-mask'
+      ];
+      
       const lineItems = items
-        .filter((it) => !!it.variantId)
+        .filter((it) => {
+          // Only allow valid SKUs that we know work in Shopify
+          if (!VALID_SKUS.includes(it.sku)) return false;
+          if (!it.variantId) return false;
+          return true;
+        })
         .map((it) => ({ variantId: it.variantId!, quantity: it.qty }));
 
       if (lineItems.length === 0) {
-        Alert.alert("Cart items missing variants", "Please try adding items again.");
+        Alert.alert(
+          "Cannot checkout", 
+          "Some items in your cart don't have valid product information. Please remove them and try adding products again from the recommendations page."
+        );
         setBusy(false);
         return;
       }
 
-      const { webUrl } = await createCheckout(lineItems); // cartCreate under the hood
+      let webUrl: string;
+
+      // If user has full kit, create a 20% discount code
+      if (hasFullKit && user?.id) {
+        try {
+          const cartItems = items.map(item => ({ sku: item.sku, qty: item.qty }));
+          const discountResult = await createKitDiscountCode(user.id, cartItems);
+          
+          // Create checkout with discount code
+          const result = await createCheckout(lineItems, discountResult.discountCode);
+          webUrl = result.webUrl;
+        } catch (discountError) {
+          console.warn("Failed to create kit discount, proceeding with regular checkout:", discountError);
+          const result = await createCheckout(lineItems);
+          webUrl = result.webUrl;
+        }
+      } else {
+        const result = await createCheckout(lineItems);
+        webUrl = result.webUrl;
+      }
+
       setCheckoutUrl(webUrl); // open in-sheet instead of external browser
     } catch (e: any) {
       Alert.alert("Checkout error", e?.message || "Something went wrong.");
@@ -171,7 +241,14 @@ export default function CartScreen() {
   const hasItems = items.length > 0;
 
   function onAddKit() {
-    addSkusQuick(KIT_SKUS);
+    // Use the actual recommended products from the user's plan instead of hardcoded KIT_SKUS
+    const recommendedHandles = plan?.recommendations?.map((rec: any) => rec.handle) || [];
+    if (recommendedHandles.length > 0) {
+      addSkusQuick(recommendedHandles);
+    } else {
+      // Fallback to hardcoded KIT_SKUS if no recommendations available
+      addSkusQuick(KIT_SKUS);
+    }
   }
   function onKeepShopping() {
     goBack();
@@ -257,6 +334,9 @@ export default function CartScreen() {
           {/* Summary */}
           <GlassCard className="p-5 mb-4">
             <Row label="Subtotal" valueCents={subtotal} />
+            {kitDiscount > 0 && (
+              <Row label="Kit Bundle Discount (20%)" valueCents={-kitDiscount} />
+            )}
             <Row label="Estimated Shipping" value="Calculated at checkout" />
             <Row label="Estimated Tax" value="Calculated at checkout" />
             <View className="h-[1px] bg-white/20 my-10" />
@@ -269,16 +349,23 @@ export default function CartScreen() {
             <GlassCard className="p-5 mb-4">
               <View className="flex-row items-center justify-between">
                 <View style={{ flex: 1, paddingRight: 12 }}>
-                  <Text className="text-white font-semibold">Build a bundle & save 20%</Text>
+                  <Text className="text-white font-semibold">
+                    {recommendedHandles.length > 0 ? "Complete your routine & save 20%" : "Build a bundle & save 20%"}
+                  </Text>
                   <Text className="text-white/75 text-xs mt-1">
-                    Add the full routine to maximize results and unlock bundle savings.
+                    {recommendedHandles.length > 0 
+                      ? "Add your remaining recommended products to unlock bundle savings."
+                      : "Add the full routine to maximize results and unlock bundle savings."
+                    }
                   </Text>
                 </View>
                 <Pressable
                   onPress={onAddKit}
                   className="px-4 py-2 rounded-full bg-white active:opacity-90"
                 >
-                  <Text className="text-brand-bg font-semibold">Add Kit</Text>
+                  <Text className="text-brand-bg font-semibold">
+                    {recommendedHandles.length > 0 ? "Add My Kit" : "Add Kit"}
+                  </Text>
                 </Pressable>
               </View>
             </GlassCard>
@@ -345,12 +432,35 @@ export default function CartScreen() {
         <CheckoutSheet
           visible={!!checkoutUrl}
           url={checkoutUrl ?? undefined}
-          topOffset={76}
           onClose={() => setCheckoutUrl(null)}
           onComplete={(finalUrl) => {
             setCheckoutUrl(null);
-            clear(); // optional: empty cart after success
-            router.replace({ pathname: "/(shop)/thank-you", params: { auto: "1" } });
+            
+            // Process purchases and award points
+            const { addPurchase } = usePurchaseStore.getState();
+            const totalSpent = items.reduce((sum, item) => sum + (item.priceCents * item.qty), 0);
+            const totalSpentDollars = totalSpent / 100;
+            const pointsEarned = Math.floor(totalSpentDollars);
+            
+            // Add each item as a separate purchase record
+            items.forEach(item => {
+              addPurchase({
+                sku: item.sku,
+                name: item.name,
+                priceCents: item.priceCents,
+                quantity: item.qty,
+              });
+            });
+            
+            clear(); // empty cart after success
+            router.replace({ 
+              pathname: "/(shop)/thank-you", 
+              params: { 
+                auto: "1",
+                pointsEarned: pointsEarned.toString(),
+                totalSpent: totalSpentDollars.toFixed(2)
+              } 
+            });
           }}
         />
       </SafeAreaView>
@@ -371,10 +481,14 @@ function Row({
   bold?: boolean;
 }) {
   const val = typeof valueCents === "number" ? `$${(valueCents / 100).toFixed(2)}` : value || "-";
+  const isDiscount = typeof valueCents === "number" && valueCents < 0;
+  
   return (
     <View className="flex-row items-center justify-between mb-3">
       <Text className={`text-white/85 ${bold ? "font-semibold" : ""}`}>{label}</Text>
-      <Text className={`text-white ${bold ? "font-semibold" : ""}`}>{val}</Text>
+      <Text className={`${isDiscount ? "text-green-400" : "text-white"} ${bold ? "font-semibold" : ""}`}>
+        {isDiscount ? `-$${Math.abs(valueCents) / 100}` : val}
+      </Text>
     </View>
   );
 }
@@ -398,16 +512,82 @@ function GlassCard({ children, className }: { children: React.ReactNode; classNa
 }
 
 function ProductImage({ uri }: { uri?: string }) {
-  const [failed, setFailed] = React.useState(false);
-  const source = !uri || failed ? FALLBACK_IMG : { uri };
+  const [imageLoaded, setImageLoaded] = React.useState(false);
+  const [retryCount, setRetryCount] = React.useState(0);
+  const [currentUri, setCurrentUri] = React.useState(uri);
+  
+  // Aggressive retry logic - keep trying until image loads
+  React.useEffect(() => {
+    if (!uri) return;
+    
+    setImageLoaded(false);
+    setRetryCount(0);
+    setCurrentUri(uri);
+  }, [uri]);
+
+  // Retry mechanism - keep trying every 2 seconds until it loads
+  React.useEffect(() => {
+    if (!currentUri || imageLoaded) return;
+    
+    const retryInterval = setInterval(() => {
+      setRetryCount(prev => {
+        console.log(`Retrying image load for ${currentUri}, attempt ${prev + 1}`);
+        return prev + 1;
+      });
+    }, 2000);
+
+    return () => clearInterval(retryInterval);
+  }, [currentUri, imageLoaded]);
+
+  const handleImageLoad = () => {
+    console.log(`✅ Image loaded successfully: ${currentUri}`);
+    setImageLoaded(true);
+  };
+
+  const handleImageError = () => {
+    console.log(`❌ Image load failed: ${currentUri}, retry count: ${retryCount}`);
+    // Don't set error state - just keep retrying
+  };
+
+  // Force image reload on retry
+  const imageKey = `${currentUri}-${retryCount}`;
+
   return (
-    <View style={{ width: 72, height: 72 }}>
-      <Image
-        source={source}
-        onError={() => setFailed(true)}
-        style={{ width: 72, height: 72, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.06)" }}
-        resizeMode="cover"
-      />
+    <View style={{ width: 72, height: 72, position: 'relative' }}>
+      {/* Always show loading spinner until image is loaded */}
+      {!imageLoaded && (
+        <View style={{ 
+          width: 72, 
+          height: 72, 
+          borderRadius: 12, 
+          backgroundColor: "rgba(255,255,255,0.06)",
+          alignItems: 'center',
+          justifyContent: 'center',
+          position: 'absolute',
+          zIndex: 1
+        }}>
+          <Feather name="loader" size={16} color="rgba(255,255,255,0.5)" />
+        </View>
+      )}
+
+      {/* Image - always render if we have a URI */}
+      {currentUri && (
+        <Image
+          key={imageKey}
+          source={{ uri: currentUri }}
+          onLoad={handleImageLoad}
+          onError={handleImageError}
+          style={{
+            width: 72,
+            height: 72,
+            borderRadius: 12,
+            backgroundColor: "rgba(255,255,255,0.06)",
+            opacity: imageLoaded ? 1 : 0,
+            position: 'relative'
+          }}
+          resizeMode="cover"
+        />
+      )}
     </View>
   );
 }

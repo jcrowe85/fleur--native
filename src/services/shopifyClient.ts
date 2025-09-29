@@ -80,7 +80,7 @@ const CART_CREATE = /* GraphQL */ `
  * Create a Shopify Cart and return the hosted checkout URL.
  * NOTE: This replaces any previous "checkoutCreate" usage.
  */
-export async function createCheckout(lineItems: LineItem[]) {
+export async function createCheckout(lineItems: LineItem[], discountCode?: string) {
   const domain = String(STORE_DOMAIN).replace(/^https?:\/\//, "").replace(/\/$/, "");
   const url = `https://${domain}/api/2024-07/graphql.json`;
 
@@ -90,6 +90,7 @@ export async function createCheckout(lineItems: LineItem[]) {
         quantity: li.quantity,
         merchandiseId: toGid(li.variantId),
       })),
+      ...(discountCode && { discountCodes: [discountCode] }),
     },
   };
 
@@ -238,10 +239,43 @@ export async function fetchProducts(options: {
  * @returns Promise<ShopifyProduct[]>
  */
 export async function fetchRedeemableProducts(tag: string = "redeemable-with-points"): Promise<ShopifyProduct[]> {
-  return fetchProducts({
-    query: `tag:${tag}`,
-    first: 50, // Get more products for redeemable section
-  });
+  // Use the same backend API as fetchAllProducts to ensure consistency
+  try {
+    const serverUrl = process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:3000';
+    const response = await fetch(`${serverUrl}/api/shopify/products`);
+    
+    if (!response.ok) {
+      throw new Error(`Backend API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Filter products by tag on the frontend since backend doesn't support tag filtering
+    const allProducts = data.products || [];
+    const redeemableProducts = allProducts.filter((product: any) => 
+      product.tags && product.tags.includes(tag)
+    );
+    
+    console.log(`Found ${redeemableProducts.length} redeemable products out of ${allProducts.length} total products`);
+    
+    return redeemableProducts.map((product: any) => ({
+      id: product.id,
+      handle: product.handle,
+      title: product.title,
+      description: product.description,
+      tags: product.tags,
+      priceRange: product.priceRange,
+      images: product.images,
+      variants: product.variants,
+      productType: product.productType || "Product"
+    }));
+  } catch (error) {
+    console.warn('Backend API failed for redeemable products, falling back to direct Shopify API:', error);
+    return fetchProducts({
+      query: `tag:${tag}`,
+      first: 50, // Get more products for redeemable section
+    });
+  }
 }
 
 /**
@@ -249,9 +283,46 @@ export async function fetchRedeemableProducts(tag: string = "redeemable-with-poi
  * @returns Promise<ShopifyProduct[]>
  */
 export async function fetchAllProducts(): Promise<ShopifyProduct[]> {
-  return fetchProducts({
-    first: 50,
-  });
+  // Try backend API first, fallback to direct Shopify API
+  try {
+    const serverUrl = process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:3000';
+    const response = await fetch(`${serverUrl}/api/shopify/products`);
+    
+    if (!response.ok) {
+      throw new Error(`Backend API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log('📦 Fetched products from backend API:', data.products?.length || 0);
+    
+    // Transform backend response to match ShopifyProduct interface
+    return (data.products || []).map((product: any) => ({
+      id: product.id || `gid://shopify/Product/${product.handle}`,
+      title: product.title,
+      handle: product.handle,
+      description: product.description || '',
+      priceRange: product.priceRange || {
+        minVariantPrice: {
+          amount: '0.00',
+          currencyCode: 'USD'
+        }
+      },
+      images: product.images || {
+        edges: []
+      },
+      tags: product.tags || [],
+      productType: product.productType,
+      vendor: product.vendor,
+      variants: product.variants || {
+        edges: []
+      }
+    }));
+  } catch (error) {
+    console.warn('Backend API failed, falling back to direct Shopify API:', error);
+    return fetchProducts({
+      first: 50,
+    });
+  }
 }
 
 // Discount Code Types
@@ -456,6 +527,34 @@ export function calculatePointRedemptionByPrice(productPrice: number, userPoints
     canAfford: userPoints >= productPrice,
     savings: maxPointsToUse
   };
+}
+
+/**
+ * Create a kit discount code (20% off)
+ */
+export async function createKitDiscountCode(
+  userId: string,
+  cartItems: Array<{ sku: string; qty: number }>
+): Promise<{ success: boolean; discountCode: string; expiresAt: string }> {
+  const serverUrl = process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:3000';
+  
+  const response = await fetch(`${serverUrl}/api/shopify/kit-discount`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      userId,
+      cartItems
+    })
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || 'Failed to create kit discount code');
+  }
+
+  return response.json();
 }
 
 /**

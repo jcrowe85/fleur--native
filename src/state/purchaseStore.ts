@@ -48,6 +48,18 @@ export const usePurchaseStore = create<PurchaseState>()(
         set((state) => ({
           purchases: [...state.purchases, newPurchase],
         }));
+        
+        // Award points to the user for this purchase
+        if (rewardsAwarded > 0) {
+          // Import and use the rewards store to award points
+          const { useRewardsStore } = require('./rewardsStore');
+          const { earn } = useRewardsStore.getState();
+          earn(rewardsAwarded, "purchase", { 
+            purchaseId: newPurchase.id,
+            sku: purchase.sku,
+            amount: purchase.priceCents / 100
+          });
+        }
       },
       
       getPurchasedSkus: () => {

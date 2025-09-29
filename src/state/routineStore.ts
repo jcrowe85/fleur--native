@@ -2,6 +2,13 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import dayjs from "dayjs";
+// Conditional import for notification service
+let notificationService: any = null;
+try {
+  notificationService = require("@/services/notificationService").notificationService;
+} catch (error) {
+  console.warn('Notification service not available');
+}
 
 export type Period = "morning" | "evening" | "weekly";
 export type Frequency = "Daily" | "3x/week" | "Weekly" | "Custom";
@@ -24,6 +31,7 @@ type CompletedMap = Record<string /* yyyy-mm-dd */, Record<string /* stepId */, 
 type RoutineState = {
   steps: RoutineStep[];
   completedByDate: CompletedMap;
+  hasSeenScheduleIntro: boolean;
 
   // derived
   todayKey: () => string;
@@ -45,6 +53,9 @@ type RoutineState = {
   removeStep: (id: string) => void;
   toggleStepToday: (id: string) => boolean; // returns isNowCompleted
   applyDefaultIfEmpty: () => void;
+  buildFromPlan: (plan: any) => void;
+  markScheduleIntroSeen: () => void;
+  scheduleNotifications: () => Promise<void>;
   resetAll: () => void;
 };
 
@@ -59,6 +70,135 @@ function defaultDaysForFrequency(freq?: Frequency): number[] | undefined {
   if (freq === "Weekly") return [1];         // Monday by default
   if (freq === "3x/week") return [1,3,5];    // Mon/Wed/Fri default
   return undefined; // Custom → user picks
+}
+
+// Product mapping from handles to routine information
+const PRODUCT_ROUTINE_MAP: Record<string, {
+  name: string;
+  period: Period;
+  frequency: Frequency;
+  time: string;
+  icon: string;
+  defaultInstructions: string;
+}> = {
+  "bloom": {
+    name: "Bloom Hair+Scalp Serum",
+    period: "morning",
+    frequency: "Daily",
+    time: "8:00 AM",
+    icon: "droplet",
+    defaultInstructions: "Apply 3-4 drops to clean scalp, focusing on thinning areas."
+  },
+  "micro-roller": {
+    name: "Derma Stamp Application",
+    period: "evening",
+    frequency: "3x/week",
+    time: "8:00 PM",
+    icon: "activity",
+    defaultInstructions: "Use 0.5mm derma-stamp on clean scalp in circular motions."
+  },
+  "shampoo": {
+    name: "Gentle Shampoo",
+    period: "morning",
+    frequency: "Daily",
+    time: "7:30 AM",
+    icon: "zap",
+    defaultInstructions: "Massage into wet hair and scalp for 2-3 minutes, then rinse thoroughly."
+  },
+  "conditioner": {
+    name: "Nourishing Conditioner",
+    period: "morning",
+    frequency: "Daily",
+    time: "7:35 AM",
+    icon: "heart",
+    defaultInstructions: "Apply to mid-lengths and ends, leave for 2-3 minutes, then rinse."
+  },
+  "hair-mask": {
+    name: "Repair Hair Mask",
+    period: "weekly",
+    frequency: "Weekly",
+    time: "8:00 PM",
+    icon: "star",
+    defaultInstructions: "Apply to damp hair, leave for 10-15 minutes, then rinse thoroughly."
+  },
+  "heat-shield": {
+    name: "Heat Protectant",
+    period: "morning",
+    frequency: "Daily",
+    time: "7:40 AM",
+    icon: "shield",
+    defaultInstructions: "Spray on damp hair before heat styling to protect from damage."
+  },
+  "detangling-comb": {
+    name: "Gentle Detangling",
+    period: "morning",
+    frequency: "Daily",
+    time: "7:45 AM",
+    icon: "feather",
+    defaultInstructions: "Use wide-tooth comb to gently detangle from ends to roots."
+  },
+  "vegan-biotin": {
+    name: "Biotin Supplement",
+    period: "morning",
+    frequency: "Daily",
+    time: "8:30 AM",
+    icon: "coffee",
+    defaultInstructions: "Take with breakfast to support hair growth and strength."
+  },
+  "iron": {
+    name: "Iron Supplement",
+    period: "morning",
+    frequency: "Daily",
+    time: "8:30 AM",
+    icon: "coffee",
+    defaultInstructions: "Take with breakfast to support healthy hair growth."
+  },
+  "vitamin-d3": {
+    name: "Vitamin D3 Supplement",
+    period: "morning",
+    frequency: "Daily",
+    time: "8:30 AM",
+    icon: "coffee",
+    defaultInstructions: "Take with breakfast to support overall hair health."
+  },
+  "silk-pillow": {
+    name: "Silk Pillowcase Care",
+    period: "evening",
+    frequency: "Daily",
+    time: "10:00 PM",
+    icon: "moon",
+    defaultInstructions: "Sleep on silk pillowcase to reduce friction and breakage."
+  }
+};
+
+// Build routine steps from user's personalized plan
+export function buildRoutineFromPlan(plan: any): RoutineStep[] {
+  if (!plan?.recommendations) return [];
+  
+  const steps: RoutineStep[] = [];
+  
+  // Create routine steps for each recommended product
+  plan.recommendations.forEach((rec: any) => {
+    const productInfo = PRODUCT_ROUTINE_MAP[rec.handle];
+    if (!productInfo) return;
+    
+    const step: RoutineStep = {
+      id: uid(),
+      name: productInfo.name,
+      period: productInfo.period,
+      time: productInfo.time,
+      frequency: productInfo.frequency,
+      days: defaultDaysForFrequency(productInfo.frequency),
+      enabled: true,
+      instructions: rec.howToUse || productInfo.defaultInstructions,
+      product: rec.title,
+      icon: productInfo.icon,
+    };
+    
+    steps.push(step);
+  });
+  
+  return steps;
 }
 
 // naive inference if period not provided
@@ -126,6 +266,7 @@ export const useRoutineStore = create<RoutineState>()(
     (set, get) => ({
       steps: [],
       completedByDate: {},
+      hasSeenScheduleIntro: false,
 
       todayKey: () => dayjs().format("YYYY-MM-DD"),
 
@@ -215,7 +356,36 @@ export const useRoutineStore = create<RoutineState>()(
         if (get().steps.length === 0) set({ steps: DEFAULT_STEPS });
       },
 
-      resetAll: () => set({ steps: [], completedByDate: {} }),
+      buildFromPlan: (plan: any) => {
+        // If plan has routineSteps (from scheduling), use those directly
+        if (plan?.routineSteps && Array.isArray(plan.routineSteps)) {
+          set({ steps: plan.routineSteps });
+        } else {
+          // Otherwise, build from recommendations using the old method
+          const personalizedSteps = buildRoutineFromPlan(plan);
+          if (personalizedSteps.length > 0) {
+            set({ steps: personalizedSteps });
+          } else {
+            // Fallback to default steps if no personalized recommendations
+            get().applyDefaultIfEmpty();
+          }
+        }
+      },
+
+      markScheduleIntroSeen: () => set({ hasSeenScheduleIntro: true }),
+      
+      scheduleNotifications: async () => {
+        try {
+          if (notificationService) {
+            const { steps } = get();
+            await notificationService.scheduleRoutineNotifications(steps);
+          }
+        } catch (error) {
+          console.error('Failed to schedule routine notifications:', error);
+        }
+      },
+      
+      resetAll: () => set({ steps: [], completedByDate: {}, hasSeenScheduleIntro: false }),
     }),
     { name: "routine:v2" }
   )

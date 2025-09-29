@@ -1,145 +1,171 @@
 // app/recommendations.tsx
-import React, { useMemo, useState } from "react";
-import { View, Text, Image, ImageBackground, ScrollView, Pressable } from "react-native";
+import React, { useMemo, useState, useEffect } from "react";
+import { View, Text, Image, ImageBackground, ScrollView, Pressable, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
-import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 
-import { CustomButton } from "@/components/UI/CustomButton";
 import { usePlanStore } from "@/state/planStore";
 import type { FleurPlan } from "@/types/plan";
-
-import {
-  categorize,
-  labelForSlot as libLabelForSlot,
-  iconForSlot as libIconForSlot,
-  preferredKitOrder,
-  ProductCategory,
-} from "@/lib/products";
-import { fetchRedeemableProducts, ShopifyProduct } from "@/services/shopifyClient";
-import { getProductPointValue } from "@/data/productPointCatalog";
-
-// 🔹 shared cart store (now with addBySku)
+import { fetchAllProducts, ShopifyProduct } from "@/services/shopifyClient";
 import { useCartStore } from "@/state/cartStore";
 
-/** Limit to these 4 slots for the kit view */
-type Slot = Extract<ProductCategory, "cleanse" | "condition" | "treat" | "protect">;
+/** Product slot mapping for recommendations */
+type Slot = "cleanse" | "condition" | "treat" | "protect";
 
-/** Tiny text clamp util */
-function clamp(str: string, max = 96) {
-  if (!str) return "";
-  return str.length > max ? `${str.slice(0, max - 1).trim()}…` : str;
+/** Map LLM handles to actual Shopify product handles */
+// No longer needed - LLM now returns original SKUs directly
+// function mapLlmHandleToShopifyHandle(llmHandle: string): string {
+//   return llmHandle; // LLM now returns original SKUs like "fleur-1", "fleur-shampoo", etc.
+// }
+
+/** Map Shopify products to slots based on their handles */
+function getProductSlot(productHandle: string): Slot {
+  const slotMapping: Record<string, Slot> = {
+    "shampoo": "cleanse",
+    "conditioner": "condition", 
+    "bloom": "treat",
+    "micro-roller": "protect",
+    "hair-mask": "treat",
+    "heat-shield": "protect",
+    "detangling-comb": "protect",
+    "vegan-biotin": "treat",
+    "vitamin-d3": "treat", 
+    "iron": "treat",
+    "silk-pillow": "protect",
+    // Legacy mappings (keep for backward compatibility)
+    "fleur-shampoo": "cleanse",
+    "fleur-conditioner": "condition", 
+    "fleur-1": "treat",
+    "fleur-derma-stamp": "protect",
+    "fleur-hair-mask": "treat",
+    "fleur-heat-shield": "protect",
+    "fleur-detangling-comb": "protect",
+    "fleur-biotin": "treat",
+    "fleur-vitamin-d3": "treat", 
+    "fleur-iron": "treat",
+    "fleur-silk-pillowcase": "protect",
+  };
+  
+  return slotMapping[productHandle] || "treat";
 }
 
-/** Per-slot default placeholder images (adjust paths if needed) */
-const DEFAULT_SLOT_IMAGES: Record<ProductCategory, any> = {
-  cleanse: require("../../../assets/kit/serum.png"),
-  condition: require("../../../assets/kit/serum.png"),
-  treat: require("../../../assets/kit/serum.png"),
-  protect: require("../../../assets/kit/serum.png"),
-  scalp: require("../../../assets/kit/serum.png"),
-  style: require("../../../assets/kit/serum.png"),
-  oil: require("../../../assets/kit/serum.png"),
-  other: require("../../../assets/kit/serum.png"),
-};
-
-/** ----------------------------------------------------------------
- * Core products (always included) - Updated to use Shopify catalog
- * ---------------------------------------------------------------- */
-const CORE_PRODUCTS = {
-  serum: {
-    slot: "treat" as const,
-    product: {
-      sku: "bloom",
-      name: "Bloom Hair+Scalp Serum",
-      imageUrl: undefined,
-    },
-    title: "Daily follicle support",
-    why: "Lightweight peptide blend for stronger, fuller-looking hair.",
-  },
-  dermaStamp: {
-    // keep slot 'protect' for 1-per-slot layout; label will read "Treat"
-    slot: "protect" as const,
-    product: {
-      sku: "fleur-derma-stamp",
-      name: "Derma Stamp",
-      imageUrl: undefined,
-    },
-    title: "Weekly micro-stimulation",
-    why: "Targets scalp; complements serum absorption and growth goals.",
-  },
-};
-
-/** Badges next to slot label (usage + need-to-know) */
-function badgesFor(slot: Slot, sku?: string, plan?: FleurPlan | null): string[] {
-  const badges: string[] = [];
-  if (slot === "treat") badges.push("Daily PM");
-  if (slot === "condition") badges.push("2×/wk");
-  if (slot === "cleanse") badges.push("Wash days");
-  if (slot === "protect") badges.push("1–2×/wk");
-
-  if (sku === "bloom") {
-    badges.splice(0, badges.length, "Daily PM", "Dry/clean scalp");
-  }
-  if (sku === "fleur-derma-stamp") {
-    badges.splice(0, badges.length, "1–2×/wk", "Patch test");
-  }
-
-  const heatOften =
-    (plan as any)?.profile?.heatUse === true ||
-    /heat/i.test((plan?.summary?.drivers || []).map((d: any) => d?.label).join(" "));
-  if (heatOften && slot === "protect" && !badges.includes("Heat care")) {
-    badges.push("Heat care");
-  }
-
-  return badges.slice(0, 3);
+/** Get slot icon */
+function getSlotIcon(slot: Slot): any {
+  const icons: Record<Slot, any> = {
+    cleanse: "droplet",
+    condition: "wind",
+    treat: "activity", 
+    protect: "shield",
+  };
+  return icons[slot];
 }
 
-/** Localized slot label/icon: show stamp as Treat visually */
-function slotLabelFor(item: { slot: Slot; product?: { sku?: string } }): string {
-  if (item?.product?.sku === "fleur-derma-stamp") return "Treat";
-  return libLabelForSlot(item.slot);
-}
-function slotIconFor(item: { slot: Slot; product?: { sku?: string } }): any {
-  if (item?.product?.sku === "fleur-derma-stamp") return libIconForSlot("treat" as Slot);
-  return libIconForSlot(item.slot);
+/** Get slot label */
+function getSlotLabel(slot: Slot): string {
+  const labels: Record<Slot, string> = {
+    cleanse: "Cleanse",
+    condition: "Condition",
+    treat: "Treat",
+    protect: "Protect",
+  };
+  return labels[slot];
 }
 
-/** Enforce canonical order so serum always renders */
-function coerceOrder(base: Slot[] | null | undefined): Slot[] {
-  const canonical: Slot[] = ["cleanse", "condition", "treat", "protect"];
-  if (!Array.isArray(base) || base.length === 0) return canonical;
-  const seen = new Set<string>();
-  const cleaned = base.filter((s): s is Slot => {
-    if (!["cleanse", "condition", "treat", "protect"].includes(String(s))) return false;
-    if (seen.has(String(s))) return false;
-    seen.add(String(s));
-    return true;
-  });
-  const withPinned = Array.from(new Set<Slot>([..."cleanse,condition,treat,protect".split(",") as any]))
-    .filter((s) => cleaned.includes(s))
-    .concat(canonical.filter((s) => !cleaned.includes(s)));
-  return canonical.filter((s) => withPinned.includes(s));
+/** Get usage badges for a product */
+function getUsageBadges(productHandle: string, slot: Slot): string[] {
+  const badges: Record<string, string[]> = {
+    "fleur-shampoo": ["Wash days"],
+    "fleur-conditioner": ["2×/wk"],
+    "bloom": ["Daily PM", "Dry/clean scalp"],
+    "fleur-derma-stamp": ["1–2×/wk", "Patch test"],
+    "fleur-repair-mask": ["1×/wk", "7-10 min"],
+    "fleur-heat-shield": ["Before heat"],
+    "fleur-silk-pillowcase": ["Every night"],
+    "detangling-comb": ["Daily use"],
+    "fleur-biotin": ["Daily"],
+    "fleur-vitamin-d3": ["Daily"],
+    "fleur-iron": ["Daily"],
+    "fleur-complete-kit": ["Full routine"],
+  };
+  
+  return badges[productHandle] || ["As needed"];
 }
 
 /** Small pill badge */
 function Badge({ label }: { label: string }) {
   return (
-    <View
-      style={{
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 999,
-        backgroundColor: "rgba(255,255,255,0.10)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.28)",
-        marginLeft: 6,
-      }}
-    >
-      <Text style={{ color: "#fff", fontSize: 11, fontWeight: "600" }}>{label}</Text>
+    <View style={styles.badge}>
+      <Text style={styles.badgeText}>{label}</Text>
+    </View>
+  );
+}
+
+/** Product image component with loading states */
+function ProductImage({ uri, title }: { uri?: string; title: string }) {
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageError, setImageError] = useState(false);
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  
+  // Reset states when URI changes
+  useEffect(() => {
+    setImageLoaded(false);
+    setImageError(false);
+    setRetryAttempt(0);
+  }, [uri]);
+
+  // Retry mechanism - keep trying every 2 seconds until it loads
+  useEffect(() => {
+    if (!uri || imageLoaded) return;
+    
+    const retryInterval = setInterval(() => {
+      setRetryAttempt(prev => {
+        console.log(`Retrying image load for ${title}: ${uri}, attempt ${prev + 1}`);
+        return prev + 1;
+      });
+    }, 2000);
+
+    return () => clearInterval(retryInterval);
+  }, [uri, imageLoaded, title]);
+
+  // Don't render anything if no valid URI
+  if (!uri || uri === "null") {
+    return (
+      <View style={styles.imagePlaceholder}>
+        <Feather name="image" size={24} color="rgba(255,255,255,0.3)" />
+      </View>
+    );
+  }
+
+  const handleImageLoad = () => {
+    console.log(`✅ Image loaded successfully: ${title} - ${uri}`);
+    setImageLoaded(true);
+  };
+
+  const handleImageError = () => {
+    console.log(`❌ Image load failed: ${title} - ${uri}, retry count: ${retryAttempt}`);
+    // Don't set error state - just keep retrying
+  };
+
+  return (
+    <View style={styles.imageContainer}>
+      {/* Always show loading spinner until image is loaded */}
+      {!imageLoaded && (
+        <View style={styles.imageLoadingContainer}>
+          <Feather name="loader" size={20} color="rgba(255,255,255,0.5)" />
+        </View>
+      )}
+
+      {/* Image - always render if we have a URI */}
+      <Image
+        source={{ uri }}
+        onLoad={handleImageLoad}
+        onError={handleImageError}
+        style={[styles.productImage, { opacity: imageLoaded ? 1 : 0 }]}
+        resizeMode="cover"
+        key={`${uri}-${retryAttempt}`}
+      />
     </View>
   );
 }
@@ -147,18 +173,96 @@ function Badge({ label }: { label: string }) {
 export default function Recommendations() {
   const insets = useSafeAreaInsets();
   const plan = usePlanStore((s) => s.plan);
+  const [shopifyProducts, setShopifyProducts] = useState<ShopifyProduct[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const kit = useMemo(() => buildKitFromPlan(plan), [plan]);
+  // Fetch Shopify products on mount
+  useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        // Fetch all products instead of just redeemable ones to include supplements
+        const products = await fetchAllProducts();
+        setShopifyProducts(products);
+      } catch (error) {
+        console.error('Failed to fetch Shopify products:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchProducts();
+  }, []);
 
-  // 🔹 Cart store (shared)
-  const { items: cartItems, addBySku, remove, addSkusQuick } = useCartStore();
+  // Build kit from LLM recommendations + Shopify products
+  const kit = useMemo(() => {
+    if (!shopifyProducts.length || !plan?.recommendations) return [];
+    
+    // Create a map for easy lookup
+    const productMap = new Map<string, ShopifyProduct>();
+    shopifyProducts.forEach(product => {
+      productMap.set(product.handle, product);
+    });
 
-  // For the “Owned” toggle only (local)
+    const kitItems = [];
+    
+    // Use LLM's direct product handle selections (now using original SKUs)
+    for (const recommendation of plan.recommendations) {
+      // LLM now returns original SKUs directly, no mapping needed
+      const product = productMap.get(recommendation.handle);
+      if (product) {
+        const slot = getProductSlot(recommendation.handle);
+        kitItems.push({
+          product,
+          slot,
+          title: getSlotLabel(slot),
+          why: recommendation.why,
+          howToUse: recommendation.howToUse,
+        });
+      } else {
+        console.warn(`Product not found for LLM handle "${recommendation.handle}"`);
+      }
+    }
+
+    // If we don't have enough LLM-selected products, fill with core products
+    if (kitItems.length < 8) { // Updated to 8 to include supplements for hormonal users
+      const usedHandles = new Set(kitItems.map(item => item.product.handle));
+      const coreProducts = [
+        { handle: "bloom", slot: "treat" as Slot },
+        { handle: "micro-roller", slot: "protect" as Slot },
+        { handle: "shampoo", slot: "cleanse" as Slot },
+        { handle: "conditioner", slot: "condition" as Slot },
+      ];
+      
+      for (const { handle, slot } of coreProducts) {
+        if (!usedHandles.has(handle)) {
+          const product = productMap.get(handle);
+          if (product) {
+            kitItems.push({
+              product,
+              slot,
+              title: getSlotLabel(slot),
+              why: `Essential for your ${slot} routine`,
+            });
+          } else {
+            console.warn(`Core product not found: LLM handle "${handle}" -> Shopify handle "${shopifyHandle}"`);
+          }
+        }
+        if (kitItems.length >= 8) break; // Updated to 8 to include supplements for hormonal users
+      }
+    }
+
+    return kitItems.slice(0, 8); // Updated to 8 to include supplements for hormonal users
+  }, [shopifyProducts, plan?.recommendations]);
+
+  // Cart store
+  const { items: cartItems, addBySku, remove } = useCartStore();
+
+  // For the "Owned" toggle only (local)
   const [alreadyHave, setAlreadyHave] = useState<Set<string>>(new Set());
-  const toggleHave = (sku: string) => {
+  const toggleHave = (handle: string) => {
     setAlreadyHave((prev) => {
       const next = new Set(prev);
-      next.has(sku) ? next.delete(sku) : next.add(sku);
+      next.has(handle) ? next.delete(handle) : next.add(handle);
       return next;
     });
   };
@@ -166,199 +270,197 @@ export default function Recommendations() {
   const cartQty = useMemo(() => cartItems.reduce((sum, it) => sum + it.qty, 0), [cartItems]);
   const inCartSet = useMemo(() => new Set(cartItems.map((it) => it.sku)), [cartItems]);
 
-  // 🔹 Add whole kit to cart & go to cart
+  // Add whole kit to cart
   const addKitToBag = () => {
-    const skus = kit.map((k) => k.product.sku).filter(Boolean);
-    if (skus.length === 0) return;
-    addSkusQuick(skus);
+    const handles = kit.map((k) => k.product.handle).filter(Boolean);
+    if (handles.length === 0) return;
+    
+    // Add each product to cart using addBySku (like ShopScreen does)
+    handles.forEach(handle => {
+      addBySku(handle, 1);
+    });
+    
     router.push("/cart?returnTo=/(plan)/recommendations");
   };
 
-  // 🔹 Per-item add/remove (now using addBySku to guarantee price/variant)
-  const toggleItemInBag = (sku: string) => {
-    if (inCartSet.has(sku)) {
-      remove(sku);
+  // Per-item add/remove
+  const toggleItemInBag = (handle: string) => {
+    if (inCartSet.has(handle)) {
+      remove(handle);
     } else {
-      addBySku(sku, 1);
+      addBySku(handle, 1);
     }
   };
 
   const goCart = () => router.push("/cart?returnTo=/(plan)/recommendations");
   const goDashboard = () => router.replace("/dashboard");
 
+  // Get product image URL
+  const getProductImageUrl = (product: ShopifyProduct): string | undefined => {
+    return product.images?.edges?.[0]?.node?.url;
+  };
+
   return (
-    <View className="flex-1 bg-brand-bg">
+    <View style={styles.container}>
       <StatusBar style="light" translucent backgroundColor="transparent" />
 
       <ImageBackground
         source={require("../../../assets/dashboard.png")}
         resizeMode="cover"
-        className="absolute inset-0"
-      >
-      </ImageBackground>
+        style={StyleSheet.absoluteFillObject}
+      />
 
-      <SafeAreaView className="flex-1" edges={["top", "left", "right"]}>
+      <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
         {/* Header */}
-        <View className="flex-row items-center justify-between px-4 pt-2 pb-3">
-          <Pressable onPress={() => router.back()} className="p-2 rounded-full active:opacity-80" hitSlop={8}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={8}>
             <Feather name="arrow-left" size={22} color="#fff" />
           </Pressable>
 
-          <View style={{ flex: 1, alignItems: "center" }}>
-            <Text className="text-white text-[20px] font-semibold">Your Kit</Text>
-            <Text className="text-white/80 text-xs mt-1">Matched to your Routine</Text>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>Your Kit</Text>
+            <Text style={styles.headerSubtitle}>Matched to your Routine</Text>
           </View>
 
-          <Pressable onPress={goCart} hitSlop={8} className="p-2 rounded-full active:opacity-80" style={{ position: "relative" }}>
+          <Pressable onPress={goCart} style={styles.cartButton} hitSlop={8}>
             <Feather name="shopping-bag" size={22} color="#fff" />
             {cartQty > 0 && (
-              <View
-                style={{
-                  position: "absolute",
-                  right: 2,
-                  top: 2,
-                  backgroundColor: "#fff",
-                  borderRadius: 10,
-                  minWidth: 18,
-                  height: 18,
-                  paddingHorizontal: 4,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Text style={{ color: "#0b0b0b", fontSize: 11, fontWeight: "700" }}>{cartQty}</Text>
+              <View style={styles.cartBadge}>
+                <Text style={styles.cartBadgeText}>{cartQty}</Text>
               </View>
             )}
           </Pressable>
         </View>
 
         <ScrollView
-          className="flex-1"
+          style={styles.scrollView}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{
-            paddingHorizontal: 16,
-            paddingTop: 6,
-            paddingBottom: insets.bottom + 28,
-          }}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 28 }]}
         >
+          {/* Loading state */}
+          {loading && (
+            <View style={styles.loadingContainer}>
+              <Feather name="loader" size={24} color="rgba(255,255,255,0.5)" />
+              <Text style={styles.loadingText}>Loading your kit...</Text>
+            </View>
+          )}
+
           {/* Kit cards */}
-          <View className="gap-4 mb-6">
-            {kit.map((item) => {
-              const slot = item.slot as Slot;
-              const have = alreadyHave.has(item.product.sku);
-              const inCart = inCartSet.has(item.product.sku);
-              const headerBadges = badgesFor(slot, item.product.sku, plan);
+          {!loading && kit.length > 0 && (
+            <View style={styles.kitContainer}>
+              {kit.map((item) => {
+                const have = alreadyHave.has(item.product.handle);
+                const inCart = inCartSet.has(item.product.handle);
+                const headerBadges = getUsageBadges(item.product.handle, item.slot);
+                const imageUrl = getProductImageUrl(item.product);
 
-              return (
-                <GlassCard key={item.product.sku || `${item.slot}-${item.title}`} className="p-5">
-                  {/* Header */}
-                  <View className="flex-row items-center mb-3">
-                    <View className="p-1.5 rounded-full bg-white/15 mr-2">
-                      <Feather name={slotIconFor(item)} size={16} color="#fff" />
+                return (
+                  <View key={item.product.handle} style={styles.productCard}>
+                    {/* Header with slot icon and badges */}
+                    <View style={styles.cardHeader}>
+                      <View style={styles.slotIcon}>
+                        <Feather name={getSlotIcon(item.slot)} size={16} color="#fff" />
+                      </View>
+                      <Text style={styles.slotLabel} numberOfLines={1} ellipsizeMode="tail">
+                        {getSlotLabel(item.slot)}
+                      </Text>
+                      <View style={styles.badgesContainer}>
+                        {headerBadges.map((badge) => (
+                          <Badge key={badge} label={badge} />
+                        ))}
+                      </View>
                     </View>
-                    <Text className="text-white font-semibold" numberOfLines={1} ellipsizeMode="tail">
-                      {slotLabelFor(item)}
-                    </Text>
-                    <View style={{ flexDirection: "row", flexShrink: 1, minWidth: 0, marginLeft: 8 }}>
-                      {headerBadges.map((b) => (
-                        <Badge key={b} label={b} />
-                      ))}
-                    </View>
-                  </View>
 
-                  {/* Image + body */}
-                  <View className="flex-row gap-4 items-center">
-                    <ProductImage uri={item.product.imageUrl} slot={slot} />
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text className="text-white font-medium" numberOfLines={2} ellipsizeMode="tail">
-                        {item.product.name}
-                      </Text>
-                      <Text className="text-white/80 mt-1" numberOfLines={2} ellipsizeMode="tail">
-                        {clamp(item.why || item.title || "", 140)}
-                      </Text>
-                      <Text className="text-white/60 mt-1 text-xs" numberOfLines={1}>
-                        Fits: {fitLineForSlot(slot)}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* CTAs per item */}
-                  <View className="flex-row gap-3 mt-4">
+                    {/* Image + body */}
                     <Pressable
-                      onPress={() => toggleItemInBag(item.product.sku)}
-                      className={`flex-1 rounded-full items-center py-3 active:opacity-90 ${
-                        inCart ? "bg-white/10 border border-white/40" : "bg-white"
-                      }`}
+                      onPress={() => router.push({
+                        pathname: "/(app)/shop/product-detail",
+                        params: { productId: item.product.handle, returnTo: "/(plan)/recommendations" }
+                      })}
+                      style={styles.productContent}
                     >
-                      <Text className={inCart ? "text-white font-semibold" : "text-brand-bg font-semibold"}>
-                        {inCart ? "Remove from Bag" : "Add to Bag"}
-                      </Text>
+                      <ProductImage uri={imageUrl} title={item.product.title} />
+                      <View style={styles.productInfo}>
+                        <Text style={styles.productName} numberOfLines={2} ellipsizeMode="tail">
+                          {item.product.title}
+                        </Text>
+                        <Text style={styles.productDescription} numberOfLines={2} ellipsizeMode="tail">
+                          {item.why || item.product.description}
+                        </Text>
+                        {item.howToUse && (
+                          <Text style={styles.howToUse} numberOfLines={1} ellipsizeMode="tail">
+                            💡 {item.howToUse}
+                          </Text>
+                        )}
+                      </View>
                     </Pressable>
 
-                    <Pressable
-                      onPress={() => toggleHave(item.product.sku)}
-                      className="flex-1 rounded-full border border-white/40 bg-white/10 items-center py-3 active:opacity-90"
-                    >
-                      <Text className="text-white font-semibold">
-                        {have ? "Marked as Owned" : "Already have"}
-                      </Text>
-                    </Pressable>
+                    {/* CTAs per item */}
+                    <View style={styles.ctaContainer}>
+                      <Pressable
+                        onPress={() => toggleItemInBag(item.product.handle)}
+                        style={[styles.ctaButton, inCart ? styles.ctaButtonInCart : styles.ctaButtonPrimary]}
+                      >
+                        <Text style={[styles.ctaButtonText, inCart ? styles.ctaButtonTextInCart : styles.ctaButtonTextPrimary]}>
+                          {inCart ? "Remove from Bag" : "Add to Bag"}
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        onPress={() => toggleHave(item.product.handle)}
+                        style={styles.ctaButtonSecondary}
+                      >
+                        <Text style={styles.ctaButtonTextSecondary}>
+                          {have ? "Marked as Owned" : "Already have"}
+                        </Text>
+                      </Pressable>
+                    </View>
                   </View>
-                </GlassCard>
-              );
-            })}
-          </View>
+                );
+              })}
+            </View>
+          )}
 
-          {/* Bottom CTA stack — adapts to whether the bag is empty */}
-          <View className="gap-3">
-            {cartQty > 0 ? (
-              <>
-                <Pressable
-                  onPress={goCart}
-                  className="rounded-full bg-white items-center py-4 active:opacity-90"
-                >
-                  <View className="flex-row items-center">
-                    <Text className="text-brand-bg font-semibold">Go to Bag</Text>
-                    <Feather name="arrow-right" size={18} color="#0b0b0b" style={{ marginLeft: 10 }} />
-                  </View>
-                </Pressable>
+          {/* Bottom CTA stack */}
+          {!loading && (
+            <View style={styles.bottomCTAs}>
+              {cartQty > 0 ? (
+                <>
+                  <Pressable onPress={goCart} style={styles.primaryButton}>
+                    <View style={styles.buttonContent}>
+                      <Text style={styles.primaryButtonText}>Go to Bag</Text>
+                      <Feather name="arrow-right" size={18} color="#0b0b0b" style={{ marginLeft: 10 }} />
+                    </View>
+                  </Pressable>
 
-                <Pressable
-                  onPress={addKitToBag}
-                  className="rounded-full border border-white/35 bg-white/10 items-center py-4 active:opacity-90"
-                >
-                  <Text className="text-white font-semibold">Add Kit — 20% off</Text>
-                </Pressable>
+                  <Pressable onPress={addKitToBag} style={styles.secondaryButton}>
+                    <Text style={styles.secondaryButtonText}>Add Kit — 20% off</Text>
+                  </Pressable>
 
-                <Pressable onPress={goDashboard} className="items-center mt-1">
-                  <Text className="text-white/70 text-xs underline">Continue without kit</Text>
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <Pressable
-                  onPress={goDashboard}
-                  className="rounded-full bg-white items-center py-4 active:opacity-90"
-                >
-                  <View className="flex-row items-center">
-                    <Text className="text-brand-bg font-semibold">Continue to Dashboard</Text>
-                    <Feather name="arrow-right" size={18} color="#0b0b0b" style={{ marginLeft: 10 }} />
-                  </View>
-                </Pressable>
+                  <Pressable onPress={goDashboard} style={styles.linkButton}>
+                    <Text style={styles.linkButtonText}>Continue without kit</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Pressable onPress={goDashboard} style={styles.primaryButton}>
+                    <View style={styles.buttonContent}>
+                      <Text style={styles.primaryButtonText}>Continue to Dashboard</Text>
+                      <Feather name="arrow-right" size={18} color="#0b0b0b" style={{ marginLeft: 10 }} />
+                    </View>
+                  </Pressable>
 
-                <Pressable
-                  onPress={addKitToBag}
-                  className="rounded-full border border-white/35 bg-white/10 items-center py-4 active:opacity-90"
-                >
-                  <Text className="text-white font-semibold">Add Kit — 20% off</Text>
-                </Pressable>
+                  <Pressable onPress={addKitToBag} style={styles.secondaryButton}>
+                    <Text style={styles.secondaryButtonText}>Add Kit — 20% off</Text>
+                  </Pressable>
 
-                <Pressable onPress={goCart} className="items-center mt-1">
-                  <Text className="text-white/70 text-xs underline">Review bag (0)</Text>
-                </Pressable>
-              </>
-            )}
-          </View>
+                  <Pressable onPress={goCart} style={styles.linkButton}>
+                    <Text style={styles.linkButtonText}>Review bag (0)</Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
+          )}
         </ScrollView>
       </SafeAreaView>
     </View>
@@ -366,164 +468,259 @@ export default function Recommendations() {
 }
 
 /** ----------------------------------------------------------------
- * Helpers
+ * Styles
  * ---------------------------------------------------------------- */
-function buildKitFromPlan(plan: FleurPlan | null) {
-  // Always pin these 2 core items
-  const bySlot: Partial<Record<Slot, any>> = {
-    treat: CORE_PRODUCTS.serum,
-    protect: CORE_PRODUCTS.dermaStamp,
-  };
-
-  // Gather candidates from model recs
-  const all = Array.isArray(plan?.recommendations) ? (plan!.recommendations as any[]) : [];
-
-  // Safety filter + dedupe + remove serum/stamp to avoid duplicates
-  const seen = new Set<string>();
-  const candidates = all.filter((rec) => {
-    const text = [
-      rec?.slot,
-      rec?.category,
-      rec?.title,
-      rec?.name,
-      rec?.product?.name,
-      rec?.product?.title,
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-
-    const isOil =
-      /(^|[^a-z])oil(s)?([^a-z]|$)/i.test(text) ||
-      rec?.slot === "oil" ||
-      rec?.category === "oil";
-    if (isOil) return false;
-
-    // drop any serum/stamp-like items (we pin our own)
-    if (/\b(serum|peptide)\b/i.test(text)) return false;
-    if (/\b(derma\s*stamp|microneedl)\b/i.test(text)) return false;
-
-    const key = (rec?.product?.sku || rec?.product?.name || rec?.title || "").toLowerCase();
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  // Score candidates based on likely usefulness + hints in summary drivers/wins
-  const driverText = (plan?.summary?.drivers || [])
-    .map((d: any) => `${d?.label || ""}`.toLowerCase())
-    .join(" ");
-  const winsText = (plan?.summary?.quickWins || []).join(" ").toLowerCase();
-
-  const isHeat = /heat/.test(driverText) || /heat/.test(winsText);
-  const isColor = /color/.test(driverText) || /bond|mask/.test(winsText);
-  const isScalpOily = /oily/.test(driverText) || /scalp/.test(winsText);
-  const isHardWater = /hard water/.test(driverText) || /clarify|chelate/.test(winsText);
-
-  const score = (rec: any) => {
-    const t = [rec?.title, rec?.product?.name].filter(Boolean).join(" ").toLowerCase();
-    const slot = (categorize(rec) as ProductCategory) || "other";
-
-    // base category scores
-    let s = 0;
-    if (/mask|bond|repair/.test(t) || slot === "treat") s = Math.max(s, 80); // treatment mask
-    if (/protect|heat/.test(t) || (slot === "protect" && !/stamp/.test(t))) s = Math.max(s, 70); // heat protectant
-    if (/cleanse|sham/.test(t) || slot === "cleanse") s = Math.max(s, 60);
-    if (/condition|leave/.test(t) || slot === "condition") s = Math.max(s, 55);
-
-    // context boosts
-    if (isHeat && (/protect|heat/.test(t) || slot === "protect")) s += 20;
-    if (isColor && (/mask|bond|repair/.test(t) || slot === "treat")) s += 15;
-    if (isScalpOily && (/cleanse|balanc|clarif|scalp/.test(t) || slot === "cleanse")) s += 10;
-    if (isHardWater && (/clarif|chelate/.test(t) || slot === "cleanse")) s += 10;
-
-    return s;
-  };
-
-  const ordered = candidates.sort((a, b) => score(b) - score(a));
-
-  // Prefer cleanse + condition as the 2 non-core items
-  if (!bySlot.cleanse || !bySlot.condition) {
-    for (const rec of ordered) {
-      const slot = (categorize(rec) as Slot) || "other";
-      if (!["cleanse", "condition"].includes(slot)) continue;
-      if (!bySlot[slot]) bySlot[slot] = rec;
-      if (bySlot.cleanse && bySlot.condition) break;
-    }
-  }
-
-  // Backfill generics if missing so we ALWAYS render 4
-  if (!bySlot.cleanse) bySlot.cleanse = makeGenericCleanser();
-  if (!bySlot.condition) bySlot.condition = makeGenericConditioner();
-
-  // Assemble final 4 in enforced order
-  const suggestedOrder = preferredKitOrder(plan as any, plan?.recommendations as any) as Slot[] | undefined;
-  const order = coerceOrder(suggestedOrder);
-  const kit = order
-    .map((s) => (bySlot[s] ? { slot: s, ...(bySlot[s] as any) } : null))
-    .filter(Boolean) as Array<{ slot: Slot } & any>;
-
-  return kit.slice(0, 4);
-}
-
-function makeGenericCleanser() {
-  return {
-    slot: "cleanse" as const,
-    product: { sku: "fleur-shampoo", name: "Gentle Shampoo", imageUrl: undefined },
-    title: "Low-stripping wash",
-    why: "Cleanses without over-drying; balances scalp on wash days.",
-  };
-}
-
-function makeGenericConditioner() {
-  return {
-    slot: "condition" as const,
-    product: { sku: "fleur-conditioner", name: "Lightweight Conditioner", imageUrl: undefined },
-    title: "Daily slip & softness",
-    why: "Detangles and softens mid→ends without weighing roots down.",
-  };
-}
-
-function fitLineForSlot(slot: Slot): string {
-  switch (slot) {
-    case "cleanse":
-      return "Wash days";
-    case "condition":
-      return "After cleanse / leave-in";
-    case "treat":
-      return "Daily or weekly focus";
-    case "protect":
-      return "Tool / styling days";
-    default:
-      return "Routine";
-  }
-}
-
-/** ----------------------------------------------------------------
- * UI bits
- * ---------------------------------------------------------------- */
-function GlassCard({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <View className={["rounded-2xl overflow-hidden border border-white/20", className].join(" ")}>
-      <BlurView intensity={20} tint="light" className="absolute inset-0" />
-      <View className="relative">{children}</View>
-    </View>
-  );
-}
-
-function ProductImage({ uri, slot }: { uri?: string; slot: ProductCategory }) {
-  const [failed, setFailed] = React.useState(false);
-  const fallback = DEFAULT_SLOT_IMAGES[slot] ?? DEFAULT_SLOT_IMAGES.other;
-  const source = !uri || failed ? fallback : { uri };
-
-  return (
-    <View style={{ width: 80, height: 80 }}>
-      <Image
-        source={source}
-        onError={() => setFailed(true)}
-        style={{ width: 80, height: 80, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.06)" }}
-        resizeMode="cover"
-      />
-    </View>
-  );
-}
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#0D0D0D",
+  },
+  safeArea: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  backButton: {
+    padding: 8,
+    borderRadius: 20,
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: "center",
+  },
+  headerTitle: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "600",
+  },
+  headerSubtitle: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 12,
+    marginTop: 4,
+  },
+  cartButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    position: "relative",
+  },
+  cartBadge: {
+    position: "absolute",
+    right: 2,
+    top: 2,
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cartBadgeText: {
+    color: "#0b0b0b",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 6,
+  },
+  loadingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+  },
+  loadingText: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 14,
+    marginTop: 8,
+  },
+  kitContainer: {
+    gap: 16,
+    marginBottom: 24,
+  },
+  productCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    padding: 20,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  slotIcon: {
+    padding: 6,
+    borderRadius: 20,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    marginRight: 8,
+  },
+  slotLabel: {
+    color: "#fff",
+    fontWeight: "600",
+    flex: 1,
+  },
+  badgesContainer: {
+    flexDirection: "row",
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.28)",
+    marginLeft: 6,
+  },
+  badgeText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  productContent: {
+    flexDirection: "row",
+    gap: 16,
+    alignItems: "center",
+  },
+  imageContainer: {
+    width: 80,
+    height: 80,
+    position: "relative",
+  },
+  imageLoadingContainer: {
+    position: "absolute",
+    width: 80,
+    height: 80,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  imagePlaceholder: {
+    width: 80,
+    height: 80,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  productImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    position: "absolute",
+    top: 0,
+    left: 0,
+  },
+  productInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  productName: {
+    color: "#fff",
+    fontWeight: "500",
+  },
+  productDescription: {
+    color: "rgba(255,255,255,0.8)",
+    marginTop: 4,
+  },
+  howToUse: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 12,
+    marginTop: 4,
+    fontStyle: "italic",
+  },
+  ctaContainer: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 16,
+  },
+  ctaButton: {
+    flex: 1,
+    borderRadius: 25,
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  ctaButtonPrimary: {
+    backgroundColor: "#fff",
+  },
+  ctaButtonInCart: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.4)",
+  },
+  ctaButtonSecondary: {
+    flex: 1,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.4)",
+    backgroundColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  ctaButtonText: {
+    fontWeight: "600",
+  },
+  ctaButtonTextPrimary: {
+    color: "#0b0b0b",
+  },
+  ctaButtonTextInCart: {
+    color: "#fff",
+  },
+  ctaButtonTextSecondary: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  bottomCTAs: {
+    gap: 12,
+    marginTop: 16,
+  },
+  primaryButton: {
+    borderRadius: 25,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    paddingVertical: 16,
+  },
+  buttonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  primaryButtonText: {
+    color: "#0b0b0b",
+    fontWeight: "600",
+  },
+  secondaryButton: {
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.35)",
+    backgroundColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+    paddingVertical: 16,
+  },
+  secondaryButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  linkButton: {
+    alignItems: "center",
+    marginTop: 4,
+  },
+  linkButtonText: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 12,
+    textDecorationLine: "underline",
+  },
+});

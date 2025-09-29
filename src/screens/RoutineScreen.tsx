@@ -17,6 +17,7 @@ import { router } from "expo-router";
 import { useRoutineStore, RoutineStep, Period } from "@/state/routineStore";
 import { onRoutineTaskCompleted, onRoutineTaskUndone } from "@/services/rewards";
 import { useRewardsStore } from "@/state/rewardsStore";
+import { usePlanStore } from "@/state/planStore";
 
 // spacing helper (same convention as Community/Dashboard/Education)
 import { ScreenScrollView } from "@/components/UI/bottom-space";
@@ -24,10 +25,6 @@ import { ScreenScrollView } from "@/components/UI/bottom-space";
 // ✨ Add the compact Rewards pill like Community
 import RewardsPill from "@/components/UI/RewardsPill";
 
-type TimerState = {
-  active: boolean;
-  seconds: number;
-};
 
 /* --------------------- helpers (weekly) --------------------- */
 
@@ -91,6 +88,7 @@ function StepRowWeekly({
 export default function RoutineScreen() {
   // routine store
   const applyDefaultIfEmpty = useRoutineStore((s) => s.applyDefaultIfEmpty);
+  const buildFromPlan = useRoutineStore((s) => s.buildFromPlan);
   const stepsByPeriod = useRoutineStore((s) => s.stepsByPeriod);
   const isCompletedToday = useRoutineStore((s) => s.isCompletedToday);
   const toggleStepToday = useRoutineStore((s) => s.toggleStepToday);
@@ -98,27 +96,25 @@ export default function RoutineScreen() {
   const completedByDate = useRoutineStore((s) => s.completedByDate);
   const toggleStepOn = useRoutineStore((s) => s.toggleStepOn);
   const isCompletedOn = useRoutineStore((s) => s.isCompletedOn);
+  const hasSeenScheduleIntro = useRoutineStore((s) => s.hasSeenScheduleIntro);
+  
+  // Get user's personalized plan
+  const { plan } = usePlanStore();
 
   // rewards (daily check-in is handled separately)
 
-  // initialize default routine
+  // initialize routine from user's personalized plan
   useEffect(() => {
-    applyDefaultIfEmpty();
-  }, [applyDefaultIfEmpty]);
+    if (plan && plan.recommendations && plan.recommendations.length > 0) {
+      // Build routine from user's personalized recommendations
+      buildFromPlan(plan);
+    } else {
+      // Fallback to default routine if no personalized plan
+      applyDefaultIfEmpty();
+    }
+  }, [plan, buildFromPlan, applyDefaultIfEmpty]);
 
   const [tab, setTab] = useState<Period>("morning");
-
-  // timers (per tab)
-  const [timer, setTimer] = useState<Record<Period, TimerState>>({
-    morning: { active: false, seconds: 0 },
-    evening: { active: false, seconds: 0 },
-    weekly: { active: false, seconds: 0 },
-  });
-  const intervalRef = useRef<Record<Period, ReturnType<typeof setInterval> | null>>({
-    morning: null,
-    evening: null,
-    weekly: null,
-  });
 
   // recompute the list when steps or completion map changes
   const list = useMemo(() => stepsByPeriod(tab), [stepsByPeriod, tab, stepsAll, completedByDate]);
@@ -133,47 +129,7 @@ export default function RoutineScreen() {
     return { activeList: active, completedList: done };
   }, [list, tab, isCompletedToday]);
 
-  function startPauseTimer(p: Period) {
-    setTimer((prev) => {
-      const t = prev[p];
-      const next = { ...prev };
-      if (t.active) {
-        if (intervalRef.current[p]) {
-          clearInterval(intervalRef.current[p]!);
-          intervalRef.current[p] = null;
-        }
-        next[p] = { ...t, active: false };
-      } else {
-        intervalRef.current[p] = setInterval(() => {
-          setTimer((pv) => ({ ...pv, [p]: { ...pv[p], seconds: pv[p].seconds + 1 } }));
-        }, 1000);
-        next[p] = { ...t, active: true };
-      }
-      return next;
-    });
-  }
 
-  function resetTimer(p: Period) {
-    if (intervalRef.current[p]) {
-      clearInterval(intervalRef.current[p]!);
-      intervalRef.current[p] = null;
-    }
-    setTimer((prev) => ({ ...prev, [p]: { active: false, seconds: 0 } }));
-  }
-
-  useEffect(() => {
-    return () => {
-      (Object.keys(intervalRef.current) as Period[]).forEach((k) => {
-        if (intervalRef.current[k]) clearInterval(intervalRef.current[k]!);
-      });
-    };
-  }, []);
-
-  function fmt(sec: number) {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${m}:${String(s).padStart(2, "0")}`;
-  }
 
   const [toast, setToast] = useState<string | null>(null);
 
@@ -258,17 +214,26 @@ export default function RoutineScreen() {
                   <Text style={styles.smallCount}>({headerCounts(tab)})</Text>
                 </Text>
 
-                <View style={styles.timerRow}>
-                  {timer[tab].seconds > 0 && <Text style={styles.timerText}>{fmt(timer[tab].seconds)}</Text>}
-                  <Pressable onPress={() => startPauseTimer(tab)} style={styles.timerBtn}>
-                    <Feather name={timer[tab].active ? "pause" : "play"} size={14} color="#fff" />
-                    <Text style={styles.timerBtnText}>{timer[tab].active ? "Pause" : "Start Timer"}</Text>
+                <View style={styles.headerActions}>
+                  <Pressable
+                    onPress={() => router.push("/(app)/notification-settings")}
+                    style={styles.notificationBtn}
+                  >
+                    <Feather name="bell" size={14} color="white" />
                   </Pressable>
-                  {timer[tab].seconds > 0 && (
-                    <Pressable onPress={() => resetTimer(tab)} style={[styles.timerBtn, { marginLeft: 6 }]}>
-                      <Feather name="square" size={14} color="#fff" />
-                    </Pressable>
-                  )}
+                  <Pressable
+                    onPress={() => {
+                      if (!hasSeenScheduleIntro) {
+                        router.push("/schedule-intro");
+                      } else {
+                        router.push("/schedule-routine");
+                      }
+                    }}
+                    style={styles.timerBtn}
+                  >
+                    <Feather name="calendar" size={14} color="white" />
+                    <Text style={styles.timerBtnText}>Schedule</Text>
+                  </Pressable>
                 </View>
               </View>
 
@@ -490,15 +455,21 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  notificationBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
   sectionTitle: { color: "#fff", fontWeight: "800", fontSize: 16 },
   smallCount: { color: "rgba(255,255,255,0.75)", fontSize: 12 },
-
-  timerRow: { flexDirection: "row", alignItems: "center" },
-  timerText: {
-    color: "#fff",
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }),
-    marginRight: 8,
-  },
   timerBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -511,6 +482,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.25)",
   },
   timerBtnText: { color: "#fff", fontWeight: "700" },
+
 
   card: {
     flexDirection: "row",

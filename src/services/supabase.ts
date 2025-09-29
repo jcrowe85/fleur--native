@@ -40,13 +40,28 @@ export const supabase = createClient(
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,
+      // Enhanced security settings
+      flowType: 'pkce', // Use PKCE flow for enhanced security
       // Add error handling for auth state changes
       onAuthStateChange: (event, session) => {
         if (event === 'TOKEN_REFRESHED') {
           console.log('Token refreshed successfully');
         } else if (event === 'SIGNED_OUT') {
           console.log('User signed out');
+          // Clear any sensitive data when user signs out
+          try {
+            // Clear secure storage items
+            SecureStore.deleteItemAsync('supabase.auth.token').catch(() => {});
+          } catch (error) {
+            console.warn('Failed to clear secure storage:', error);
+          }
         }
+      },
+    },
+    // Global configuration for security
+    global: {
+      headers: {
+        'X-Client-Info': 'fleur-native-app',
       },
     },
   }

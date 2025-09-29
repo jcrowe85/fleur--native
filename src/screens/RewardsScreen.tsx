@@ -98,7 +98,7 @@ function getProductProgressInfo(points: number) {
   };
 }
 
-function reasonLabel(reason: string) {
+function reasonLabel(reason: string, meta?: any) {
   switch (reason) {
     case "daily_check_in": return "Daily check-in";
     case "seven_day_streak_bonus": return "7-day streak bonus";
@@ -113,7 +113,11 @@ function reasonLabel(reason: string) {
     case "post_engagement_comments": return "Post engagement (comments)";
     case "write_review": return "Product review";
     case "refer_friend": return "Referral";
-    case "purchase": return "Purchase";
+    case "purchase": 
+      if (meta?.amount) {
+        return `Purchase ($${meta.amount})`;
+      }
+      return "Purchase";
     case "redeem": return "Redeemed";
     default: return reason.replace(/_/g, " ");
   }
@@ -450,7 +454,7 @@ export default function RewardsScreen() {
           {/* Recent activity (ledger) */}
           {recent.length > 0 && (
             <>
-              <Text style={[styles.sectionTitle, { marginTop: 12 }]}>Sign up bonus</Text>
+              <Text style={[styles.sectionTitle, { marginTop: 12 }]}>Recent activity</Text>
               <View style={styles.ledgerWrap}>
                 {recent.map((ev, i) => (
                   <View
@@ -466,7 +470,7 @@ export default function RewardsScreen() {
                         />
                       </View>
                       <View style={{ flexShrink: 1 }}>
-                        <Text style={styles.ledgerTitle}>{reasonLabel(ev.reason)}</Text>
+                        <Text style={styles.ledgerTitle}>{reasonLabel(ev.reason, ev.meta)}</Text>
                         <Text style={styles.ledgerSub}>
                           {dayjs(ev.ts).format("MMM D, h:mm a")}
                         </Text>

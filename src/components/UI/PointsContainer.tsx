@@ -1,7 +1,7 @@
 // src/components/UI/PointsContainer.tsx
 import React from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
-import { getNextAffordableProduct, getAffordableProducts, getAllRedeemableProducts } from "@/data/productCatalog";
+import { getAllProducts } from "@/data/productPointCatalog";
 
 interface PointsContainerProps {
   points: number;
@@ -9,7 +9,8 @@ interface PointsContainerProps {
 }
 
 function getProductProgressInfo(points: number) {
-  const nextProduct = getNextAffordableProduct(points);
+  const allProducts = getAllProducts().sort((a, b) => a.pointsRequired - b.pointsRequired);
+  const nextProduct = allProducts.find(product => product.pointsRequired > points);
   const pointsNeeded = nextProduct ? nextProduct.pointsRequired - points : 0;
   
   if (!nextProduct) {
@@ -23,9 +24,7 @@ function getProductProgressInfo(points: number) {
   }
 
   // Calculate progress towards the next product
-  const allProducts = getAllRedeemableProducts();
-  const sortedProducts = allProducts.sort((a, b) => a.pointsRequired - b.pointsRequired);
-  const currentProductIndex = sortedProducts.findIndex(p => p.pointsRequired > points);
+  const currentProductIndex = allProducts.findIndex(p => p.pointsRequired > points);
   
   // Calculate progress from 0 to the next product (not between previous and next)
   const percent = Math.min(1, points / nextProduct.pointsRequired);
@@ -41,7 +40,7 @@ function getProductProgressInfo(points: number) {
   }
 
   // User is between products
-  const previousProduct = sortedProducts[currentProductIndex - 1];
+  const previousProduct = allProducts[currentProductIndex - 1];
   return {
     currentLabel: previousProduct.name,
     nextLabel: nextProduct.name,
@@ -60,8 +59,8 @@ function GlassCard({ children, style }: { children: React.ReactNode; style?: any
 
 export default function PointsContainer({ points, onRedeemPress }: PointsContainerProps) {
   const progress = React.useMemo(() => getProductProgressInfo(points), [points]);
-  const affordableProducts = getAffordableProducts(points);
-  const allProducts = getAllRedeemableProducts();
+  const allProducts = getAllProducts();
+  const affordableProducts = allProducts.filter(product => points >= product.pointsRequired);
 
   return (
     <GlassCard style={{ padding: 17.5, marginBottom: 14, minHeight: 140 }}>

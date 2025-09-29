@@ -9,9 +9,9 @@ export interface ProductPointMapping {
   description?: string;
 }
 
-// Product to point mapping table
+// Product to point mapping table - using actual Shopify SKUs
 export const PRODUCT_POINT_MAPPING: Record<string, ProductPointMapping> = {
-  // Hair Care Products
+  // Hair Care Products - using new Shopify handles
   "bloom": {
     sku: "bloom",
     name: "Bloom Hair+Scalp Serum",
@@ -19,30 +19,30 @@ export const PRODUCT_POINT_MAPPING: Record<string, ProductPointMapping> = {
     category: "treat",
     description: "Daily follicle support with lightweight peptide blend"
   },
-  "fleur-shampoo": {
-    sku: "fleur-shampoo", 
-    name: "Gentle Shampoo",
+  "shampoo": {
+    sku: "shampoo", 
+    name: "Shampoo",
     pointsRequired: 750,
     category: "cleanse",
     description: "Low-stripping wash that cleanses without over-drying"
   },
-  "fleur-conditioner": {
-    sku: "fleur-conditioner",
-    name: "Lightweight Conditioner", 
+  "conditioner": {
+    sku: "conditioner",
+    name: "Conditioner", 
     pointsRequired: 780,
     category: "condition",
     description: "Daily slip & softness that detangles and softens"
   },
-  "fleur-repair-mask": {
-    sku: "fleur-repair-mask",
-    name: "Bond Repair Mask",
+  "hair-mask": {
+    sku: "hair-mask",
+    name: "Hair Mask",
     pointsRequired: 900,
     category: "treat",
     description: "Weekly deep treatment that rebuilds broken bonds"
   },
-  "fleur-heat-shield": {
-    sku: "fleur-heat-shield",
-    name: "Heat Shield Spray",
+  "heat-shield": {
+    sku: "heat-shield",
+    name: "Heat Shield",
     pointsRequired: 1200,
     category: "protect", 
     description: "Essential protection for heat styling"
@@ -54,46 +54,104 @@ export const PRODUCT_POINT_MAPPING: Record<string, ProductPointMapping> = {
     category: "style",
     description: "Gentle detangling comb for all hair types"
   },
-  "fleur-silk-pillowcase": {
-    sku: "fleur-silk-pillowcase",
-    name: "Silk Pillowcase",
-    pointsRequired: 650,
-    category: "protect",
-    description: "Reduces friction and prevents breakage while sleeping"
-  },
-  "fleur-derma-stamp": {
-    sku: "fleur-derma-stamp",
+  "micro-roller": {
+    sku: "micro-roller",
     name: "Derma Stamp",
     pointsRequired: 725,
     category: "treat",
     description: "Micro-needling tool for enhanced product absorption"
   },
-  "fleur-complete-kit": {
-    sku: "fleur-complete-kit",
-    name: "Complete Hair Kit",
-    pointsRequired: 3500,
-    category: "kit",
-    description: "Complete hair care routine in one kit"
-  },
   
-  // Supplements
+  // Supplements - using new Shopify handles
+  "vegan-biotin": {
+    sku: "vegan-biotin",
+    name: "Vegan Biotin",
+    pointsRequired: 500,
+    category: "supplement",
+    description: "Supports healthy hair growth and strength"
+  },
+  "vitamin-d3": {
+    sku: "vitamin-d3", 
+    name: "Vitamin D3",
+    pointsRequired: 500,
+    category: "supplement",
+    description: "Essential vitamin for overall hair health"
+  },
+  "iron": {
+    sku: "iron",
+    name: "Iron", 
+    pointsRequired: 500,
+    category: "supplement",
+    description: "Supports healthy hair growth and prevents thinning"
+  },
+
+  // Legacy mappings (keep for backward compatibility)
+  "fleur-1": {
+    sku: "fleur-1",
+    name: "Bloom Hair+Scalp Serum",
+    pointsRequired: 850,
+    category: "treat",
+    description: "Daily follicle support with lightweight peptide blend"
+  },
+  "fleur-shampoo": {
+    sku: "fleur-shampoo", 
+    name: "Shampoo",
+    pointsRequired: 750,
+    category: "cleanse",
+    description: "Low-stripping wash that cleanses without over-drying"
+  },
+  "fleur-conditioner": {
+    sku: "fleur-conditioner",
+    name: "Conditioner", 
+    pointsRequired: 780,
+    category: "condition",
+    description: "Daily slip & softness that detangles and softens"
+  },
+  "fleur-hair-mask": {
+    sku: "fleur-hair-mask",
+    name: "Hair Mask",
+    pointsRequired: 900,
+    category: "treat",
+    description: "Weekly deep treatment that rebuilds broken bonds"
+  },
+  "fleur-heat-shield": {
+    sku: "fleur-heat-shield",
+    name: "Heat Shield",
+    pointsRequired: 1200,
+    category: "protect", 
+    description: "Essential protection for heat styling"
+  },
+  "fleur-detangling-comb": {
+    sku: "fleur-detangling-comb",
+    name: "Detangling Comb",
+    pointsRequired: 250,
+    category: "style",
+    description: "Gentle detangling comb for all hair types"
+  },
+  "Fleur-derma-stamp": {
+    sku: "Fleur-derma-stamp",
+    name: "Derma Stamp",
+    pointsRequired: 725,
+    category: "treat",
+    description: "Micro-needling tool for enhanced product absorption"
+  },
   "fleur-biotin": {
     sku: "fleur-biotin",
-    name: "Biotin Supplement",
+    name: "Vegan Biotin",
     pointsRequired: 500,
     category: "supplement",
     description: "Supports healthy hair growth and strength"
   },
   "fleur-vitamin-d3": {
     sku: "fleur-vitamin-d3", 
-    name: "Vitamin D3 Supplement",
+    name: "Vitamin D3",
     pointsRequired: 500,
     category: "supplement",
     description: "Essential vitamin for overall hair health"
   },
   "fleur-iron": {
     sku: "fleur-iron",
-    name: "Iron Supplement", 
+    name: "Iron", 
     pointsRequired: 500,
     category: "supplement",
     description: "Supports healthy hair growth and prevents thinning"
@@ -103,6 +161,25 @@ export const PRODUCT_POINT_MAPPING: Record<string, ProductPointMapping> = {
 // Helper functions
 export function getProductPointValue(sku: string): number {
   return PRODUCT_POINT_MAPPING[sku]?.pointsRequired || 0;
+}
+
+// Map Shopify handles to point catalog SKUs for point redemption
+export function mapShopifyHandleToPointSku(shopifyHandle: string): string {
+  const handleToSkuMapping: Record<string, string> = {
+    "bloom": "fleur-1",
+    "micro-roller": "fleur-derma-stamp",
+    "shampoo": "fleur-shampoo",
+    "conditioner": "fleur-conditioner", 
+    "hair-mask": "fleur-hair-mask",
+    "heat-shield": "fleur-heat-shield",
+    "detangling-comb": "fleur-detangling-comb",
+    "vegan-biotin": "fleur-biotin",
+    "vitamin-d3": "fleur-vitamin-d3",
+    "iron": "fleur-iron",
+    "silk-pillow": "fleur-silk-pillowcase",
+  };
+  
+  return handleToSkuMapping[shopifyHandle] || shopifyHandle;
 }
 
 export function getProductInfo(sku: string): ProductPointMapping | null {

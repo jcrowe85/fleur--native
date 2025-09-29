@@ -30,37 +30,144 @@ type CartState = {
  * Central SKU metadata (fill these out)
  * ─────────────────────────────────────────────────────────────── */
 const SKU_TO_VARIANT: Record<string, string> = {
-  // ✅ Paste your actual Shopify variant IDs (GID or numeric) here:
-  "fleur-serum": "gid://shopify/ProductVariant/44826097221811",
-  "fleur-derma-stamp": "gid://shopify/ProductVariant/44138710597811",
-  // "fleur-bond-mask": "gid://shopify/ProductVariant/XXXXXXXXXXX",
-  // "fleur-cleanser-generic": "gid://shopify/ProductVariant/YYYYYYYYYYY",
-  // "fleur-conditioner-generic": "gid://shopify/ProductVariant/ZZZZZZZZZZZ",
+  // ✅ Real Shopify variant IDs from API - using Shopify handles as primary keys
+  "bloom": "gid://shopify/ProductVariant/44138306273459",
+  "micro-roller": "gid://shopify/ProductVariant/44138710597811",
+  "detangling-comb": "gid://shopify/ProductVariant/45032094597299",
+  "vegan-biotin": "gid://shopify/ProductVariant/45032903278771",
+  "vitamin-d3": "gid://shopify/ProductVariant/45032910520499",
+  "iron": "gid://shopify/ProductVariant/45032935882931",
+  "shampoo": "gid://shopify/ProductVariant/45032954888371",
+  "conditioner": "gid://shopify/ProductVariant/45033047720115",
+  "hair-mask": "gid://shopify/ProductVariant/45033167716531",
+  "heat-shield": "gid://shopify/ProductVariant/45033200713907",
+  "silk-pillow": "gid://shopify/ProductVariant/45033276080307",
+
+  // Legacy mappings (keep for backward compatibility)
+  "fleur-serum": "gid://shopify/ProductVariant/44138306273459", // Same as bloom
+  "fleur-derma-stamp": "gid://shopify/ProductVariant/44138710597811", // Same as micro-roller
+  "fleur-shampoo": "gid://shopify/ProductVariant/45032954888371", // Same as shampoo
+  "fleur-conditioner": "gid://shopify/ProductVariant/45033047720115", // Same as conditioner
+  "fleur-repair-mask": "gid://shopify/ProductVariant/45033167716531", // Same as hair-mask
+  "fleur-heat-shield": "gid://shopify/ProductVariant/45033200713907", // Same as heat-shield
+  "fleur-silk-pillowcase": "gid://shopify/ProductVariant/45033276080307", // Same as silk-pillow
+  "fleur-biotin": "gid://shopify/ProductVariant/45032903278771", // Same as vegan-biotin
+  "fleur-iron": "gid://shopify/ProductVariant/45032935882931", // Same as iron
+  "fleur-vitamin-d3": "gid://shopify/ProductVariant/45032910520499", // Same as vitamin-d3
+
+  // Other legacy mappings
+  "fleur-cleanser-generic": "",
+  "fleur-conditioner-generic": "",
+  "fleur-bond-mask": "",
+  "fleur-heat-protectant": "",
+  "fleur-detangling-comb": "",
+  "fleur-complete-kit": "",
 };
 
 const SKU_PRICE_CENTS: Record<string, number> = {
-  "fleur-serum": 4800,
-  "fleur-derma-stamp": 3000,
+  // Real prices from Shopify API - using Shopify handles as primary keys
+  "bloom": 4800,
+  "micro-roller": 3000,
+  "detangling-comb": 4200,
+  "vegan-biotin": 1500,
+  "vitamin-d3": 1500,
+  "iron": 1500,
+  "shampoo": 2600,
+  "conditioner": 2600,
+  "hair-mask": 2500,
+  "heat-shield": 4500,
+  "silk-pillow": 3500,
+
+  // Legacy mappings (keep for backward compatibility)
+  "fleur-serum": 4800, // Same as bloom
+  "fleur-derma-stamp": 3000, // Same as micro-roller
+  "fleur-shampoo": 2600, // Same as shampoo
+  "fleur-conditioner": 2600, // Same as conditioner
+  "fleur-repair-mask": 2500, // Same as hair-mask
+  "fleur-heat-shield": 4500, // Same as heat-shield
+  "fleur-silk-pillowcase": 3500, // Same as silk-pillow
+  "fleur-biotin": 1500, // Same as vegan-biotin
+  "fleur-iron": 1500, // Same as iron
+  "fleur-vitamin-d3": 1500, // Same as vitamin-d3
+
+  // Other legacy mappings
   "fleur-cleanser-generic": 1800,
   "fleur-conditioner-generic": 1800,
-  // "fleur-bond-mask": 2800,
+  "fleur-bond-mask": 2800,
+  "fleur-heat-protectant": 2200,
+  "fleur-detangling-comb": 1500,
+  "fleur-complete-kit": 12000,
 };
 
 const SKU_NAME: Record<string, string> = {
-  "fleur-serum": "Fleur Peptide Hair Serum",
-  "fleur-derma-stamp": "Derma Stamp (Scalp Tool)",
+  // Real product names from Shopify API - using Shopify handles as primary keys
+  "bloom": "bloom hair+scalp serum",
+  "micro-roller": "Derma Stamp",
+  "detangling-comb": "Detangling Comb",
+  "vegan-biotin": "vegan biotin",
+  "vitamin-d3": "vitamin d3",
+  "iron": "iron",
+  "shampoo": "shampoo",
+  "conditioner": "conditioner",
+  "hair-mask": "hair mask",
+  "heat-shield": "heat shield",
+  "silk-pillow": "silk pillow",
+
+  // Legacy mappings (keep for backward compatibility)
+  "fleur-serum": "bloom hair+scalp serum", // Same as bloom
+  "fleur-derma-stamp": "Derma Stamp", // Same as micro-roller
+  "fleur-shampoo": "shampoo", // Same as shampoo
+  "fleur-conditioner": "conditioner", // Same as conditioner
+  "fleur-repair-mask": "hair mask", // Same as hair-mask
+  "fleur-heat-shield": "heat shield", // Same as heat-shield
+  "fleur-silk-pillowcase": "silk pillow", // Same as silk-pillow
+  "fleur-biotin": "vegan biotin", // Same as vegan-biotin
+  "fleur-iron": "iron", // Same as iron
+  "fleur-vitamin-d3": "vitamin d3", // Same as vitamin-d3
+
+  // Other legacy mappings
   "fleur-cleanser-generic": "Gentle Cleanser",
   "fleur-conditioner-generic": "Lightweight Conditioner",
-  // "fleur-bond-mask": "Bond Repair Mask",
+  "fleur-bond-mask": "Bond Repair Mask",
+  "fleur-heat-protectant": "Heat Protectant",
+  "fleur-detangling-comb": "Detangling Comb",
+  "fleur-complete-kit": "Complete Hair Kit",
 };
 
-// Optional image mapping (leave undefined if you rely on server images)
+// Real image URLs from Shopify API - using Shopify handles as primary keys
 const SKU_IMAGE: Record<string, string | undefined> = {
-  "fleur-serum": undefined,
-  "fleur-derma-stamp": undefined,
+  // Real Shopify product images
+  "bloom": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/new_single_23e90b78-701c-4676-bf9c-6ce115c58ccd.png?v=1738964215",
+  "micro-roller": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/Derma_Stamp_Final_hero.png?v=1734400492",
+  "detangling-comb": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/fleur_comb_f1e00f2c-b8e5-4c64-912a-c6ef73339efd.png?v=1758929620",
+  "vegan-biotin": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/amazon_biotin_2000x2000_dc31b961-07be-4704-b038-e19a2e891d6d.png?v=1758922325",
+  "vitamin-d3": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/amazonvitamind32000x2000.png?v=1758923106",
+  "iron": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/amazoniron2000x2000_ff2a7d3b-878c-40b4-be7b-5348da607099.png?v=1758925293",
+  "shampoo": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/amazonshampoo.png?v=1758926941",
+  "conditioner": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/amazonconditioner2000x2000.png?v=1758929053",
+  "hair-mask": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/evanychairmask.png?v=1758935840",
+  "heat-shield": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/living_proof_thermal_spray_2000x2000_d3a81453-e141-4223-9f10-9a5c30f52b1b.png?v=1758939057",
+  "silk-pillow": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/bedelitesatinpillowcase.png?v=1758939977",
+
+  // Legacy mappings (keep for backward compatibility)
+  "fleur-serum": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/new_single_23e90b78-701c-4676-bf9c-6ce115c58ccd.png?v=1738964215", // Same as bloom
+  "fleur-derma-stamp": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/Derma_Stamp_Final_hero.png?v=1734400492", // Same as micro-roller
+  "fleur-shampoo": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/amazonshampoo.png?v=1758926941", // Same as shampoo
+  "fleur-conditioner": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/amazonconditioner2000x2000.png?v=1758929053", // Same as conditioner
+  "fleur-repair-mask": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/evanychairmask.png?v=1758935840", // Same as hair-mask
+  "fleur-heat-shield": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/living_proof_thermal_spray_2000x2000_d3a81453-e141-4223-9f10-9a5c30f52b1b.png?v=1758939057", // Same as heat-shield
+  "fleur-silk-pillowcase": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/bedelitesatinpillowcase.png?v=1758939977", // Same as silk-pillow
+  "fleur-biotin": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/amazon_biotin_2000x2000_dc31b961-07be-4704-b038-e19a2e891d6d.png?v=1758922325", // Same as vegan-biotin
+  "fleur-iron": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/amazoniron2000x2000_ff2a7d3b-878c-40b4-be7b-5348da607099.png?v=1758925293", // Same as iron
+  "fleur-vitamin-d3": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/amazonvitamind32000x2000.png?v=1758923106", // Same as vitamin-d3
+
+  // Other legacy mappings
   "fleur-cleanser-generic": undefined,
   "fleur-conditioner-generic": undefined,
-  // "fleur-bond-mask": undefined,
+  "fleur-bond-mask": undefined,
+  "fleur-heat-protectant": undefined,
+  "fleur-detangling-comb": undefined,
+  "fleur-complete-kit": undefined,
 };
 
 /** Treat 0/undefined/NaN as invalid price and fall back to map */

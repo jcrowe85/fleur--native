@@ -9,22 +9,24 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Pressable } from "react-native";
 
 export default function ThankYouScreen() {
-  const { auto, pointsUsed, productSku, newBalance } = useLocalSearchParams<{ 
+  const { auto, pointsUsed, productSku, newBalance, pointsEarned, totalSpent } = useLocalSearchParams<{ 
     auto?: string;
     pointsUsed?: string;
     productSku?: string;
     newBalance?: string;
+    pointsEarned?: string;
+    totalSpent?: string;
   }>();
 
   // optional auto-redirect to dashboard after a short delay
   useEffect(() => {
     if (auto === "1") {
-      // Longer delay for point redemptions so users can read the info
-      const delay = pointsUsed ? 3000 : 1600;
+      // Longer delay for point redemptions and purchases so users can read the info
+      const delay = (pointsUsed || pointsEarned) ? 4000 : 1600;
       const t = setTimeout(() => router.replace("/dashboard"), delay);
       return () => clearTimeout(t);
     }
-  }, [auto, pointsUsed]);
+  }, [auto, pointsUsed, pointsEarned]);
 
   return (
     <View className="flex-1 bg-brand-bg">
@@ -56,6 +58,12 @@ export default function ThankYouScreen() {
               <>
                 You've successfully redeemed {pointsUsed} points for this product!{"\n"}
                 New point balance: {newBalance} points
+              </>
+            ) : pointsEarned ? (
+              <>
+                Thank you for your purchase!{"\n"}
+                You earned {pointsEarned} points for spending ${totalSpent}!{"\n"}
+                We've emailed your receipt. You'll see shipping updates soon.
               </>
             ) : (
               "We've emailed your receipt. You'll see shipping updates soon."

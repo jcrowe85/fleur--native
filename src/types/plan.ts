@@ -68,15 +68,9 @@ export type FleurPlan = {
   };
 
   recommendations: Array<{
+    handle: string;
     title: string;
     why: string;
     howToUse: string;
-    product: {
-      sku: string;
-      name: string;
-      url: string;       // http/https
-      price: string;     // keep as string for currency formatting
-      imageUrl: string;  // http/https
-    };
   }>;
 };

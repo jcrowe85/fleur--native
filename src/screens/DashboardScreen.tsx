@@ -19,7 +19,7 @@ import dayjs from "dayjs";
 import { useRoutineStore, RoutineStep } from "@/state/routineStore";
 import { useRewardsStore } from "@/state/rewardsStore";
 import { useCheckInStore } from "@/state/checkinStore";
-import { getNextAffordableProduct, getAffordableProducts, getAllRedeemableProducts } from "@/data/productCatalog";
+import { getAllProducts, getProductPointValue } from "@/data/productPointCatalog";
 import PointsContainer from "@/components/UI/PointsContainer";
 import { onRoutineTaskCompleted, onRoutineTaskUndone } from "@/services/rewards";
 import { checkFirstLogin, markFirstLoginComplete, retryMarkFirstLoginComplete } from "@/services/firstTimeUser";
@@ -52,7 +52,8 @@ function abbreviateProductName(name: string): string {
 }
 
 function getProductProgressInfo(points: number) {
-  const nextProduct = getNextAffordableProduct(points);
+  const allProducts = getAllProducts().sort((a, b) => a.pointsRequired - b.pointsRequired);
+  const nextProduct = allProducts.find(product => product.pointsRequired > points);
   const pointsNeeded = nextProduct ? nextProduct.pointsRequired - points : 0;
   
   if (!nextProduct) {
@@ -67,9 +68,7 @@ function getProductProgressInfo(points: number) {
   }
 
   // Calculate progress towards the next product
-  const allProducts = getAllRedeemableProducts();
-  const sortedProducts = allProducts.sort((a, b) => a.pointsRequired - b.pointsRequired);
-  const currentProductIndex = sortedProducts.findIndex(p => p.pointsRequired > points);
+  const currentProductIndex = allProducts.findIndex(p => p.pointsRequired > points);
   
   // Calculate progress from 0 to the next product (not between previous and next)
   const percent = Math.min(1, points / nextProduct.pointsRequired);
@@ -87,7 +86,7 @@ function getProductProgressInfo(points: number) {
   }
 
   // User is between products
-  const previousProduct = sortedProducts[currentProductIndex - 1];
+  const previousProduct = allProducts[currentProductIndex - 1];
   return {
     currentLabel: previousProduct.name,
     nextLabel: nextProduct.name,
@@ -460,8 +459,8 @@ export default function DashboardScreen() {
 
   // Rewards progress (product-based)
   const progress = getProductProgressInfo(points);
-  const affordableProducts = getAffordableProducts(points);
-  const allProducts = getAllRedeemableProducts();
+  const allProducts = getAllProducts();
+  const affordableProducts = allProducts.filter(product => points >= product.pointsRequired);
 
   // Toggle handler for routine tasks (awards points for task completion)
   function onToggle(step: RoutineStep) {
@@ -515,6 +514,7 @@ export default function DashboardScreen() {
              <View style={[styles.rewardsPillContainer, { padding: 8, borderRadius: 20 }]}>
             <RewardsPill compact />
              </View>
+
 
           </View>
         </View>
@@ -638,11 +638,11 @@ export default function DashboardScreen() {
                   Next Product
                 </Text>
                 {(() => {
-                  const nextProduct = getNextAffordableProduct(points);
-                  const affordableProducts = getAffordableProducts(points);
+                  const sortedProducts = allProducts.sort((a, b) => a.pointsRequired - b.pointsRequired);
+                  const nextProduct = sortedProducts.find(product => product.pointsRequired > points);
                   
                   if (affordableProducts.length > 0) {
-                    const firstAffordable = affordableProducts[0];
+                    const firstAffordable = affordableProducts.sort((a, b) => a.pointsRequired - b.pointsRequired)[0];
                     return (
                       <View>
                         <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }} numberOfLines={1}>

@@ -109,28 +109,17 @@ export const fleurPlanSchema = {
     recommendations: {
       type: "array",
       minItems: 3,
-      maxItems: 6,
+      maxItems: 8, // Updated to 8 to include supplements for hormonal users
       items: {
         type: "object",
         additionalProperties: false,
         properties: {
+          handle: { type: "string" },
           title: { type: "string" },
           why: { type: "string" },
           howToUse: { type: "string" },
-          product: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              sku: { type: "string" },
-              name: { type: "string" },
-              url: { type: "string", pattern: "^https?://" },
-              price: { type: "string" },
-              imageUrl: { type: "string", pattern: "^https?://" },
-            },
-            required: ["sku", "name", "url", "price", "imageUrl"],
-          },
         },
-        required: ["title", "why", "howToUse", "product"],
+        required: ["handle", "title", "why", "howToUse"],
       },
     },
   },

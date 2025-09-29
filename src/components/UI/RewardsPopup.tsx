@@ -213,8 +213,6 @@ const styles = StyleSheet.create({
     top: 16,
     right: 16,
     padding: 8,
-    borderRadius: 20,
-    backgroundColor: "rgba(107, 95, 90, 0.1)",
   },
   iconContainer: {
     marginBottom: 20,

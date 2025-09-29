@@ -8,8 +8,10 @@ type AuthState = {
   session: Session | null;
   user: User | null;
   error: string | null;
+  isCloudSynced: boolean;
   bootstrap: () => Promise<void>;
   signOut: () => Promise<void>;
+  setUser: (user: { id: string; email: string; isCloudSynced: boolean }) => void;
 };
 
 let subscribed = false;
@@ -48,6 +50,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   session: null,
   user: null,
   error: null,
+  isCloudSynced: false,
 
   bootstrap: async () => {
     try {
@@ -95,6 +98,21 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   signOut: async () => {
     await supabase.auth.signOut();
-    set({ session: null, user: null });
+    set({ session: null, user: null, isCloudSynced: false });
+  },
+
+  setUser: (user: { id: string; email: string; isCloudSynced: boolean }) => {
+    set({ 
+      user: { 
+        id: user.id, 
+        email: user.email, 
+        created_at: new Date().toISOString(),
+        app_metadata: {},
+        user_metadata: {},
+        aud: 'authenticated',
+        role: 'authenticated'
+      } as User,
+      isCloudSynced: user.isCloudSynced 
+    });
   },
 }));

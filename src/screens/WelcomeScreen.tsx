@@ -166,7 +166,7 @@ export default function Welcome() {
               variant="ghost"
               fleurSize="lg"
               className="w-full mt-4"
-              onPress={() => router.push('/dashboard')}
+              onPress={() => router.push('/login')}
             >
               I already have an account
             </CustomButton>

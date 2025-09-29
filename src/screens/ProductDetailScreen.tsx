@@ -75,9 +75,9 @@ export default function ProductDetailScreen() {
     try {
       setLoading(true);
       
-      // Fetch products from Shopify to find the one with matching ID
+      // Fetch products from Shopify to find the one with matching ID or handle
       const products = await fetchRedeemableProducts();
-      const foundProduct = products.find(p => p.id === productId);
+      const foundProduct = products.find(p => p.id === productId || p.handle === productId);
       
       if (foundProduct) {
         setProduct(foundProduct);
@@ -324,7 +324,6 @@ export default function ProductDetailScreen() {
               </View>
             </View>
 
-            <Text style={styles.productTitle}>{product.title}</Text>
             <Text style={styles.productDescription}>
               {product.description || "Product from Shopify"}
             </Text>
@@ -445,12 +444,6 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "600",
     fontSize: 16,
-  },
-  productTitle: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "600",
-    marginBottom: 8,
   },
   productDescription: {
     color: "rgba(255,255,255,0.8)",

@@ -377,3 +377,116 @@ function getProductPointValue(sku: string): number {
 
   return productPointValues[sku] || 0;
 }
+
+/**
+ * Create a 20% kit discount code
+ */
+export async function createKitDiscountCode(
+  userId: string,
+  cartItems: Array<{ sku: string; qty: number }>
+): Promise<{ success: boolean; discountCode: string; expiresAt: string }> {
+  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_ACCESS_TOKEN) {
+    throw new Error("Shopify Admin API not configured");
+  }
+
+  // Generate unique discount code for kit
+  const timestamp = Date.now();
+  const code = `KIT_20_${userId.slice(-6)}_${timestamp}`;
+  
+  // Set expiration (24 hours from now)
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+  const domain = SHOPIFY_STORE_DOMAIN.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  const url = `https://${domain}/admin/api/2024-07/graphql.json`;
+
+  const mutation = `
+    mutation discountCodeBasicCreate($basicCodeDiscount: DiscountCodeBasicInput!) {
+      discountCodeBasicCreate(basicCodeDiscount: $basicCodeDiscount) {
+        codeDiscountNode {
+          id
+          codeDiscount {
+            ... on DiscountCodeBasic {
+              codes(first: 1) {
+                nodes {
+                  code
+                }
+              }
+              status
+              usageLimit
+              startsAt
+              endsAt
+            }
+          }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const variables = {
+    basicCodeDiscount: {
+      title: `Kit Bundle 20% Off - ${userId}`,
+      code: code,
+      startsAt: new Date().toISOString(),
+      endsAt: expiresAt,
+      usageLimit: 1,
+      customerSelection: {
+        all: true
+      },
+      customerGets: {
+        value: {
+          percentage: 0.2  // 20% discount
+        },
+        items: {
+          all: true
+        }
+      },
+      minimumRequirement: {
+        quantity: {
+          greaterThanOrEqualToQuantity: "1"
+        }
+      },
+      appliesOncePerCustomer: true
+    }
+  };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "X-Shopify-Access-Token": SHOPIFY_ADMIN_ACCESS_TOKEN,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ query: mutation, variables }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Shopify Admin API error: ${response.status} – ${text}`);
+  }
+
+  const data = await response.json();
+  
+  if (data.errors) {
+    throw new Error(`GraphQL errors: ${data.errors.map((e: any) => e.message).join(", ")}`);
+  }
+
+  const userErrors = data?.data?.discountCodeBasicCreate?.userErrors;
+  if (Array.isArray(userErrors) && userErrors.length) {
+    throw new Error(`Discount creation errors: ${userErrors.map((e: any) => e.message).join(", ")}`);
+  }
+
+  const discountNode = data?.data?.discountCodeBasicCreate?.codeDiscountNode;
+  if (!discountNode) {
+    throw new Error("No discount code created");
+  }
+
+  return {
+    success: true,
+    discountCode: code,
+    expiresAt: expiresAt
+  };
+}

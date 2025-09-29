@@ -1,4 +1,4 @@
 // app/(app)/shop.tsx
-import ShopTestScreen from "@/screens/ShopTestScreen";
+import ShopScreen from "@/screens/ShopScreen";
 
-export default ShopTestScreen;
+export default ShopScreen;

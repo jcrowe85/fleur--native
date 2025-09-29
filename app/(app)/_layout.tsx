@@ -20,17 +20,41 @@ import { resetLocalData } from "../../src/dev/resetLocalData";
 import { CommentsSheetProvider } from "../../src/features/community/commentsSheet";
 import { PickHandleSheetProvider } from "../../src/features/community/pickHandleSheet";
 import { useAuthStore } from "../../src/state/authStore";
+import { useRoutineStore } from "../../src/state/routineStore";
 import RewardsPill from "@/components/UI/RewardsPill";
 import RewardsPopup from "@/components/UI/RewardsPopup";
 import { useRewardsPopup } from "@/hooks/useRewardsPopup";
+import { useCloudSyncPopup } from "../../src/hooks/useCloudSyncPopup";
+// Conditional import for notification service
+let notificationService: any = null;
+try {
+  notificationService = require("../../src/services/notificationService").notificationService;
+} catch (error) {
+  console.warn('Notification service not available');
+}
+import { cloudSyncManager } from "../../src/services/cloudSyncManager";
+import CloudSyncPopup from "../../src/components/CloudSyncPopup";
 
 
 export default function AppLayout() {
   const { bootstrap, loading, error } = useAuthStore();
   const { visible, popupData, hidePopup, checkForBigRewards } = useRewardsPopup();
+  const { 
+    visible: cloudSyncVisible, 
+    title: cloudSyncTitle, 
+    message: cloudSyncMessage, 
+    hidePopup: hideCloudSyncPopup, 
+    handleSyncSuccess 
+  } = useCloudSyncPopup();
 
   useEffect(() => {
     bootstrap();
+    // Initialize notifications
+    if (notificationService) {
+      notificationService.initialize();
+    }
+    // Initialize cloud sync manager
+    cloudSyncManager.initialize();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -109,6 +133,15 @@ export default function AppLayout() {
             description={popupData.description}
           />
         )}
+
+        {/* Cloud Sync Popup */}
+        <CloudSyncPopup
+          visible={cloudSyncVisible}
+          onClose={hideCloudSyncPopup}
+          onSuccess={handleSyncSuccess}
+          title={cloudSyncTitle}
+          message={cloudSyncMessage}
+        />
       </CommentsSheetProvider>
     </PickHandleSheetProvider>
   );
@@ -117,6 +150,7 @@ export default function AppLayout() {
 /** Whitelisted custom tab bar — only renders the 5 intended tabs */
 function FleurTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const { hasSeenScheduleIntro } = useRoutineStore();
 
   // Only these show up as tabs; anything else (e.g., profile) is ignored
   const TAB_NAMES = ["dashboard", "routine", "shop", "education", "community"] as const;
@@ -157,7 +191,12 @@ function FleurTabBar({ state, navigation }: BottomTabBarProps) {
                   canPreventDefault: true,
                 });
                 if (!isFocused && !e.defaultPrevented) {
-                  navigation.navigate(route.name);
+                  // Show schedule intro popup when routine tab is pressed for the first time
+                  if (route.name === "routine" && !hasSeenScheduleIntro) {
+                    router.push("/schedule-intro");
+                  } else {
+                    navigation.navigate(route.name);
+                  }
                 }
               };
 

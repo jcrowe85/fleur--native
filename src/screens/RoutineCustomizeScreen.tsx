@@ -124,13 +124,6 @@ export default function RoutineCustomizeScreen() {
     setTimeout(() => setToast(null), 1100);
   }
 
-  function onBack() {
-    try {
-      router.canGoBack() ? router.back() : router.replace("/(app)/routine");
-    } catch {
-      router.replace("/(app)/routine");
-    }
-  }
 
   // Recommended list excludes items already present in current steps (by name/product)
   const currentKeys = useMemo(() => new Set(steps.map(stepIdentity)), [steps]);
@@ -170,11 +163,7 @@ export default function RoutineCustomizeScreen() {
       <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1 }}>
         {/* Header */}
         <View style={styles.headerWrap}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, position: "relative" }}>
-            <Pressable onPress={onBack} hitSlop={10} style={[styles.backButton, { padding: 8, borderRadius: 20 }]}>
-              <Feather name="arrow-left" size={18} color="#fff" />
-            </Pressable>
-
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, position: "relative" }}>
             <View style={{ flex: 1, alignItems: "center" }}>
               <Text style={styles.headerTitle}>Customize Routine</Text>
               <Text style={styles.headerSub}>Add steps, set times, choose frequency</Text>
@@ -415,11 +404,6 @@ const styles = StyleSheet.create({
   },
   headerTitle: { color: "#fff", fontSize: 22, fontWeight: "600", textAlign: "center" },
   headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
-  backButton: {
-    position: "absolute",
-    left: 16,
-    top: -8,
-  },
   rewardsPillContainer: {
     position: "absolute",
     right: 16,
