@@ -393,6 +393,9 @@ export async function createKitDiscountCode(
   const timestamp = Date.now();
   const code = `KIT_20_${userId.slice(-6)}_${timestamp}`;
   
+  console.log(`🎁 Creating kit discount code: ${code} for user: ${userId}`);
+  console.log(`🛒 Cart items:`, cartItems);
+  
   // Set expiration (24 hours from now)
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
@@ -438,7 +441,7 @@ export async function createKitDiscountCode(
       },
       customerGets: {
         value: {
-          percentage: 0.2  // 20% discount
+          percentage: 0.2  // 20% discount (Shopify expects decimal between 0.0 and 1.0)
         },
         items: {
           all: true

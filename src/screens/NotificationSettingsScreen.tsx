@@ -84,7 +84,7 @@ export default function NotificationSettingsScreen() {
         {/* Header */}
         <View style={styles.headerWrap}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, position: 'relative' }}>
-            <Pressable onPress={() => router.back()} hitSlop={10} style={[styles.backButton, { padding: 8, borderRadius: 20 }]}>
+            <Pressable onPress={() => router.push("/(app)/profile")} hitSlop={10} style={[styles.backButton, { padding: 8, borderRadius: 20 }]}>
               <Feather name="arrow-left" size={18} color="#fff" />
             </Pressable>
             <View style={{ flex: 1, alignItems: 'center' }}>

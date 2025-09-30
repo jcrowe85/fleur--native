@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, Image, StyleSheet, Pressable, Platform, ScrollView } from "react-native";
+import { View, Text, Image, ImageBackground, StyleSheet, Pressable, Platform, ScrollView } from "react-native";
 import { Feather, FontAwesome } from "@expo/vector-icons"; // ⬅️ add FontAwesome
 import type { PostItem } from "./types";
 import { useLikesService } from "./likes.service";
@@ -79,9 +79,17 @@ export function PostCard({ post }: { post: PostItem }) {
         <View style={styles.inner}>
           {/* Header */}
           <View style={styles.headerRow}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initials(display)}</Text>
-            </View>
+            {post.author?.avatar_url ? (
+              <ImageBackground
+                source={{ uri: post.author.avatar_url }}
+                style={styles.avatar}
+                imageStyle={styles.avatarImage}
+              />
+            ) : (
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{initials(display)}</Text>
+              </View>
+            )}
             <View style={{ flex: 1 }}>
               <Text style={styles.handle}>{display}</Text>
               <Text style={styles.meta}>{timeAgo(post.created_at)}</Text>
@@ -197,6 +205,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.12)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.25)",
+  },
+  avatarImage: {
+    borderRadius: 18,
   },
   avatarText: { color: "#fff", fontWeight: "700", fontSize: 12 },
 

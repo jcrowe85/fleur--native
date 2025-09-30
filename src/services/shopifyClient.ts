@@ -67,6 +67,16 @@ const CART_CREATE = /* GraphQL */ `
       cart {
         id
         checkoutUrl
+        cost {
+          totalAmount {
+            amount
+            currencyCode
+          }
+        }
+        discountCodes {
+          code
+          applicable
+        }
       }
       userErrors {
         field
@@ -126,6 +136,20 @@ export async function createCheckout(lineItems: LineItem[], discountCode?: strin
 
   if (!checkoutUrl) {
     throw new Error("No checkoutUrl returned from Shopify.");
+  }
+
+  // Debug logging for discount verification
+  if (discountCode) {
+    console.log("🎫 Discount code used:", discountCode);
+    console.log("💰 Cart total:", cart?.cost?.totalAmount?.amount);
+    console.log("✅ Discount codes:", cart?.discountCodes);
+    
+    const applicableDiscount = cart?.discountCodes?.find((dc: any) => dc.code === discountCode);
+    if (applicableDiscount) {
+      console.log("✅ Discount is applicable:", applicableDiscount.applicable);
+    } else {
+      console.warn("⚠️ Discount code not found in cart response");
+    }
   }
 
   // Keep the return shape your CartScreen expects

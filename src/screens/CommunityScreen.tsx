@@ -24,6 +24,8 @@ import { useFeed } from "@/features/community/useFeed";
 import { PostCard } from "@/features/community/PostCard";
 import { usePostsService } from "@/features/community/posts.service";
 import { useLocalSearchParams } from "expo-router";
+import { useAuthStore } from "@/state/authStore";
+import { supabase } from "@/services/supabase";
 
 // Uploader
 import { uploadAll } from "@/features/community/upload.service";
@@ -33,8 +35,8 @@ import { useProfileStore } from "@/state/profileStore";
 import { usePickHandleSheet } from "@/features/community/pickHandleSheet";
 import { ensureHandleOrPrompt } from "@/features/community/ensureHandle";
 
-// Rewards pill (compact, top-right)
-import RewardsPill from "@/components/UI/RewardsPill";
+// Profile icon (compact, top-right)
+import { router } from "expo-router";
 
 // ✅ Shared bottom spacing helpers
 import { ScreenFlatList } from "@/components/UI/bottom-space";
@@ -83,6 +85,10 @@ export default function CommunityScreen() {
   const { profile } = useProfileStore();
   const { open: openPickHandle } = usePickHandleSheet();
   const { tab } = useLocalSearchParams<{ tab?: string }>();
+  const { user } = useAuthStore();
+
+  // User profile photo for header icon - use profile store for reactivity
+  const userAvatar = profile?.avatar_url || null;
 
   // Header category (just filters UI)
   const [activeCat, setActiveCat] = useState<CategoryLabel>("Hair Journeys");
@@ -93,6 +99,7 @@ export default function CommunityScreen() {
       setActiveCat("Reviews");
     }
   }, [tab]);
+
 
   // Faux composer modal state
   const [composerOpen, setComposerOpen] = useState(false);
@@ -202,9 +209,20 @@ export default function CommunityScreen() {
               <Text style={styles.headerTitle}>Community</Text>
               <Text style={styles.headerSub}>Share your hair journey</Text>
             </View>
-            <View style={[styles.rewardsPillContainer, { padding: 8, borderRadius: 20 }]}>
-              <RewardsPill compact />
-            </View>
+            <Pressable
+              onPress={() => router.push("/(app)/profile")}
+              style={[styles.profileIconContainer, { padding: 8, borderRadius: 20 }]}
+            >
+              {userAvatar ? (
+                <ImageBackground
+                  source={{ uri: userAvatar }}
+                  style={styles.profileIcon}
+                  imageStyle={styles.profileIconImage}
+                />
+              ) : (
+                <Feather name="user" size={20} color="#fff" />
+              )}
+            </Pressable>
           </View>
         </View>
 
@@ -295,11 +313,19 @@ export default function CommunityScreen() {
 
               {/* User row (dynamic profile instead of hard-coded) */}
               <View style={styles.modalUserRow}>
-                <View style={styles.userAvatar}>
-                  <Text style={styles.userAvatarText}>
-                    {getInitials(profile?.display_name || profile?.handle || "You")}
-                  </Text>
-                </View>
+                {userAvatar ? (
+                  <ImageBackground
+                    source={{ uri: userAvatar }}
+                    style={styles.userAvatar}
+                    imageStyle={styles.userAvatarImage}
+                  />
+                ) : (
+                  <View style={styles.userAvatar}>
+                    <Text style={styles.userAvatarText}>
+                      {getInitials(profile?.display_name || profile?.handle || "You")}
+                    </Text>
+                  </View>
+                )}
                 <View>
                   <Text style={styles.userName}>
                     {profile?.display_name || profile?.handle || "Set your name"}
@@ -406,10 +432,19 @@ const styles = StyleSheet.create({
   },
   headerTitle: { color: "#fff", fontSize: 22, fontWeight: "600", textAlign: "center" },
   headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
-  rewardsPillContainer: {
+  profileIconContainer: {
     position: "absolute",
     right: 16,
     top: -24,
+  },
+  profileIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    overflow: "hidden",
+  },
+  profileIconImage: {
+    borderRadius: 18,
   },
 
   // Categories (anti-clipping)
@@ -543,6 +578,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 10,
+  },
+  userAvatarImage: {
+    borderRadius: 17,
   },
   userAvatarText: { color: "#6b5f5a", fontWeight: "800", fontSize: 12 },
   userName: { color: "#2d241f", fontWeight: "700" },

@@ -181,6 +181,29 @@ export default function CartScreen() {
     if (items.length === 0) return;
     try {
       setBusy(true);
+      console.log("🚀 Starting checkout process...");
+      console.log("📋 Cart items:", items);
+      console.log("👤 User ID:", user?.id);
+      console.log("🎯 Has full kit:", hasFullKit);
+      console.log("📊 Recommended handles:", recommendedHandles);
+
+      // Ensure user is authenticated before proceeding
+      if (!user?.id) {
+        console.log("⚠️ No user ID found, attempting to bootstrap auth...");
+        const { bootstrap } = useAuthStore.getState();
+        await bootstrap();
+        
+        // Check again after bootstrap
+        const { user: updatedUser } = useAuthStore.getState();
+        if (!updatedUser?.id) {
+          Alert.alert("Authentication Error", "Please restart the app and try again.");
+          setBusy(false);
+          return;
+        }
+        console.log("✅ Auth bootstrap successful, user ID:", updatedUser.id);
+        console.log("🔍 Profile should be created with first_login: true");
+      }
+
       // Only allow products that actually have valid variant IDs in Shopify
       const VALID_SKUS = [
         'bloom', 'micro-roller', 'detangling-comb', 'vegan-biotin', 'vitamin-d3', 'iron',
@@ -211,25 +234,39 @@ export default function CartScreen() {
 
       let webUrl: string;
 
+      // Get the current user (may have been updated by bootstrap)
+      const currentUser = useAuthStore.getState().user;
+      
       // If user has full kit, create a 20% discount code
-      if (hasFullKit && user?.id) {
+      if (hasFullKit && currentUser?.id) {
         try {
+          console.log("🎁 Creating kit discount for user:", currentUser.id);
           const cartItems = items.map(item => ({ sku: item.sku, qty: item.qty }));
-          const discountResult = await createKitDiscountCode(user.id, cartItems);
+          console.log("🛒 Cart items for discount:", cartItems);
+          console.log("📦 Line items for checkout:", lineItems);
+          
+          const discountResult = await createKitDiscountCode(currentUser.id, cartItems);
+          console.log("✅ Kit discount created:", discountResult);
           
           // Create checkout with discount code
           const result = await createCheckout(lineItems, discountResult.discountCode);
+          console.log("🛍️ Checkout created with discount code:", discountResult.discountCode);
+          console.log("🔗 Checkout result:", result);
           webUrl = result.webUrl;
         } catch (discountError) {
-          console.warn("Failed to create kit discount, proceeding with regular checkout:", discountError);
+          console.warn("❌ Failed to create kit discount, proceeding with regular checkout:", discountError);
           const result = await createCheckout(lineItems);
           webUrl = result.webUrl;
         }
       } else {
+        console.log("📦 No kit discount - creating regular checkout");
+        console.log("📦 Line items for regular checkout:", lineItems);
         const result = await createCheckout(lineItems);
+        console.log("🔗 Regular checkout result:", result);
         webUrl = result.webUrl;
       }
 
+      console.log("🔗 Final checkout URL being set:", webUrl);
       setCheckoutUrl(webUrl); // open in-sheet instead of external browser
     } catch (e: any) {
       Alert.alert("Checkout error", e?.message || "Something went wrong.");

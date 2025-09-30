@@ -98,11 +98,7 @@ export default function RoutineAnalyticsScreen() {
   }, [steps, completedByDate, purchases, points, events]);
 
   const onBack = () => {
-    try {
-      router.canGoBack() ? router.back() : router.replace("/(app)/routine");
-    } catch {
-      router.replace("/(app)/routine");
-    }
+    router.push("/(app)/routine");
   };
 
   const StatCard = ({ title, value, subtitle, icon, color = "#fff" }: {

@@ -19,6 +19,7 @@ import dayjs from "dayjs";
 import { useRoutineStore, RoutineStep } from "@/state/routineStore";
 import { useRewardsStore } from "@/state/rewardsStore";
 import { useCheckInStore } from "@/state/checkinStore";
+import { useAuthStore } from "@/state/authStore";
 import { getAllProducts, getProductPointValue } from "@/data/productPointCatalog";
 import PointsContainer from "@/components/UI/PointsContainer";
 import { onRoutineTaskCompleted, onRoutineTaskUndone } from "@/services/rewards";
@@ -367,14 +368,25 @@ export default function DashboardScreen() {
         // Wait a bit for session to be established
         await new Promise(resolve => setTimeout(resolve, 1000));
         
+        // Enhanced debugging for session and profile state
+        const { user } = useAuthStore.getState();
+        console.log('🔍 Dashboard signup bonus check:');
+        console.log('  - User ID:', user?.id);
+        console.log('  - User exists:', !!user);
+        
         const firstLoginData = await checkFirstLogin();
-        console.log('DEBUG: First login check result:', firstLoginData);
+        console.log('🔍 First login check result:', firstLoginData);
+        
+        // Check rewards store state
+        const { grants } = useRewardsStore.getState();
+        console.log('🔍 Current grants:', grants);
+        console.log('🔍 Signup bonus already awarded:', !!grants.signupBonus);
         
         if (firstLoginData.isFirstLogin) {
-          console.log('DEBUG: This is first login, awarding signup bonus...');
+          console.log('✅ This is first login, awarding signup bonus...');
           // Award signup bonus and show popup
           const success = awardSignupBonus();
-          console.log('DEBUG: Signup bonus award result:', success);
+          console.log('🔍 Signup bonus award result:', success);
           if (success) {
             // Mark in database that first login is complete (with retry logic)
             const markComplete = async () => {

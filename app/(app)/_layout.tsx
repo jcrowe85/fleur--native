@@ -176,7 +176,7 @@ function FleurTabBar({ state, navigation }: BottomTabBarProps) {
         <BlurView intensity={Platform.OS === "ios" ? 90 : 90} tint="dark" style={styles.pill}>
           <View
             pointerEvents="none"
-            style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(10,10,10,0.22)" }]}
+            style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(255, 149, 73, 0)" }]}
           />
           <View style={styles.row}>
             {routes.map((route) => {

@@ -87,7 +87,7 @@ export default function OnboardingScreen() {
           <SetupSequence
             planInput={planInput}
             onDone={() => {
-              // clear onboarding answers after we’ve created a plan
+              // clear onboarding answers after we've created a plan
               resetOnboarding();
               router.replace("/(plan)/summary");
             }}

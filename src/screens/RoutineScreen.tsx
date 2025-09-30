@@ -156,6 +156,45 @@ export default function RoutineScreen() {
     // Daily check-in is handled separately through the DailyHairCheckIn form component
   }
 
+  async function onToggleWeekly(step: RoutineStep, dateISO: string) {
+    const wasCompleted = isCompletedOn(step.id, dateISO);
+    const nowCompleted = toggleStepOn(step.id, dateISO);
+
+    // Only award points for today's date to prevent gaming
+    const today = dayjs().format("YYYY-MM-DD");
+    const isToday = dateISO === today;
+
+    if (nowCompleted && !wasCompleted) {
+      // Task was just completed
+      if (isToday) {
+        // Only award points for today's tasks
+        const res = onRoutineTaskCompleted(step.id);
+        if (res?.ok) {
+          setToast(res.message);
+          setTimeout(() => setToast(null), 3000);
+        }
+      } else {
+        // Future/past dates - no points, just show completion
+        setToast("Task completed for " + dayjs(dateISO).format("MMM D"));
+        setTimeout(() => setToast(null), 2000);
+      }
+    } else if (!nowCompleted && wasCompleted) {
+      // Task was just undone
+      if (isToday) {
+        // Only remove points for today's tasks
+        const res = onRoutineTaskUndone(step.id);
+        if (res?.ok) {
+          setToast(res.message);
+          setTimeout(() => setToast(null), 3000);
+        }
+      } else {
+        // Future/past dates - no point changes, just show undo
+        setToast("Task undone for " + dayjs(dateISO).format("MMM D"));
+        setTimeout(() => setToast(null), 2000);
+      }
+    }
+  }
+
   function headerCounts(period: Period) {
     const items = stepsByPeriod(period);
     const done = items.filter((s) => isCompletedToday(s.id)).length;
@@ -215,12 +254,6 @@ export default function RoutineScreen() {
                 </Text>
 
                 <View style={styles.headerActions}>
-                  <Pressable
-                    onPress={() => router.push("/(app)/notification-settings")}
-                    style={styles.notificationBtn}
-                  >
-                    <Feather name="bell" size={14} color="white" />
-                  </Pressable>
                   <Pressable
                     onPress={() => {
                       if (!hasSeenScheduleIntro) {
@@ -354,7 +387,7 @@ export default function RoutineScreen() {
                             key={`${d.iso}-${step.id}`}
                             step={step}
                             dateISO={d.iso}
-                            onToggle={toggleStepOn}
+                            onToggle={(id, iso) => onToggleWeekly(step, iso)}
                             isDone={isCompletedOn}
                           />
                         ))}
@@ -374,7 +407,7 @@ export default function RoutineScreen() {
                             key={`${d.iso}-w-${step.id}`}
                             step={step}
                             dateISO={d.iso}
-                            onToggle={toggleStepOn}
+                            onToggle={(id, iso) => onToggleWeekly(step, iso)}
                             isDone={isCompletedOn}
                           />
                         ))}
@@ -459,14 +492,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-  },
-  notificationBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: "rgba(255,255,255,0.1)",
   },
   sectionTitle: { color: "#fff", fontWeight: "800", fontSize: 16 },
   smallCount: { color: "rgba(255,255,255,0.75)", fontSize: 12 },

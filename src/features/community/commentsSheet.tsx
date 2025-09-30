@@ -22,6 +22,7 @@ import {
   ActionSheetIOS,
   Keyboard,
   TouchableWithoutFeedback,
+  ImageBackground,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -58,6 +59,12 @@ function timeAgo(iso: string) {
   if (m < 60)  return `${Math.floor(m)}m`;
   if (h < 24)  return `${Math.floor(h)}h`;
   return `${Math.floor(d)}d`;
+}
+
+function initials(name?: string | null) {
+  if (!name) return "AN";
+  const parts = name.trim().split(/\s+/).slice(0, 2);
+  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "AN";
 }
 
 export function CommentsSheetProvider({ children }: { children: React.ReactNode }) {
@@ -321,7 +328,19 @@ export function CommentsSheetProvider({ children }: { children: React.ReactNode 
                         delayLongPress={250}
                         style={styles.commentRow}
                       >
-                        <View style={styles.commentAvatar} />
+                        {item.author?.avatar_url ? (
+                          <ImageBackground
+                            source={{ uri: item.author.avatar_url }}
+                            style={styles.commentAvatar}
+                            imageStyle={styles.commentAvatarImage}
+                          />
+                        ) : (
+                          <View style={styles.commentAvatar}>
+                            <Text style={styles.commentAvatarText}>
+                              {initials(item.author?.display_name || item.author?.handle)}
+                            </Text>
+                          </View>
+                        )}
                         <View style={{ flex: 1 }}>
                           <View style={styles.commentHeader}>
                             <Text style={styles.commentName}>
@@ -491,7 +510,17 @@ const styles = StyleSheet.create({
     width: 32, 
     height: 32, 
     borderRadius: 16, 
-    backgroundColor: "rgba(255,255,255,0.18)" 
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  commentAvatarImage: {
+    borderRadius: 16,
+  },
+  commentAvatarText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 11,
   },
   commentHeader: { 
     flexDirection: "row", 
