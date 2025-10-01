@@ -296,6 +296,17 @@ export default function LoginScreen() {
                 }
               </Text>
             </Pressable>
+
+            {!isSignUp && (
+              <Pressable
+                onPress={() => router.push('/forgot-password')}
+                style={styles.forgotPassword}
+              >
+                <Text style={styles.forgotPasswordText}>
+                  Forgot password?
+                </Text>
+              </Pressable>
+            )}
           </View>
         </ScreenScrollView>
       </SafeAreaView>
@@ -436,6 +447,16 @@ const styles = StyleSheet.create({
   switchModeText: {
     fontSize: 13,
     color: 'rgba(255,255,255,0.65)',
+    textDecorationLine: 'underline',
+  },
+  forgotPassword: {
+    alignItems: 'center',
+    paddingVertical: 8,
+    marginTop: 8,
+  },
+  forgotPasswordText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
     textDecorationLine: 'underline',
   },
   passwordStrengthContainer: {

@@ -24,6 +24,7 @@ import { isHandleAvailable } from "@/services/profile";
 import { ScreenScrollView } from "@/components/UI/bottom-space";
 import RewardsPill from "@/components/UI/RewardsPill";
 import { supabase } from "@/services/supabase";
+import { cloudSyncService } from "@/services/cloudSyncService";
 
 export default function ProfileScreen() {
   const { user } = useAuthStore();
@@ -337,36 +338,105 @@ export default function ProfileScreen() {
   };
 
   const handleAddEmail = () => {
+    // Step 1: Collect email
     Alert.prompt(
       "Add Email",
       "Enter your email address for cloud sync:",
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Add Email",
+          text: "Next",
           onPress: async (email) => {
             if (email?.trim()) {
-              setLoading(true);
-              try {
-                const { error } = await supabase.auth.updateUser({
-                  email: email.trim()
-                });
-
-                if (error) {
-                  throw error;
-                }
-
-                Alert.alert(
-                  "Email Added", 
-                  "Please check your email and click the verification link to complete setup.",
-                  [{ text: "OK" }]
-                );
-              } catch (error) {
-                console.error('Email update error:', error);
-                Alert.alert("Update failed", "Could not add email. Please try again.");
-              } finally {
-                setLoading(false);
+              // Validate email format
+              const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+              if (!emailRegex.test(email.trim())) {
+                Alert.alert("Invalid Email", "Please enter a valid email address.");
+                return;
               }
+
+              // Step 2: Collect password
+              Alert.prompt(
+                "Set Password",
+                "Create a password to secure your account (min 8 characters):",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Sync Account",
+                    onPress: async (password) => {
+                      if (!password || password.trim().length < 8) {
+                        Alert.alert("Invalid Password", "Password must be at least 8 characters long.");
+                        return;
+                      }
+
+                      setLoading(true);
+                      try {
+                        // Get current session
+                        const { data: { session } } = await supabase.auth.getSession();
+                        if (!session) {
+                          throw new Error("No active session");
+                        }
+
+                        // Call the link-email Edge Function
+                        const functionsUrl = process.env.EXPO_PUBLIC_FUNCTIONS_URL || 
+                          `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1`;
+                        
+                        const response = await fetch(`${functionsUrl}/link-email`, {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${session.access_token}`,
+                          },
+                          body: JSON.stringify({ 
+                            email: email.trim(),
+                            password: password.trim()
+                          }),
+                        });
+
+                        const result = await response.json();
+
+                        if (!result.success) {
+                          throw new Error(result.error || 'Failed to link email');
+                        }
+
+                        // Refresh the session to get updated user data
+                        await supabase.auth.refreshSession();
+
+                        // Trigger cloud sync to upload all local data
+                        try {
+                          await cloudSyncService.performBackgroundSync();
+                          
+                          // Update auth store to mark user as cloud synced
+                          useAuthStore.getState().setUser({
+                            id: user?.id!,
+                            email: email.trim(),
+                            isCloudSynced: true,
+                          });
+                          
+                          console.log('Data synced to cloud successfully');
+                        } catch (syncError) {
+                          console.warn('Cloud sync failed, but email was linked:', syncError);
+                        }
+
+                        Alert.alert(
+                          "Account Synced!", 
+                          "Your email is " + email.trim() + " and all your data is backed up. You can now log in with this email and password.",
+                          [{ text: "OK" }]
+                        );
+                      } catch (error: any) {
+                        console.error('Email link error:', error);
+                        Alert.alert(
+                          "Sync Failed", 
+                          error.message || "Could not sync account. Please try again."
+                        );
+                      } finally {
+                        setLoading(false);
+                      }
+                    }
+                  }
+                ],
+                "secure-text"
+              );
             }
           }
         }
