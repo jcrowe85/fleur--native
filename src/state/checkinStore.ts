@@ -55,13 +55,16 @@ export const useCheckInStore = create<CheckInState>()(
         
         if (existingCheckIn) {
           // Update existing check-in for today
-          set((state) => ({
-            checkIns: (state.checkIns || []).map((checkIn) =>
-              checkIn.date === today
-                ? { ...checkIn, ...data, timestamp: Date.now() }
-                : checkIn
-            ),
-          }));
+          set((state) => {
+            const existingCheckIns = Array.isArray(state.checkIns) ? state.checkIns : [];
+            return {
+              checkIns: existingCheckIns.map((checkIn) =>
+                checkIn.date === today
+                  ? { ...checkIn, ...data, timestamp: Date.now() }
+                  : checkIn
+              ),
+            };
+          });
         } else {
           // Add new check-in
           const newCheckIn: DailyCheckIn = {
@@ -70,9 +73,12 @@ export const useCheckInStore = create<CheckInState>()(
             timestamp: Date.now(),
             ...data,
           };
-          set((state) => ({
-            checkIns: [newCheckIn, ...(state.checkIns || [])].slice(0, 365), // Keep last year
-          }));
+          set((state) => {
+            const existingCheckIns = Array.isArray(state.checkIns) ? state.checkIns : [];
+            return {
+              checkIns: [newCheckIn, ...existingCheckIns].slice(0, 365), // Keep last year
+            };
+          });
         }
       },
 
@@ -170,9 +176,12 @@ export const useCheckInStore = create<CheckInState>()(
       // Debug helper - clear today's check-in only
       clearTodaysCheckIn: () => {
         const today = dayjs().format("YYYY-MM-DD");
-        set((state) => ({
-          checkIns: state.checkIns.filter((checkIn) => checkIn.date !== today),
-        }));
+        set((state) => {
+          const existingCheckIns = Array.isArray(state.checkIns) ? state.checkIns : [];
+          return {
+            checkIns: existingCheckIns.filter((checkIn) => checkIn.date !== today),
+          };
+        });
       },
     }),
     { name: "checkin:v1" }

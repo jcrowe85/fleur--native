@@ -38,7 +38,7 @@ export function onDailyCheckInUndone() {
 // Routine task completion
 export function onRoutineTaskCompleted(taskId: string) {
   const { completeRoutineTask } = useRewardsStore.getState();
-  return completeRoutineTask(taskId); // { ok, message, points }
+  return completeRoutineTask(taskId);
 }
 
 // Routine task undo

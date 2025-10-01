@@ -1,6 +1,8 @@
 // src/state/routineStore.ts
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createSafeStorage } from "../utils/safeStorage";
 import dayjs from "dayjs";
 // Conditional import for notification service
 let notificationService: any = null;
@@ -32,6 +34,7 @@ type RoutineState = {
   steps: RoutineStep[];
   completedByDate: CompletedMap;
   hasSeenScheduleIntro: boolean;
+  lastSavedFromScheduling: number | null; // timestamp when last saved from scheduling
 
   // derived
   todayKey: () => string;
@@ -57,6 +60,7 @@ type RoutineState = {
   markScheduleIntroSeen: () => void;
   scheduleNotifications: () => Promise<void>;
   resetAll: () => void;
+  clearStorage: () => Promise<void>;
 };
 
 // quick id
@@ -202,7 +206,7 @@ export function buildRoutineFromPlan(plan: any): RoutineStep[] {
 }
 
 // naive inference if period not provided
-function inferPeriod(s: RoutineStep): Period {
+export function inferPeriod(s: RoutineStep): Period {
   if ((s.frequency || "").toLowerCase().includes("weekly")) return "weekly";
   const t = (s.time || "").toLowerCase();
   if (!t) return "morning";
@@ -267,6 +271,7 @@ export const useRoutineStore = create<RoutineState>()(
       steps: [],
       completedByDate: {},
       hasSeenScheduleIntro: false,
+      lastSavedFromScheduling: null,
 
       todayKey: () => dayjs().format("YYYY-MM-DD"),
 
@@ -295,9 +300,18 @@ export const useRoutineStore = create<RoutineState>()(
 
       stepsByPeriod: (p) => {
         const src = get().steps;
-        return src
+        const filtered = src
           .filter((s) => s.enabled)
           .filter((s) => (s.period ? s.period === p : inferPeriod(s) === p));
+        
+        // Sort by time (earliest first)
+        const sorted = filtered.sort((a, b) => {
+          const timeA = a.time || "23:59";
+          const timeB = b.time || "23:59";
+          return timeA.localeCompare(timeB);
+        });
+        
+        return sorted;
       },
 
       setSteps: (steps) => set({ steps }),
@@ -359,7 +373,11 @@ export const useRoutineStore = create<RoutineState>()(
       buildFromPlan: (plan: any) => {
         // If plan has routineSteps (from scheduling), use those directly
         if (plan?.routineSteps && Array.isArray(plan.routineSteps)) {
-          set({ steps: plan.routineSteps });
+          console.log("buildFromPlan: Setting routine steps from scheduling:", plan.routineSteps);
+          set({ 
+            steps: plan.routineSteps,
+            lastSavedFromScheduling: Date.now()
+          });
         } else {
           // Otherwise, build from recommendations using the old method
           const personalizedSteps = buildRoutineFromPlan(plan);
@@ -372,7 +390,9 @@ export const useRoutineStore = create<RoutineState>()(
         }
       },
 
-      markScheduleIntroSeen: () => set({ hasSeenScheduleIntro: true }),
+        markScheduleIntroSeen: () => {
+          set({ hasSeenScheduleIntro: true });
+        },
       
       scheduleNotifications: async () => {
         try {
@@ -386,7 +406,29 @@ export const useRoutineStore = create<RoutineState>()(
       },
       
       resetAll: () => set({ steps: [], completedByDate: {}, hasSeenScheduleIntro: false }),
+      
+      // Storage maintenance function
+      clearStorage: async () => {
+        try {
+          await AsyncStorage.removeItem("routine:v2");
+          console.log("Routine storage cleared successfully");
+        } catch (error) {
+          console.error("Failed to clear routine storage:", error);
+        }
+      },
     }),
-    { name: "routine:v2" }
+    { 
+      name: "routine:v2",
+      storage: createJSONStorage(() => createSafeStorage()),
+      // Add partialize to only persist essential data and reduce size
+      partialize: (state) => ({
+        steps: state.steps,
+        completedByDate: state.completedByDate,
+        hasSeenScheduleIntro: state.hasSeenScheduleIntro,
+        lastSavedFromScheduling: state.lastSavedFromScheduling,
+      }),
+      // Add version for migration handling
+      version: 2,
+    }
   )
 );

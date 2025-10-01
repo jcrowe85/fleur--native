@@ -18,6 +18,7 @@ interface FirstPointPopupProps {
 }
 
 export default function FirstPointPopup({ visible, onClose }: FirstPointPopupProps) {
+  
   const handleRewardsPress = () => {
     onClose();
     router.push("/(app)/rewards");

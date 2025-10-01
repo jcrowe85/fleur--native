@@ -133,10 +133,15 @@ export async function storeSupportMessage(message: string, threadTs?: string): P
   try {
     const { data: { user } } = await supabase.auth.getUser();
     
+    if (!user?.id) {
+      console.warn("No authenticated user found for storing support message");
+      return false;
+    }
+    
     const { error } = await supabase
       .from("support_messages")
       .insert({
-        user_id: user?.id,
+        user_id: user.id,
         message_text: message,
         is_from_user: true,
         slack_thread_ts: threadTs,
@@ -159,10 +164,15 @@ export async function getSupportMessages(): Promise<SupportMessage[]> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     
+    if (!user?.id) {
+      console.warn("No authenticated user found for support messages");
+      return [];
+    }
+    
     const { data, error } = await supabase
       .from("support_messages")
       .select("*")
-      .eq("user_id", user?.id)
+      .eq("user_id", user.id)
       .order("created_at", { ascending: true })
       .limit(50);
 

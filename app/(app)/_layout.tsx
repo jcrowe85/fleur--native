@@ -21,6 +21,7 @@ import { CommentsSheetProvider } from "../../src/features/community/commentsShee
 import { PickHandleSheetProvider } from "../../src/features/community/pickHandleSheet";
 import { useAuthStore } from "../../src/state/authStore";
 import { useRoutineStore } from "../../src/state/routineStore";
+import { useRewardsStore } from "../../src/state/rewardsStore";
 import RewardsPill from "@/components/UI/RewardsPill";
 import RewardsPopup from "@/components/UI/RewardsPopup";
 import { useRewardsPopup } from "@/hooks/useRewardsPopup";
@@ -34,6 +35,7 @@ try {
 }
 import { cloudSyncManager } from "../../src/services/cloudSyncManager";
 import CloudSyncPopup from "../../src/components/CloudSyncPopup";
+import { checkStorageHealth, performStorageRecovery } from "../../src/utils/storageHealth";
 
 
 export default function AppLayout() {
@@ -48,13 +50,33 @@ export default function AppLayout() {
   } = useCloudSyncPopup();
 
   useEffect(() => {
-    bootstrap();
-    // Initialize notifications
-    if (notificationService) {
-      notificationService.initialize();
-    }
-    // Initialize cloud sync manager
-    cloudSyncManager.initialize();
+    const initializeApp = async () => {
+      // Check storage health first
+      const storageHealth = await checkStorageHealth();
+      if (!storageHealth.isHealthy) {
+        console.warn('Storage health issues detected:', storageHealth.issues);
+        console.warn('Recommendations:', storageHealth.recommendations);
+        
+                // Perform recovery if storage is severely corrupted
+                if (storageHealth.issues.some(issue => issue.includes('basic functionality'))) {
+                  await performStorageRecovery();
+                }
+      }
+      
+      // Set up first point callback early to avoid race conditions
+      const { setFirstPointCallback } = useRewardsStore.getState();
+      setFirstPointCallback(() => {});
+      
+      bootstrap();
+      // Initialize notifications
+      if (notificationService) {
+        notificationService.initialize();
+      }
+      // Initialize cloud sync manager
+      cloudSyncManager.initialize();
+    };
+    
+    initializeApp();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -151,6 +173,9 @@ export default function AppLayout() {
 function FleurTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { hasSeenScheduleIntro } = useRoutineStore();
+  
+  // Check if the routine store is hydrated
+  const isRoutineStoreHydrated = useRoutineStore.persist?.hasHydrated?.() ?? false;
 
   // Only these show up as tabs; anything else (e.g., profile) is ignored
   const TAB_NAMES = ["dashboard", "routine", "shop", "education", "community"] as const;
@@ -192,11 +217,12 @@ function FleurTabBar({ state, navigation }: BottomTabBarProps) {
                 });
                 if (!isFocused && !e.defaultPrevented) {
                   // Show schedule intro popup when routine tab is pressed for the first time
-                  if (route.name === "routine" && !hasSeenScheduleIntro) {
-                    router.push("/schedule-intro");
-                  } else {
-                    navigation.navigate(route.name);
-                  }
+                  // Only check hasSeenScheduleIntro after store is hydrated
+                if (route.name === "routine" && isRoutineStoreHydrated && !hasSeenScheduleIntro) {
+                  router.push("/schedule-intro");
+                } else {
+                  navigation.navigate(route.name);
+                }
                 }
               };
 

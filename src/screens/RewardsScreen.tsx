@@ -490,6 +490,14 @@ export default function RewardsScreen() {
               </View>
             </>
           )}
+
+          {/* See All Points Button */}
+          <Pressable 
+            onPress={() => router.push("/(app)/routine-points")} 
+            style={[styles.longBtn, styles.longBtnGhost, { marginTop: 20 }]}
+          >
+            <Text style={styles.longBtnGhostText}>See Points Ledger</Text>
+          </Pressable>
         </ScreenScrollView>
       </SafeAreaView>
 
@@ -879,5 +887,24 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "500",
     textAlign: "center",
+  },
+
+  // Button styles
+  longBtn: {
+    borderRadius: 999,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+  },
+  longBtnGhost: {
+    backgroundColor: "rgba(255,255,255,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.30)",
+  },
+  longBtnGhostText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

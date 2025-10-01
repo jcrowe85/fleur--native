@@ -141,13 +141,17 @@ export class NotificationService {
       return;
     }
     
+    
     // Cancel existing routine notifications
     await this.cancelRoutineNotifications();
 
-    if (!this.preferences.routineNotifications) return;
+    if (!this.preferences.routineNotifications) {
+      return;
+    }
 
     const morningSteps = steps.filter(step => step.period === 'morning' && step.enabled);
     const eveningSteps = steps.filter(step => step.period === 'evening' && step.enabled);
+
 
     // Schedule morning notification
     if (morningSteps.length > 0) {
@@ -165,7 +169,7 @@ export class NotificationService {
             stepCount: morningSteps.length,
             firstStep: firstMorningStep.name 
           },
-          time: this.getNotificationTime(firstMorningStep.time, -30), // 30 minutes before
+          time: this.getNotificationTime(firstMorningStep.time, -15), // 15 minutes before
         });
       }
     }
@@ -186,7 +190,7 @@ export class NotificationService {
             stepCount: eveningSteps.length,
             firstStep: firstEveningStep.name 
           },
-          time: this.getNotificationTime(firstEveningStep.time, -30), // 30 minutes before
+          time: this.getNotificationTime(firstEveningStep.time, -15), // 15 minutes before
         });
       }
     }
@@ -271,7 +275,19 @@ export class NotificationService {
     time?: Date;
   }): Promise<void> {
     try {
+      // Safety check: don't schedule notifications too close to current time
+      if (time) {
+        const now = new Date();
+        const timeDiff = time.getTime() - now.getTime();
+        const minDelay = 30 * 60 * 1000; // 30 minutes minimum delay
+        
+        if (timeDiff < minDelay) {
+          return;
+        }
+      }
+      
       const trigger = time ? { date: time } : null;
+      
       
       await Notifications.scheduleNotificationAsync({
         content: {
@@ -321,8 +337,12 @@ export class NotificationService {
     const notificationTime = new Date();
     notificationTime.setHours(hour24, minutes + offsetMinutes, 0, 0);
     
-    // If the time has passed today, schedule for tomorrow
-    if (notificationTime <= new Date()) {
+    // Add aggressive safety buffer - ensure notification is at least 30 minutes in the future
+    const now = new Date();
+    const minFutureTime = new Date(now.getTime() + 30 * 60 * 1000); // 30 minutes from now
+    
+    // If the calculated time has passed today OR is too close to now, schedule for tomorrow
+    if (notificationTime <= minFutureTime) {
       notificationTime.setDate(notificationTime.getDate() + 1);
     }
     

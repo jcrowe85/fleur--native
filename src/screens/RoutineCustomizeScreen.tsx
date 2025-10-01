@@ -35,7 +35,7 @@ function stepIdentity(step: RoutineStep) {
   return (step.product || step.name || "").trim().toLowerCase();
 }
 function recIdentity(rec: any) {
-  return (rec?.name || rec?.product || "").trim().toLowerCase();
+  return (rec?.title || rec?.product || "").trim().toLowerCase();
 }
 
 /* ---------------- screen ---------------- */
@@ -67,7 +67,6 @@ export default function RoutineCustomizeScreen() {
     enabled: true,
   });
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
 
   function openAdd() {
     setEditingId(null);
@@ -120,8 +119,6 @@ export default function RoutineCustomizeScreen() {
     setShowForm(false);
     setEditingId(null);
     setError(null);
-    setToast(editingId ? "Step updated" : "Step added");
-    setTimeout(() => setToast(null), 1100);
   }
 
 
@@ -135,18 +132,16 @@ export default function RoutineCustomizeScreen() {
   function addFromRecommendation(rec: any) {
     const draft: RoutineStep = {
       id: uid(),
-      name: rec?.name || "Custom Step",
+      name: rec?.title || "Custom Step",
       enabled: true,
-      period: (rec?.period as Period) || "morning",
+      period: (rec?.timeOfDay as Period) || "morning",
       frequency: rec?.frequency || "Daily",
       time: rec?.time || "",
       instructions: rec?.instructions || "",
-      product: rec?.product || rec?.name || "",
+      product: rec?.product || rec?.title || "",
       icon: rec?.icon || "droplet",
     };
     upsertStep(draft);
-    setToast("Added to your steps");
-    setTimeout(() => setToast(null), 1100);
   }
 
   /* --------------- UI --------------- */
@@ -163,15 +158,21 @@ export default function RoutineCustomizeScreen() {
       <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1 }}>
         {/* Header */}
         <View style={styles.headerWrap}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, position: "relative" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 }}>
+            <Pressable
+              onPress={() => router.back()}
+              hitSlop={10}
+              style={{ padding: 8, borderRadius: 20 }}
+            >
+              <Feather name="arrow-left" size={18} color="#fff" />
+            </Pressable>
+
             <View style={{ flex: 1, alignItems: "center" }}>
               <Text style={styles.headerTitle}>Customize Routine</Text>
               <Text style={styles.headerSub}>Add steps, set times, choose frequency</Text>
             </View>
 
-            <View style={[styles.rewardsPillContainer, { padding: 8, borderRadius: 20 }]}>
-              <RewardsPill compact />
-            </View>
+            <View style={{ width: 34 }} />
           </View>
         </View>
 
@@ -348,8 +349,8 @@ export default function RoutineCustomizeScreen() {
             ) : (
               recommendedAvailable.map((rec, idx) => (
                 <View key={`${rec?.id ?? idx}`} style={styles.card}>
-                  <Text style={styles.stepTitle}>{rec?.name || "Recommended Step"}</Text>
-                  {rec?.description ? <Text style={styles.stepDesc}>{rec.description}</Text> : null}
+                  <Text style={styles.stepTitle}>{rec?.title || "Recommended Step"}</Text>
+                  {rec?.instructions ? <Text style={styles.stepDesc}>{rec.instructions}</Text> : null}
 
                   <View style={{ marginTop: 8, flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                     {rec?.time ? (
@@ -363,9 +364,9 @@ export default function RoutineCustomizeScreen() {
                     </View>
                     <View style={styles.pill}>
                       <Text style={styles.pillText}>
-                        {(rec?.period as Period) === "evening"
+                        {rec?.timeOfDay === "evening"
                           ? "Evening"
-                          : (rec?.period as Period) === "weekly"
+                          : rec?.timeOfDay === "weekly"
                           ? "Weekly"
                           : "Morning"}
                       </Text>
@@ -382,12 +383,6 @@ export default function RoutineCustomizeScreen() {
         </ScreenScrollView>
       </SafeAreaView>
 
-      {/* tiny toast */}
-      {toast ? (
-        <View style={styles.toast}>
-          <Text style={styles.toastText}>{toast}</Text>
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -395,20 +390,13 @@ export default function RoutineCustomizeScreen() {
 /* ---------------- styles ---------------- */
 
 const styles = StyleSheet.create({
-  // Match Rewards header
+  // Header styling
   headerWrap: {
     paddingTop: 32,
-    alignItems: "center",
-    justifyContent: "center",
     marginBottom: 12,
   },
   headerTitle: { color: "#fff", fontSize: 22, fontWeight: "600", textAlign: "center" },
   headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
-  rewardsPillContainer: {
-    position: "absolute",
-    right: 16,
-    top: -24,
-  },
 
   sectionTitle: {
     marginTop: 6,
@@ -533,6 +521,10 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 999,
   },
+  iconBtn: {
+    padding: 8,
+    borderRadius: 999,
+  },
 
   /* form action row */
   actionRow: {
@@ -549,20 +541,4 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  /* toast */
-  toast: {
-    position: "absolute",
-    bottom: 24,
-    left: 16,
-    right: 16,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)",
-    alignItems: "center",
-  },
-  toastText: { color: "#fff", fontWeight: "700" },
 });

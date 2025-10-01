@@ -14,7 +14,7 @@ import { Feather } from "@expo/vector-icons";
 import dayjs from "dayjs";
 import { router } from "expo-router";
 
-import { useRoutineStore, RoutineStep, Period } from "@/state/routineStore";
+import { useRoutineStore, RoutineStep, Period, inferPeriod } from "@/state/routineStore";
 import { onRoutineTaskCompleted, onRoutineTaskUndone } from "@/services/rewards";
 import { useRewardsStore } from "@/state/rewardsStore";
 import { usePlanStore } from "@/state/planStore";
@@ -38,6 +38,28 @@ function next7Days() {
     });
   }
   return out;
+}
+
+// Dynamic step description based on user's schedule
+function getDynamicStepDescription(step: RoutineStep) {
+  const frequency = step.frequency || "Daily";
+  const time = step.time || "";
+  const period = step.period || "";
+  
+  // Generate dynamic description based on frequency
+  let description = "";
+  
+  if (frequency === "Daily") {
+    description = `Use daily${time ? ` at ${time}` : ""}${period ? ` (${period})` : ""}`;
+  } else if (frequency === "3x/week") {
+    description = `Use 3 times per week${time ? ` at ${time}` : ""}${period ? ` (${period})` : ""}`;
+  } else if (frequency === "Weekly") {
+    description = `Use once per week${time ? ` at ${time}` : ""}${period ? ` (${period})` : ""}`;
+  } else {
+    description = `Use as scheduled${time ? ` at ${time}` : ""}${period ? ` (${period})` : ""}`;
+  }
+  
+  return description;
 }
 
 function StepRowWeekly({
@@ -65,7 +87,7 @@ function StepRowWeekly({
           {step.name} {completed ? <Text style={styles.stepComplete}>✓ Complete</Text> : null}
         </Text>
 
-        {step.instructions ? <Text style={styles.stepDesc}>{step.instructions}</Text> : null}
+        <Text style={styles.stepDesc}>{getDynamicStepDescription(step)}</Text>
 
         <View style={styles.metaRow}>
           <View style={styles.pill}>
@@ -79,6 +101,10 @@ function StepRowWeekly({
           ) : null}
         </View>
       </View>
+      
+      <View style={styles.pointIndicator}>
+        <Text style={styles.pointText}>+1</Text>
+      </View>
     </Pressable>
   );
 }
@@ -90,6 +116,7 @@ export default function RoutineScreen() {
   const applyDefaultIfEmpty = useRoutineStore((s) => s.applyDefaultIfEmpty);
   const buildFromPlan = useRoutineStore((s) => s.buildFromPlan);
   const stepsByPeriod = useRoutineStore((s) => s.stepsByPeriod);
+  const lastSavedFromScheduling = useRoutineStore((s) => s.lastSavedFromScheduling);
   const isCompletedToday = useRoutineStore((s) => s.isCompletedToday);
   const toggleStepToday = useRoutineStore((s) => s.toggleStepToday);
   const stepsAll = useRoutineStore((s) => s.steps);
@@ -105,19 +132,39 @@ export default function RoutineScreen() {
 
   // initialize routine from user's personalized plan
   useEffect(() => {
-    if (plan && plan.recommendations && plan.recommendations.length > 0) {
+    // Don't rebuild from plan if steps were recently saved from scheduling (within last 5 seconds)
+    const recentlySavedFromScheduling = lastSavedFromScheduling && 
+      (Date.now() - lastSavedFromScheduling) < 5000;
+    
+    if (plan && plan.recommendations && plan.recommendations.length > 0 && !recentlySavedFromScheduling) {
       // Build routine from user's personalized recommendations
+      console.log("RoutineScreen: Building from plan");
       buildFromPlan(plan);
-    } else {
+    } else if (!plan) {
       // Fallback to default routine if no personalized plan
       applyDefaultIfEmpty();
+    } else {
+      console.log("RoutineScreen: Skipping build from plan - recently saved from scheduling");
     }
-  }, [plan, buildFromPlan, applyDefaultIfEmpty]);
+  }, [plan, buildFromPlan, applyDefaultIfEmpty, lastSavedFromScheduling]);
 
   const [tab, setTab] = useState<Period>("morning");
 
   // recompute the list when steps or completion map changes
-  const list = useMemo(() => stepsByPeriod(tab), [stepsByPeriod, tab, stepsAll, completedByDate]);
+  // For morning/evening tabs, filter by today's day of week
+  const list = useMemo(() => {
+    const allSteps = stepsByPeriod(tab);
+    
+    // For morning/evening tabs, only show steps scheduled for today
+    if (tab === "morning" || tab === "evening") {
+      const todayDayOfWeek = dayjs().day(); // 0=Sunday, 1=Monday, etc.
+      return allSteps.filter(step => 
+        !step.days || step.days.length === 0 || step.days.includes(todayDayOfWeek)
+      );
+    }
+    
+    return allSteps;
+  }, [stepsByPeriod, tab, stepsAll, completedByDate]);
 
   // split into active vs completed (for Morning/Evening)
   const { activeList, completedList } = useMemo(() => {
@@ -131,7 +178,6 @@ export default function RoutineScreen() {
 
 
 
-  const [toast, setToast] = useState<string | null>(null);
 
   async function onToggleDaily(step: RoutineStep) {
     const wasCompleted = isCompletedToday(step.id);
@@ -139,18 +185,10 @@ export default function RoutineScreen() {
 
     if (nowCompleted && !wasCompleted) {
       // Task was just completed - award points
-      const res = onRoutineTaskCompleted(step.id);
-      if (res?.ok) {
-        setToast(res.message);
-        setTimeout(() => setToast(null), 3000);
-      }
+      onRoutineTaskCompleted(step.id);
     } else if (!nowCompleted && wasCompleted) {
       // Task was just undone - remove points
-      const res = onRoutineTaskUndone(step.id);
-      if (res?.ok) {
-        setToast(res.message);
-        setTimeout(() => setToast(null), 3000);
-      }
+      onRoutineTaskUndone(step.id);
     }
 
     // Daily check-in is handled separately through the DailyHairCheckIn form component
@@ -168,29 +206,13 @@ export default function RoutineScreen() {
       // Task was just completed
       if (isToday) {
         // Only award points for today's tasks
-        const res = onRoutineTaskCompleted(step.id);
-        if (res?.ok) {
-          setToast(res.message);
-          setTimeout(() => setToast(null), 3000);
-        }
-      } else {
-        // Future/past dates - no points, just show completion
-        setToast("Task completed for " + dayjs(dateISO).format("MMM D"));
-        setTimeout(() => setToast(null), 2000);
+        onRoutineTaskCompleted(step.id);
       }
     } else if (!nowCompleted && wasCompleted) {
       // Task was just undone
       if (isToday) {
         // Only remove points for today's tasks
-        const res = onRoutineTaskUndone(step.id);
-        if (res?.ok) {
-          setToast(res.message);
-          setTimeout(() => setToast(null), 3000);
-        }
-      } else {
-        // Future/past dates - no point changes, just show undo
-        setToast("Task undone for " + dayjs(dateISO).format("MMM D"));
-        setTimeout(() => setToast(null), 2000);
+        onRoutineTaskUndone(step.id);
       }
     }
   }
@@ -292,7 +314,7 @@ export default function RoutineScreen() {
                         </Text>
 
                         <Text style={styles.stepDesc}>
-                          {step.instructions || "Follow the instructions shown for best results."}
+                          {getDynamicStepDescription(step)}
                         </Text>
 
                         <View style={styles.metaRow}>
@@ -362,11 +384,34 @@ export default function RoutineScreen() {
             /* Weekly tab */
             <View style={{ gap: 12 }}>
               {next7Days().map((d) => {
-                const dailyStepsAll = [
-                  ...useRoutineStore.getState().stepsByPeriod("morning"),
-                  ...useRoutineStore.getState().stepsByPeriod("evening"),
-                ];
-                const weeklyStepsOnly = useRoutineStore.getState().stepsByPeriod("weekly");
+                // Get ALL enabled steps regardless of period or scheduled days
+                const allSteps = useRoutineStore.getState().steps.filter(s => s.enabled);
+                
+                // Separate into daily (morning/evening) and weekly steps
+                // Show ALL steps in weekly view regardless of their scheduled days
+                const dailyStepsAll = allSteps
+                  .filter(step => {
+                    const period = step.period || inferPeriod(step);
+                    return period === "morning" || period === "evening";
+                  })
+                  .sort((a, b) => {
+                    // Sort by time
+                    const timeA = a.time || "23:59";
+                    const timeB = b.time || "23:59";
+                    return timeA.localeCompare(timeB);
+                  });
+                
+                const weeklyStepsOnly = allSteps
+                  .filter(step => {
+                    const period = step.period || inferPeriod(step);
+                    return period === "weekly";
+                  })
+                  .sort((a, b) => {
+                    // Sort by time
+                    const timeA = a.time || "23:59";
+                    const timeB = b.time || "23:59";
+                    return timeA.localeCompare(timeB);
+                  });
 
                 const doneCount = dailyStepsAll.filter((s) => isCompletedOn(s.id, d.iso)).length;
 
@@ -426,7 +471,7 @@ export default function RoutineScreen() {
           {/* Quick actions */}
           <View style={{ marginTop: 14, gap: 10 }}>
             <Pressable onPress={() => router.push("/(app)/routine/customize")} style={[styles.longBtn, styles.longBtnGhost]}>
-              <Text style={styles.longBtnGhostText}>Customize Routine</Text>
+              <Text style={styles.longBtnGhostText}>Update Steps</Text>
             </Pressable>
             <Pressable onPress={() => router.push("/(app)/routine-analytics")} style={[styles.longBtn, styles.longBtnGhost]}>
               <Text style={styles.longBtnGhostText}>View Progress Analytics</Text>
@@ -435,12 +480,6 @@ export default function RoutineScreen() {
         </ScreenScrollView>
       </SafeAreaView>
 
-      {/* tiny toast */}
-      {toast ? (
-        <View style={styles.toast}>
-          <Text style={styles.toastText}>{toast}</Text>
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -584,33 +623,15 @@ const styles = StyleSheet.create({
   },
   longBtnGhostText: { color: "#fff", fontWeight: "700" },
 
-  toast: {
-    position: "absolute",
-    bottom: 24,
-    left: 16,
-    right: 16,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)",
-    alignItems: "center",
-  },
-  toastText: { color: "#fff", fontWeight: "700" },
-
   /* weekly view */
   dayCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.22)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    padding: 12,
+    // Removed padding to match morning/evening step widths
   },
   dayHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    marginTop: 6,
     marginBottom: 8,
   },
   dayTitle: { color: "#fff", fontWeight: "800", fontSize: 14 },

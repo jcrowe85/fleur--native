@@ -45,7 +45,7 @@ type RewardsState = {
   getDailyRoutinePointsRemaining: () => number;
 
   // core mutations
-  earn: (delta: number, reason: string, meta?: Record<string, any>, reversible?: boolean, relatedActionId?: string) => void;
+  earn: (delta: number, reason: string, meta?: Record<string, any>, reversible?: boolean, relatedActionId?: string) => { ok: boolean; message: string };
   checkIn: () => { ok: boolean; message: string };
   undoCheckIn: () => { ok: boolean; message: string };
   grantOnce: (key: keyof Grants, delta: number, reason: string) => boolean;
@@ -100,8 +100,18 @@ export const useRewardsStore = create<RewardsState>()(
 
       getDailyRoutinePointsRemaining: () => {
         const state = get();
-        if (!state.hasCompletedRoutineToday()) return 5;
-        return Math.max(0, 5 - state.dailyRoutinePoints);
+        const today = dayjs().format("YYYY-MM-DD");
+        
+        // If it's a new day, reset daily points and return 5
+        if (state.lastRoutineDate !== today) {
+          console.log("getDailyRoutinePointsRemaining: New day, returning 5");
+          return 5;
+        }
+        
+        // Return remaining points for today
+        const remaining = Math.max(0, 5 - state.dailyRoutinePoints);
+        console.log(`getDailyRoutinePointsRemaining: dailyRoutinePoints=${state.dailyRoutinePoints}, remaining=${remaining}`);
+        return remaining;
       },
 
       earn: (delta, reason, meta, reversible = false, relatedActionId) => {
@@ -111,14 +121,18 @@ export const useRewardsStore = create<RewardsState>()(
         const validation = get().validateAction(reason, meta);
         if (!validation.valid) {
           console.warn(`Invalid action blocked: ${reason} - ${validation.message}`);
-          return;
+          return { ok: false, message: validation.message };
         }
 
         const currentState = get();
-        console.log(`DEBUG: Before earning - pointsTotal: ${currentState.pointsTotal}, pointsAvailable: ${currentState.pointsAvailable}`);
         
         // Check if this is the user's first action (not signup bonus)
         const isFirstUserAction = !currentState.hasPerformedFirstAction && reason !== "Sign up bonus" && delta > 0;
+        
+        // ADDITIONAL CHECK: If this is a routine task and the user hasn't completed any routine tasks yet
+        const isFirstRoutineTask = reason === "daily_routine_task" && currentState.dailyRoutinePoints === 0 && delta > 0;
+        
+        const shouldTriggerFirstPointPopup = isFirstUserAction || isFirstRoutineTask;
         
         set((s) => ({
           pointsTotal: Math.max(0, s.pointsTotal + delta),
@@ -136,13 +150,13 @@ export const useRewardsStore = create<RewardsState>()(
         }));
         
         const newState = get();
-        console.log(`DEBUG: After earning - pointsTotal: ${newState.pointsTotal}, pointsAvailable: ${newState.pointsAvailable}`);
         
-        // Trigger first point callback if this was the user's first action
-        if (isFirstUserAction && newState.firstPointCallback) {
-          console.log("DEBUG: First user action performed! Triggering callback");
+        // Trigger first point callback if this should trigger the popup
+        if (shouldTriggerFirstPointPopup && newState.firstPointCallback) {
           newState.firstPointCallback();
         }
+        
+        return { ok: true, message: `Earned ${delta} points for ${reason}` };
       },
 
       checkIn: () => {
@@ -241,15 +255,20 @@ export const useRewardsStore = create<RewardsState>()(
           return { ok: false, message: "Daily routine points limit reached (5 points max)", points: 0 };
         }
         
-        // Award 1 point for routine task completion
+        // Create a unique action ID for this specific task completion
+        const actionId = `${taskId}-${today}-${Date.now()}`;
+        const earnResult = get().earn(1, "daily_routine_task", { taskId, actionId }, true, actionId);
+        
+        // Check if earning failed (validation blocked it)
+        if (!earnResult?.ok) {
+          return { ok: false, message: earnResult?.message || "Daily routine points limit reached (5 points max)", points: 0 };
+        }
+        
+        // Award 1 point for routine task completion (only after successful earn)
         const points = 1;
         set((s) => ({
           dailyRoutinePoints: s.dailyRoutinePoints + points,
         }));
-        
-        // Create a unique action ID for this specific task completion
-        const actionId = `${taskId}-${today}-${Date.now()}`;
-        get().earn(points, "daily_routine_task", { taskId, actionId }, true, actionId);
         
         // Check if this is the first routine step ever
         if (!currentState.grants.firstRoutineStep) {
@@ -282,6 +301,7 @@ export const useRewardsStore = create<RewardsState>()(
         
         // Reverse the specific action
         const result = get().reverseAction(recentAction.id);
+        
         if (!result.ok) {
           return { ok: false, message: result.message, points: 0 };
         }

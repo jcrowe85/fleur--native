@@ -32,22 +32,16 @@ function getFunctionsBase(): string {
 /** Call the deployed create-guest function (no JWT required). */
 async function createGuestViaFetch(): Promise<{ email: string; password: string }> {
   const base = getFunctionsBase();
-  console.log("[auth] Functions base URL:", base);
-  console.log("[auth] EXPO_PUBLIC_FUNCTIONS_URL:", process.env.EXPO_PUBLIC_FUNCTIONS_URL);
-  console.log("[auth] EXPO_PUBLIC_SUPABASE_URL:", process.env.EXPO_PUBLIC_SUPABASE_URL);
   
   if (!base) throw new Error("Functions URL not configured");
   
   const url = `${base}/create-guest`;
-  console.log("[auth] Calling create-guest at:", url);
   
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({}),
   });
-  
-  console.log("[auth] create-guest response status:", res.status);
   
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
@@ -56,7 +50,6 @@ async function createGuestViaFetch(): Promise<{ email: string; password: string 
   }
   
   const result = await res.json();
-  console.log("[auth] create-guest success:", result);
   return result;
 }
 

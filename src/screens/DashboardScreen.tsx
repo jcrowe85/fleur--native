@@ -350,16 +350,23 @@ export default function DashboardScreen() {
   // Set up callbacks - run once on mount
   useEffect(() => {
     const { setFirstPointCallback, setSignupBonusCallback } = useRewardsStore.getState();
-    setFirstPointCallback(() => {
-      // Show first point popup with a delay to avoid conflicts
+    
+    // Create a new callback that will show the popup
+    const dashboardCallback = () => {
+      // Try immediate state update first
+      setShowFirstPointPopup(true);
+      
+      // Also try with a small delay as backup
       firstPointTimeoutRef.current = setTimeout(() => {
-        console.log("Showing first point popup after delay");
         setShowFirstPointPopup(true);
         firstPointTimeoutRef.current = null;
-      }, 2000); // 2 second delay
-    });
+      }, 500); // Short backup delay
+    };
+    
+    setFirstPointCallback(dashboardCallback);
     setSignupBonusCallback(() => setShowSignupBonusPopup(true));
   }, []);
+
 
   // Check for first login and show signup bonus - SIMPLE APPROACH
   useEffect(() => {
@@ -368,57 +375,36 @@ export default function DashboardScreen() {
         // Wait a bit for session to be established
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        // Enhanced debugging for session and profile state
         const { user } = useAuthStore.getState();
-        console.log('🔍 Dashboard signup bonus check:');
-        console.log('  - User ID:', user?.id);
-        console.log('  - User exists:', !!user);
         
         const firstLoginData = await checkFirstLogin();
-        console.log('🔍 First login check result:', firstLoginData);
-        
         // Check rewards store state
         const { grants } = useRewardsStore.getState();
-        console.log('🔍 Current grants:', grants);
-        console.log('🔍 Signup bonus already awarded:', !!grants.signupBonus);
         
         if (firstLoginData.isFirstLogin) {
-          console.log('✅ This is first login, awarding signup bonus...');
           // Award signup bonus and show popup
           const success = awardSignupBonus();
-          console.log('🔍 Signup bonus award result:', success);
           if (success) {
             // Mark in database that first login is complete (with retry logic)
             const markComplete = async () => {
               // First try immediate marking
               const result = await markFirstLoginComplete();
               if (result) {
-                console.log('DEBUG: Marked first login as complete');
                 return;
               }
               
               // If immediate marking failed (no session), retry when session is ready
-              console.log('DEBUG: No session available, will retry marking first login complete');
               const retryResult = await retryMarkFirstLoginComplete();
-              if (retryResult) {
-                console.log('DEBUG: Successfully marked first login as complete after retry');
-              } else {
-                console.log('DEBUG: Failed to mark first login complete after retries, but bonus was awarded locally');
-              }
             };
             
             // Try to mark complete, but don't block the popup
-            markComplete().catch(err => {
-              console.log('DEBUG: Error marking first login complete:', err.message);
-            });
+            markComplete().catch(() => {});
             
             // Show popup after small delay
             setTimeout(() => {
               setShowSignupBonusPopup(true);
             }, 100);
           }
-        } else {
-          console.log('DEBUG: Not first login, skipping signup bonus');
         }
       } catch (error) {
         console.error('Error checking first login status:', error);

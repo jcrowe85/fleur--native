@@ -1,11 +1,13 @@
 // src/screens/ScheduleRoutineScreen.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
   ImageBackground,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -71,57 +73,153 @@ const PRODUCT_DEFAULTS: Record<string, { period: Period; time: string; frequency
   "silk-pillow": { period: "evening", time: "10:00 PM", frequency: "Daily" },
 };
 
+// Helper function to get default days for a frequency
+function getDefaultDays(frequency: Frequency): DaySelection {
+  const days: DaySelection = {};
+  if (frequency === "Daily") {
+    for (let i = 0; i < 7; i++) days[i] = true;
+  } else if (frequency === "3x/week") {
+    // Default to Mon, Wed, Fri
+    days[1] = true; days[3] = true; days[5] = true;
+  } else if (frequency === "Weekly") {
+    days[0] = true; // Sunday
+  }
+  return days;
+}
+
+// Helper function to convert routine steps back to product schedules
+function convertRoutineStepsToSchedules(steps: any[], plan: any): ProductSchedule[] {
+  if (!plan?.recommendations) return [];
+  
+  return plan.recommendations.map((rec: any) => {
+    // Find the corresponding routine step for this recommendation
+    const step = steps.find(s => 
+      s.product === rec.title || 
+      s.name === rec.title ||
+      s.product?.toLowerCase().includes(rec.handle) ||
+      s.name?.toLowerCase().includes(rec.handle)
+    );
+    
+    if (step) {
+      // Use the saved routine step data
+      const selectedDays = getDaysFromFrequency(step.frequency, step.days);
+      
+      return {
+        handle: rec.handle,
+        title: rec.title,
+        recommendedFrequency: step.frequency,
+        selectedFrequency: step.frequency,
+        followRecommendation: false, // User has customized this
+        selectedDays: selectedDays,
+        period: step.period,
+        time: step.time,
+        instructions: step.instructions || rec.howToUse || "Follow product instructions",
+      };
+    } else {
+      // Fall back to defaults if no saved step found
+      const defaults = PRODUCT_DEFAULTS[rec.handle] || { period: "morning", time: "8:00 AM", frequency: "Daily" };
+      return {
+        handle: rec.handle,
+        title: rec.title,
+        recommendedFrequency: defaults.frequency,
+        selectedFrequency: defaults.frequency,
+        followRecommendation: true,
+        selectedDays: getDefaultDays(defaults.frequency),
+        period: defaults.period,
+        time: defaults.time,
+        instructions: rec.howToUse || "Follow product instructions",
+      };
+    }
+  });
+}
+
+// Helper function to convert frequency and days array back to DaySelection
+function getDaysFromFrequency(frequency: Frequency, days: number[]): DaySelection {
+  const daySelection: DaySelection = {};
+  
+  if (frequency === "Daily") {
+    // All days selected
+    for (let i = 0; i < 7; i++) {
+      daySelection[i] = true;
+    }
+  } else if (frequency === "3x/week") {
+    // Use the saved days array
+    days.forEach(day => {
+      daySelection[day] = true;
+    });
+  } else if (frequency === "Weekly") {
+    // Default to Sunday for weekly
+    daySelection[0] = true;
+  }
+  
+  return daySelection;
+}
+
 export default function ScheduleRoutineScreen() {
   const { plan } = usePlanStore();
-  const { buildFromPlan } = useRoutineStore();
+  const { buildFromPlan, steps } = useRoutineStore();
   
   const [currentProductIndex, setCurrentProductIndex] = useState(0);
   const [productSchedules, setProductSchedules] = useState<ProductSchedule[]>([]);
   const [showPreview, setShowPreview] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Initialize product schedules from plan
+  // Initialize product schedules from plan or saved routine steps
   useEffect(() => {
     if (plan?.recommendations && plan.recommendations.length > 0) {
-      const schedules: ProductSchedule[] = plan.recommendations.map((rec: any) => {
-        const defaults = PRODUCT_DEFAULTS[rec.handle] || { period: "morning", time: "8:00 AM", frequency: "Daily" };
-        return {
-          handle: rec.handle,
-          title: rec.title,
-          recommendedFrequency: defaults.frequency,
-          selectedFrequency: defaults.frequency,
-          followRecommendation: true,
-          selectedDays: getDefaultDays(defaults.frequency),
-          period: defaults.period,
-          time: defaults.time,
-          instructions: rec.howToUse || "Follow product instructions",
-        };
-      });
+      let schedules: ProductSchedule[];
+      
+      // Check if we have saved routine steps to load from
+      if (steps && steps.length > 0) {
+        schedules = convertRoutineStepsToSchedules(steps, plan);
+      } else {
+        // Fall back to plan recommendations
+        schedules = plan.recommendations.map((rec: any) => {
+          const defaults = PRODUCT_DEFAULTS[rec.handle] || { period: "morning", time: "8:00 AM", frequency: "Daily" };
+          return {
+            handle: rec.handle,
+            title: rec.title,
+            recommendedFrequency: defaults.frequency,
+            selectedFrequency: defaults.frequency,
+            followRecommendation: true,
+            selectedDays: getDefaultDays(defaults.frequency),
+            period: defaults.period,
+            time: defaults.time,
+            instructions: rec.howToUse || "Follow product instructions",
+          };
+        });
+      }
+      
       setProductSchedules(schedules);
       setIsLoading(false);
     } else {
       // No recommendations available, go back to routine tab
       router.push("/(app)/routine");
     }
-  }, [plan]);
-
-  const getDefaultDays = (frequency: Frequency): DaySelection => {
-    const days: DaySelection = {};
-    if (frequency === "Daily") {
-      for (let i = 0; i < 7; i++) days[i] = true;
-    } else if (frequency === "3x/week") {
-      days[1] = true; // Monday
-      days[3] = true; // Wednesday
-      days[5] = true; // Friday
-    } else if (frequency === "Weekly") {
-      days[1] = true; // Monday
-    }
-    return days;
-  };
+  }, [plan, steps]);
 
   const currentProduct = productSchedules[currentProductIndex];
   const selectedDaysCount = Object.values(currentProduct?.selectedDays || {}).filter(Boolean).length;
   const recommendedDaysCount = FREQUENCY_OPTIONS.find(f => f.value === currentProduct?.recommendedFrequency)?.days || 0;
+
+  // Track scroll position to show/hide product name in header
+  const [showProductInHeader, setShowProductInHeader] = useState(false);
+  const productTitleRef = useRef<View>(null);
+  const scrollViewRef = useRef<any>(null);
+
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const scrollY = event.nativeEvent.contentOffset.y;
+    // Show product name in header when scrolled past ~80px (just after product title goes out of view)
+    setShowProductInHeader(scrollY > 80);
+  };
+
+  // Reset header state when product changes
+  useEffect(() => {
+    // Check current scroll position when product changes
+    // If we're already scrolled down, keep showing product name
+    // This handles the case where user hits "Next Step" while at bottom
+    setShowProductInHeader(true);
+  }, [currentProductIndex]);
 
   const updateProductSchedule = (updates: Partial<ProductSchedule>) => {
     setProductSchedules(prev => 
@@ -177,20 +275,25 @@ export default function ScheduleRoutineScreen() {
   const handleSave = async () => {
     try {
       // Convert product schedules to routine steps
-      const routineSteps: RoutineStep[] = productSchedules.map(schedule => ({
-        id: Math.random().toString(36).slice(2, 8) + "-" + Date.now().toString(36),
-        name: schedule.title,
-        period: schedule.period,
-        time: schedule.time,
-        frequency: schedule.selectedFrequency,
-        days: Object.keys(schedule.selectedDays)
+      const routineSteps: RoutineStep[] = productSchedules.map(schedule => {
+        const daysArray = Object.keys(schedule.selectedDays)
           .filter(day => schedule.selectedDays[parseInt(day)])
-          .map(day => parseInt(day)),
-        enabled: true,
-        instructions: schedule.instructions,
-        product: schedule.title,
-        icon: getProductIcon(schedule.handle),
-      }));
+          .map(day => parseInt(day));
+        
+        
+        return {
+          id: Math.random().toString(36).slice(2, 8) + "-" + Date.now().toString(36),
+          name: schedule.title,
+          period: schedule.period,
+          time: schedule.time,
+          frequency: schedule.selectedFrequency,
+          days: daysArray,
+          enabled: true,
+          instructions: schedule.instructions,
+          product: schedule.title,
+          icon: getProductIcon(schedule.handle),
+        };
+      });
 
       // Save to routine store with routineSteps
       buildFromPlan({ routineSteps });
@@ -203,6 +306,46 @@ export default function ScheduleRoutineScreen() {
     } catch (error) {
       console.error("Error saving routine:", error);
       // Could show an error message to user here
+    }
+  };
+
+  const handleSaveStep = async () => {
+    try {
+      // Save just the current product's schedule
+      const currentSchedule = productSchedules[currentProductIndex];
+      const daysArray = Object.keys(currentSchedule.selectedDays)
+        .filter(day => currentSchedule.selectedDays[parseInt(day)])
+        .map(day => parseInt(day));
+      
+      const currentRoutineStep: RoutineStep = {
+        id: Math.random().toString(36).slice(2, 8) + "-" + Date.now().toString(36),
+        name: currentSchedule.title,
+        period: currentSchedule.period,
+        time: currentSchedule.time,
+        frequency: currentSchedule.selectedFrequency,
+        days: daysArray,
+        enabled: true,
+        instructions: currentSchedule.instructions,
+        product: currentSchedule.title,
+        icon: getProductIcon(currentSchedule.handle),
+      };
+
+
+      // Get existing routine steps and update/add the current one
+      const existingSteps = useRoutineStore.getState().steps;
+      const updatedSteps = existingSteps.filter(step => step.product !== currentSchedule.title);
+      updatedSteps.push(currentRoutineStep);
+
+      // Save to routine store
+      buildFromPlan({ routineSteps: updatedSteps });
+      
+      // Schedule notifications for the updated routine
+      await notificationService.scheduleRoutineNotifications(updatedSteps);
+      
+      // Navigate back to routine screen
+      router.replace("/(app)/routine");
+    } catch (error) {
+      console.error("Error saving step:", error);
     }
   };
 
@@ -262,20 +405,18 @@ export default function ScheduleRoutineScreen() {
         <StatusBar style="light" />
         <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1 }}>
         <View style={styles.headerWrap}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, position: "relative" }}>
             <Pressable
               onPress={() => setShowPreview(false)}
               hitSlop={10}
-              style={{ padding: 8, borderRadius: 20 }}
+              style={{ position: "absolute", left: 16, padding: 8, borderRadius: 20 }}
             >
               <Feather name="arrow-left" size={18} color="#fff" />
             </Pressable>
 
-            <View style={{ flex: 1, alignItems: "center" }}>
+            <View style={{ alignItems: "center" }}>
               <Text style={styles.headerTitle}>Preview Your Routine</Text>
             </View>
-
-            <View style={{ width: 34 }} />
           </View>
         </View>
 
@@ -341,6 +482,15 @@ export default function ScheduleRoutineScreen() {
       <StatusBar style="light" />
       <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1 }}>
         <View style={styles.headerWrap}>
+          {/* Close button - absolutely positioned in top right within safe area */}
+          <Pressable
+            onPress={() => router.push("/(app)/routine")}
+            hitSlop={10}
+            style={styles.closeButton}
+          >
+            <Feather name="x" size={24} color="rgba(255,255,255,0.8)" />
+          </Pressable>
+          
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 }}>
             <Pressable
               onPress={handleBack}
@@ -351,8 +501,14 @@ export default function ScheduleRoutineScreen() {
             </Pressable>
 
             <View style={{ flex: 1, alignItems: "center" }}>
-              <Text style={styles.headerTitle}>Schedule Your Routine</Text>
-              <Text style={styles.headerSub}>{currentProduct.title}</Text>
+              <Text style={styles.headerTitle}>
+                {showProductInHeader ? currentProduct.title : "Schedule Your Routine"}
+              </Text>
+              <Text style={styles.headerSubLarge}>
+                {showProductInHeader 
+                  ? `Step ${currentProductIndex + 1} of ${productSchedules.length}` 
+                  : "Set your routine preferences"}
+              </Text>
             </View>
 
             <View style={{ width: 34 }} />
@@ -363,12 +519,23 @@ export default function ScheduleRoutineScreen() {
           contentContainerStyle={{ paddingHorizontal: 20 }}
           bottomExtra={20}
           showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
         >
           <View style={styles.topSpacing} />
           
           {/* Product Name Title */}
           <View style={styles.sectionTitleContainer}>
             <Text style={styles.sectionTitle}>{currentProduct.title}</Text>
+            {currentProduct.instructions && currentProduct.instructions !== "Follow product instructions" && (
+              <Text style={styles.productDescription}>{currentProduct.instructions}</Text>
+            )}
+            <View style={styles.planSummary}>
+              <Text style={styles.planSummaryText}>
+                Original plan: {currentProduct.recommendedFrequency?.toLowerCase() || 'daily'} 
+                {currentProduct.period && ` • ${currentProduct.period}`}
+              </Text>
+            </View>
           </View>
           
           <View style={styles.section}>
@@ -498,13 +665,26 @@ export default function ScheduleRoutineScreen() {
           </View>
 
           {/* Navigation Buttons */}
-          <View style={styles.navigationContainer}>
-            <CustomButton
-              onPress={handleNext}
-              variant="wellness"
-            >
-              {currentProductIndex === productSchedules.length - 1 ? "Preview Routine" : "Next Product"}
-            </CustomButton>
+          <View style={styles.buttonRow}>
+            <View style={styles.fullWidthButton}>
+              <CustomButton
+                onPress={handleNext}
+                variant="wellness"
+                fleurSize="default"
+              >
+                {currentProductIndex === productSchedules.length - 1 ? "Preview Routine" : "Next Step"}
+              </CustomButton>
+            </View>
+            
+            <View style={styles.fullWidthButton}>
+              <CustomButton
+                onPress={handleSaveStep}
+                variant="ghost"
+                fleurSize="default"
+              >
+                Save Step
+              </CustomButton>
+            </View>
           </View>
         </ScreenScrollView>
       </SafeAreaView>
@@ -517,10 +697,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#120d0a",
   },
+  closeButton: {
+    position: "absolute",
+    top: 8,
+    right: 16,
+    zIndex: 10,
+    padding: 8,
+  },
   // Match shop header pattern
   headerWrap: {
     paddingTop: 32,
     marginBottom: 12,
+    position: "relative",
   },
   headerTitle: {
     color: "#fff",
@@ -547,14 +735,31 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   sectionTitleContainer: {
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: 4,
+    marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "800",
     color: "white",
-    marginBottom: 12,
+    marginBottom: 8,
+    textAlign: "left",
+  },
+  productDescription: {
+    fontSize: 14,
+    fontWeight: "400",
+    color: "rgba(255,255,255,0.8)",
+    marginBottom: 8,
+    lineHeight: 20,
+  },
+  planSummary: {
+    marginBottom: 16,
+  },
+  planSummaryText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "rgba(255,255,255,0.6)",
+    fontStyle: "italic",
   },
   questionTitle: {
     fontSize: 14,
@@ -695,5 +900,24 @@ const styles = StyleSheet.create({
   previewDays: {
     fontSize: 12,
     color: "rgba(255,255,255,0.8)",
+  },
+  headerSubLarge: {
+    fontSize: 14,
+    fontWeight: "400",
+    color: "rgba(255,255,255,0.8)",
+    marginTop: 2,
+  },
+  buttonRow: {
+    flexDirection: "column",
+    gap: 12,
+    alignItems: "center",
+    paddingTop: 24,
+    paddingBottom: 20,
+  },
+  fullWidthButton: {
+    width: "100%",
+  },
+  rewardsPillContainer: {
+    // Style for the rewards pill container
   },
 });
