@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import dayjs from "dayjs";
+import { FirstActionService } from "../services/firstActionService";
 
 type LedgerItem = {
   id: string;             // uuid-ish
@@ -52,6 +53,7 @@ type RewardsState = {
   setFirstPointCallback: (callback: () => void) => void;
   setSignupBonusCallback: (callback: () => void) => void;
   awardSignupBonus: () => boolean;
+  syncFirstActionState: () => Promise<void>;
   
   // routine task tracking
   completeRoutineTask: (taskId: string) => { ok: boolean; message: string; points: number };
@@ -104,23 +106,17 @@ export const useRewardsStore = create<RewardsState>()(
         
         // If it's a new day, reset daily points and return 5
         if (state.lastRoutineDate !== today) {
-          console.log("getDailyRoutinePointsRemaining: New day, returning 5");
           return 5;
         }
         
         // Return remaining points for today
-        const remaining = Math.max(0, 5 - state.dailyRoutinePoints);
-        console.log(`getDailyRoutinePointsRemaining: dailyRoutinePoints=${state.dailyRoutinePoints}, remaining=${remaining}`);
-        return remaining;
+        return Math.max(0, 5 - state.dailyRoutinePoints);
       },
 
       earn: (delta, reason, meta, reversible = false, relatedActionId) => {
-        console.log(`DEBUG: earn called - delta: ${delta}, reason: ${reason}`);
-        
         // Validate the action before awarding points
         const validation = get().validateAction(reason, meta);
         if (!validation.valid) {
-          console.warn(`Invalid action blocked: ${reason} - ${validation.message}`);
           return { ok: false, message: validation.message };
         }
 
@@ -128,16 +124,13 @@ export const useRewardsStore = create<RewardsState>()(
         
         // Check if this is the user's first action (not signup bonus)
         const isFirstUserAction = !currentState.hasPerformedFirstAction && reason !== "Sign up bonus" && delta > 0;
-        
-        // ADDITIONAL CHECK: If this is a routine task and the user hasn't completed any routine tasks yet
         const isFirstRoutineTask = reason === "daily_routine_task" && currentState.dailyRoutinePoints === 0 && delta > 0;
-        
         const shouldTriggerFirstPointPopup = isFirstUserAction || isFirstRoutineTask;
         
         set((s) => ({
           pointsTotal: Math.max(0, s.pointsTotal + delta),
           pointsAvailable: Math.max(0, s.pointsAvailable + delta),
-          hasPerformedFirstAction: isFirstUserAction ? true : s.hasPerformedFirstAction,
+          hasPerformedFirstAction: shouldTriggerFirstPointPopup ? true : s.hasPerformedFirstAction,
           ledger: [{ 
             id: uid(), 
             ts: Date.now(), 
@@ -151,6 +144,13 @@ export const useRewardsStore = create<RewardsState>()(
         
         const newState = get();
         
+        // If this was the first action, sync to Supabase
+        if (shouldTriggerFirstPointPopup) {
+          FirstActionService.markFirstActionPerformed().catch(error => {
+            console.warn('Failed to sync first action to Supabase:', error);
+          });
+        }
+        
         // Trigger first point callback if this should trigger the popup
         if (shouldTriggerFirstPointPopup && newState.firstPointCallback) {
           newState.firstPointCallback();
@@ -160,11 +160,8 @@ export const useRewardsStore = create<RewardsState>()(
       },
 
       checkIn: () => {
-        console.log("DEBUG: checkIn called");
-        console.log("DEBUG: hasCheckedInToday:", get().hasCheckedInToday());
         
         if (get().hasCheckedInToday()) {
-          console.log("DEBUG: Already checked in today, returning false");
           return { ok: false, message: "Already checked in today." };
         }
         
@@ -172,25 +169,20 @@ export const useRewardsStore = create<RewardsState>()(
         const newStreakDays = state.streakDays + 1;
         const isSevenDayStreak = newStreakDays % 7 === 0;
         
-        console.log("DEBUG: Setting check-in state, streak days:", newStreakDays);
         set((s) => ({
           lastCheckInISO: dayjs().toISOString(),
           streakDays: newStreakDays,
         }));
         
         // Award 1 point for check-in (reversible)
-        const checkInActionId = `checkin-${dayjs().format("YYYY-MM-DD")}-${Date.now()}`;
-        console.log("DEBUG: Awarding 1 point for daily check-in");
-        get().earn(1, "daily_check_in", { actionId: checkInActionId }, true, checkInActionId);
+        get().earn(1, "daily_check_in", { streakDays: newStreakDays }, true);
         
         // Award 2 bonus points for 7-day streaks (not reversible)
         if (isSevenDayStreak) {
-          console.log("DEBUG: Awarding 2 bonus points for 7-day streak");
           get().earn(2, "seven_day_streak_bonus", { streakDays: newStreakDays }, false);
           return { ok: true, message: `7-day streak! +3 points total (1 check-in + 2 bonus)` };
         }
         
-        console.log("DEBUG: Daily check-in completed successfully");
         return { ok: true, message: "Checked in! +1 point" };
       },
 
@@ -255,16 +247,14 @@ export const useRewardsStore = create<RewardsState>()(
           return { ok: false, message: "Daily routine points limit reached (5 points max)", points: 0 };
         }
         
-        // Create a unique action ID for this specific task completion
-        const actionId = `${taskId}-${today}-${Date.now()}`;
-        const earnResult = get().earn(1, "daily_routine_task", { taskId, actionId }, true, actionId);
+        // Award 1 point for routine task completion
+        const earnResult = get().earn(1, "daily_routine_task", { taskId }, true);
         
-        // Check if earning failed (validation blocked it)
         if (!earnResult?.ok) {
           return { ok: false, message: earnResult?.message || "Daily routine points limit reached (5 points max)", points: 0 };
         }
         
-        // Award 1 point for routine task completion (only after successful earn)
+        // Update daily routine points counter
         const points = 1;
         set((s) => ({
           dailyRoutinePoints: s.dailyRoutinePoints + points,
@@ -422,20 +412,15 @@ export const useRewardsStore = create<RewardsState>()(
 
       awardSignupBonus: () => {
         const currentState = get();
-        console.log('DEBUG: awardSignupBonus called, current grants:', currentState.grants);
         
         // Check if signup bonus has already been awarded
         if (currentState.grants.signupBonus) {
-          console.log('DEBUG: Signup bonus already awarded, returning false');
           return false; // Already awarded
         }
 
-        console.log('DEBUG: Awarding signup bonus...');
         // Award the signup bonus
         const success = get().grantOnce("signupBonus", 250, "Sign up bonus");
-        console.log('DEBUG: Signup bonus awarded, success:', success);
         
-        // Don't trigger callback here - let the component handle popup display
         return success;
       },
 

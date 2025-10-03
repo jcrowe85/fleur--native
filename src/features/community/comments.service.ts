@@ -20,7 +20,7 @@ export function useCommentsService() {
     const { data, error } = await supabase
       .from("comments")
       // If DB doesn't have: comments.user_id DEFAULT auth.uid(), include { user_id: uid } here
-      .insert({ post_id: postId, body })
+      .insert({ post_id: postId, body, user_id: (await supabase.auth.getUser()).data.user?.id })
       .select(
         // ⬇️ IMPORTANT: include user_id so UI can detect author to show Edit/Delete
         "id, user_id, post_id, body, created_at, author:profiles!comments_user_id_fkey(display_name, handle, avatar_url)"

@@ -101,7 +101,7 @@ const SKU_PRICE_CENTS: Record<string, number> = {
 
 const SKU_NAME: Record<string, string> = {
   // Real product names from Shopify API - using Shopify handles as primary keys
-  "bloom": "bloom hair+scalp serum",
+  "bloom": "hair growth serum",
   "micro-roller": "Derma Stamp",
   "detangling-comb": "Detangling Comb",
   "vegan-biotin": "vegan biotin",
@@ -114,7 +114,7 @@ const SKU_NAME: Record<string, string> = {
   "silk-pillow": "silk pillow",
 
   // Legacy mappings (keep for backward compatibility)
-  "fleur-serum": "bloom hair+scalp serum", // Same as bloom
+  "fleur-serum": "hair growth serum", // Same as bloom
   "fleur-derma-stamp": "Derma Stamp", // Same as micro-roller
   "fleur-shampoo": "shampoo", // Same as shampoo
   "fleur-conditioner": "conditioner", // Same as conditioner

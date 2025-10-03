@@ -203,7 +203,7 @@ export default function RoutineCustomizeScreen() {
               <TextInput
                 value={form.name ?? ""}
                 onChangeText={(t) => setForm((f) => ({ ...f, name: t }))}
-                placeholder="e.g., Peptide Growth Serum"
+                placeholder="e.g., Hair Growth Serum"
                 placeholderTextColor="rgba(255,255,255,0.55)"
                 style={styles.input}
               />

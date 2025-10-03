@@ -20,7 +20,8 @@ export async function uploadImage(uri: string): Promise<string> {
       { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
     );
     if (result?.uri) finalUri = result.uri;
-  } catch {
+  } catch (error) {
+    console.log("[upload] Image manipulation failed, using original:", error);
     // no-op (lib not installed)
   }
 
@@ -42,7 +43,12 @@ export async function uploadImage(uri: string): Promise<string> {
     .from("community")
     .upload(path, bytes, { contentType: "image/jpeg", upsert: false });
 
-  if (upErr) throw upErr;
+  if (upErr) {
+    console.log("[upload] Storage upload failed:", upErr);
+    console.log("[upload] Path:", path);
+    console.log("[upload] User ID:", uid);
+    throw upErr;
+  }
 
   // Return a public URL
   const { data: pub } = supabase.storage.from("community").getPublicUrl(path);

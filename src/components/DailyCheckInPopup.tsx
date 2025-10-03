@@ -133,7 +133,7 @@ export default function DailyCheckInPopup({ visible, onClose }: DailyCheckInPopu
         setIsCompleted(false);
       }
     }
-  }, [visible, getCheckInForDate]);
+  }, [visible]); // Remove getCheckInForDate from dependencies to prevent infinite re-renders
 
   const handleSave = async () => {
     if (scalpValue === -1 || sheddingValue === -1 || feelingValue === -1) {

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, Image, ImageBackground, StyleSheet, Pressable, Platform, ScrollView } from "react-native";
+import { View, Text, Image, ImageBackground, StyleSheet, Pressable, Platform, ScrollView, Alert, ActionSheetIOS } from "react-native";
 import { Feather, FontAwesome } from "@expo/vector-icons"; // ⬅️ add FontAwesome
 import type { PostItem } from "./types";
 import { useLikesService } from "./likes.service";
 import { useCommentsSheet } from "./commentsSheet";
 import { onPostEngagement } from "@/services/rewards";
+import { usePostsService } from "./posts.service";
+import { supabase } from "@/services/supabase";
 
 function timeAgo(iso: string) {
   const s = Math.max(1, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -20,14 +22,25 @@ function initials(name?: string | null) {
   return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "AN";
 }
 
-export function PostCard({ post }: { post: PostItem }) {
+export function PostCard({ post, onPostDeleted }: { post: PostItem; onPostDeleted?: () => void }) {
   const display = post.author?.display_name ?? post.author?.handle ?? "Anonymous User";
   const { toggle } = useLikesService();
   const { open } = useCommentsSheet();
+  const { remove } = usePostsService();
 
   const [liked, setLiked] = useState(!!post.liked_by_me);
   const [count, setCount] = useState(post.comments_count ?? 0);
   const [likeCount, setLikeCount] = useState((post as any).likes_count as number | undefined ?? 0);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // Get current user ID
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setCurrentUserId(user?.id ?? null);
+    };
+    getCurrentUser();
+  }, []);
 
   // Sync count with post data updates (from realtime subscription)
   useEffect(() => {
@@ -73,6 +86,65 @@ export function PostCard({ post }: { post: PostItem }) {
     }
   }
 
+  /** Delete post with confirmation */
+  async function onDeletePost() {
+    const doDelete = async () => {
+      try {
+        await remove(post.id);
+        onPostDeleted?.();
+      } catch (e: any) {
+        Alert.alert("Error", e?.message ?? "Failed to delete post");
+      }
+    };
+
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: "Delete post?",
+          options: ["Cancel", "Delete"],
+          destructiveButtonIndex: 1,
+          cancelButtonIndex: 0,
+        },
+        (i) => {
+          if (i === 1) doDelete();
+        }
+      );
+    } else {
+      Alert.alert("Delete post?", "This cannot be undone.", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: doDelete },
+      ]);
+    }
+  }
+
+  /** Show post actions menu (author only) */
+  function showPostActions() {
+    if (!currentUserId || post.user_id !== currentUserId) return;
+    
+    if (Platform.OS === "ios") {
+      const options = ["Cancel", "Delete"];
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          destructiveButtonIndex: 1,
+          cancelButtonIndex: 0,
+        },
+        (index) => {
+          if (index === 1) onDeletePost();
+        }
+      );
+    } else {
+      Alert.alert(
+        "Post Options",
+        undefined,
+        [
+          { text: "Delete", style: "destructive", onPress: onDeletePost },
+          { text: "Cancel", style: "cancel" },
+        ]
+      );
+    }
+  }
+
   return (
     <View style={styles.shadow}>
       <View style={styles.cardWrap}>
@@ -94,6 +166,11 @@ export function PostCard({ post }: { post: PostItem }) {
               <Text style={styles.handle}>{display}</Text>
               <Text style={styles.meta}>{timeAgo(post.created_at)}</Text>
             </View>
+            {currentUserId === post.user_id && (
+              <Pressable onPress={showPostActions} style={styles.menuButton} hitSlop={8}>
+                <Feather name="more-horizontal" size={18} color="rgba(255,255,255,0.7)" />
+              </Pressable>
+            )}
           </View>
 
           {/* Body */}
@@ -194,6 +271,10 @@ const styles = StyleSheet.create({
   inner: { padding: 16 },
 
   headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  menuButton: {
+    padding: 8,
+    borderRadius: 16,
+  },
 
   avatar: {
     width: 36,

@@ -14,7 +14,7 @@ export const PRODUCT_POINT_MAPPING: Record<string, ProductPointMapping> = {
   // Hair Care Products - using new Shopify handles
   "bloom": {
     sku: "bloom",
-    name: "Bloom Hair+Scalp Serum",
+    name: "Hair Growth Serum",
     pointsRequired: 850,
     category: "treat",
     description: "Daily follicle support with lightweight peptide blend"
@@ -88,7 +88,7 @@ export const PRODUCT_POINT_MAPPING: Record<string, ProductPointMapping> = {
   // Legacy mappings (keep for backward compatibility)
   "fleur-1": {
     sku: "fleur-1",
-    name: "Bloom Hair+Scalp Serum",
+    name: "Hair Growth Serum",
     pointsRequired: 850,
     category: "treat",
     description: "Daily follicle support with lightweight peptide blend"

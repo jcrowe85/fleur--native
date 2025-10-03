@@ -44,7 +44,7 @@ router.post("/build", async (req, res) => {
     { 
       handle: "bloom", 
       sku: "fleur-1",
-      title: "Bloom Hair+Scalp Serum", 
+      title: "Hair Growth Serum", 
       description: "Peptide-based serum for density and shedding",
       priceRange: { minVariantPrice: { amount: "85.00" } }
     },
@@ -154,7 +154,7 @@ router.post("/build", async (req, res) => {
         
         return `- ${product.title} (handle: ${product.handle}, price: ${price}) - ${description}${targeting}`;
       }).join('\n')
-    : `- Bloom Hair+Scalp Serum (handle: bloom, price: $85.00) - Peptide-based serum for density and shedding [Best for: shedding, thinning, menopause, postpartum]
+    : `- Hair Growth Serum (handle: bloom, price: $85.00) - Peptide-based serum for density and shedding [Best for: shedding, thinning, menopause, postpartum]
 - Derma Stamp (handle: micro-roller, price: $45.00) - Micro-needling tool for scalp stimulation [Best for: density, scalp stimulation, growth]
 - Shampoo (handle: shampoo, price: $25.00) - Low-stripping cleanser [Best for: all hair types, gentle cleansing]
 - Conditioner (handle: conditioner, price: $28.00) - Detangling, mid-to-ends [Best for: fine hair, detangling, moisture]
@@ -680,7 +680,7 @@ function makeSerumRec() {
   return {
     handle: "bloom",
     sku: "fleur-1",
-    title: "Bloom Hair+Scalp Serum",
+    title: "Hair Growth Serum",
     why: "To address your shedding concern by delivering peptide-rich nutrients directly to hair follicles, promoting stronger roots and denser growth where you need it most.",
     howToUse: "Apply nightly to scalp; part hair, 2–3 drops per section; do not rinse.",
   };
@@ -791,7 +791,7 @@ function normalizeRecTitles(r: any) {
   const out = { ...r };
 
   if (/serum|peptide/.test(text)) {
-    out.title = "Bloom Hair+Scalp Serum";
+    out.title = "Hair Growth Serum";
     out.handle = "bloom";
     out.sku = "fleur-1";
   } else if (/stamp|microneedl/.test(text)) {

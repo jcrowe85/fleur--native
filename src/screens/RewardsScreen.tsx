@@ -15,14 +15,12 @@ import { router } from "expo-router";
 import dayjs from "dayjs";
 
 import { useRewardsStore } from "@/state/rewardsStore";
-import { useCheckInStore } from "@/state/checkinStore";
 // ✅ Shared bottom spacing helper (same convention)
 import { ScreenScrollView } from "@/components/UI/bottom-space";
 import { fetchRedeemableProducts, ShopifyProduct } from "@/services/shopifyClient";
 import { getProductPointValue } from "@/data/productPointCatalog";
 import RewardsPill from "@/components/UI/RewardsPill";
 import PointsContainer from "@/components/UI/PointsContainer";
-import DailyCheckInPopup from "@/components/DailyCheckInPopup";
 import HowToEarnPointsPopup from "@/components/HowToEarnPointsPopup";
 
 // Helper function to abbreviate product names
@@ -55,7 +53,7 @@ function getProductProgressInfo(points: number) {
     { name: "Derma Stamp", pointsRequired: 725 },
     { name: "Gentle Shampoo", pointsRequired: 750 },
     { name: "Lightweight Conditioner", pointsRequired: 780 },
-    { name: "Bloom Hair+Scalp Serum", pointsRequired: 850 },
+    { name: "Hair Growth Serum", pointsRequired: 850 },
     { name: "Bond Repair Mask", pointsRequired: 900 },
     { name: "Complete Hair Kit", pointsRequired: 3500 },
   ];
@@ -100,10 +98,11 @@ function getProductProgressInfo(points: number) {
 
 function reasonLabel(reason: string, meta?: any) {
   switch (reason) {
+    case "Sign up bonus": return "Welcome bonus";
     case "daily_check_in": return "Daily check-in";
     case "seven_day_streak_bonus": return "7-day streak bonus";
     case "daily_routine_task": return "Daily routine task";
-    case "daily_routine_task_undo": return "Routine task undone";
+    case "daily_routine_task_reversed": return "Routine task undone";
     case "first_routine_step_bonus": return "First routine step";
     case "start_routine": return "Started routine";
     case "first_post": return "First community post";
@@ -331,9 +330,6 @@ export default function RewardsScreen() {
   const ledger = useRewardsStore((s) => s.ledger);
   const scrollViewRef = React.useRef<any>(null);
 
-  // Check-in state
-  const { hasCheckedInToday } = useCheckInStore();
-  const [showDailyCheckInPopup, setShowDailyCheckInPopup] = React.useState(false);
   const [showHowToEarnPopup, setShowHowToEarnPopup] = React.useState(false);
 
   const progress = React.useMemo(() => getProductProgressInfo(points), [points]);
@@ -346,15 +342,6 @@ export default function RewardsScreen() {
     }
   };
 
-  const handleDailyCheckInPress = () => {
-    if (hasCheckedInToday()) {
-      // Show message that check-in is already completed
-      alert("You've already completed your daily check-in today! Come back tomorrow for another point.");
-    } else {
-      // Open the daily check-in popup
-      setShowDailyCheckInPopup(true);
-    }
-  };
 
   return (
     <View style={{ flex: 1, backgroundColor: "#120d0a" }}>
@@ -400,12 +387,6 @@ export default function RewardsScreen() {
               title="Start your routine"
               points="+5"
               onPress={() => router.push("/(app)/routine")}
-            />
-            <EarnSquare
-              icon="check-circle"
-              title="Daily check-in"
-              points="+1"
-              onPress={handleDailyCheckInPress}
             />
             <EarnSquare
               icon="message-circle"
@@ -501,11 +482,6 @@ export default function RewardsScreen() {
         </ScreenScrollView>
       </SafeAreaView>
 
-      {/* Daily Check-in Popup */}
-      <DailyCheckInPopup 
-        visible={showDailyCheckInPopup} 
-        onClose={() => setShowDailyCheckInPopup(false)} 
-      />
 
       {/* How to Earn Points Popup */}
       <HowToEarnPointsPopup 

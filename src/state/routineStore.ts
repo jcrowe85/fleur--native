@@ -35,6 +35,8 @@ type RoutineState = {
   completedByDate: CompletedMap;
   hasSeenScheduleIntro: boolean;
   lastSavedFromScheduling: number | null; // timestamp when last saved from scheduling
+  hasBeenCustomized: boolean; // true once user has customized their routine
+  hasBuiltFromPlan: boolean; // true once we've built routine from LLM plan
 
   // derived
   todayKey: () => string;
@@ -57,6 +59,7 @@ type RoutineState = {
   toggleStepToday: (id: string) => boolean; // returns isNowCompleted
   applyDefaultIfEmpty: () => void;
   buildFromPlan: (plan: any) => void;
+  markPlanBuilt: () => void;
   markScheduleIntroSeen: () => void;
   scheduleNotifications: () => Promise<void>;
   resetAll: () => void;
@@ -86,7 +89,7 @@ const PRODUCT_ROUTINE_MAP: Record<string, {
   defaultInstructions: string;
 }> = {
   "bloom": {
-    name: "Bloom Hair+Scalp Serum",
+    name: "Hair Growth Serum",
     period: "morning",
     frequency: "Daily",
     time: "8:00 AM",
@@ -217,7 +220,7 @@ export function inferPeriod(s: RoutineStep): Period {
 const DEFAULT_STEPS: RoutineStep[] = [
   {
     id: uid(),
-    name: "Peptide Growth Serum",
+    name: "Hair Growth Serum",
     time: "8:00 AM",
     frequency: "Daily",
     period: "morning",
@@ -253,7 +256,7 @@ const DEFAULT_STEPS: RoutineStep[] = [
   },
   {
     id: uid(),
-    name: "Intensive Night Serum",
+    name: "Hair Growth Serum",
     time: "10:00 PM",
     frequency: "Daily",
     period: "evening",
@@ -272,6 +275,8 @@ export const useRoutineStore = create<RoutineState>()(
       completedByDate: {},
       hasSeenScheduleIntro: false,
       lastSavedFromScheduling: null,
+      hasBeenCustomized: false,
+      hasBuiltFromPlan: false,
 
       todayKey: () => dayjs().format("YYYY-MM-DD"),
 
@@ -373,22 +378,28 @@ export const useRoutineStore = create<RoutineState>()(
       buildFromPlan: (plan: any) => {
         // If plan has routineSteps (from scheduling), use those directly
         if (plan?.routineSteps && Array.isArray(plan.routineSteps)) {
-          console.log("buildFromPlan: Setting routine steps from scheduling:", plan.routineSteps);
           set({ 
             steps: plan.routineSteps,
-            lastSavedFromScheduling: Date.now()
+            lastSavedFromScheduling: Date.now(),
+            hasBeenCustomized: true // Mark as customized since user saved from scheduling
           });
         } else {
-          // Otherwise, build from recommendations using the old method
+          // Build from LLM recommendations and save to storage (only on first login)
           const personalizedSteps = buildRoutineFromPlan(plan);
           if (personalizedSteps.length > 0) {
             set({ steps: personalizedSteps });
+            // Mark that we've built from plan, so we don't rebuild again
+            get().markPlanBuilt();
           } else {
             // Fallback to default steps if no personalized recommendations
             get().applyDefaultIfEmpty();
           }
         }
       },
+
+        markPlanBuilt: () => {
+          set({ hasBuiltFromPlan: true });
+        },
 
         markScheduleIntroSeen: () => {
           set({ hasSeenScheduleIntro: true });
@@ -405,7 +416,24 @@ export const useRoutineStore = create<RoutineState>()(
         }
       },
       
-      resetAll: () => set({ steps: [], completedByDate: {}, hasSeenScheduleIntro: false }),
+      resetAll: () => {
+        const currentState = get();
+        // If user has custom steps, preserve them during reset
+        const hasCustomSteps = currentState.steps.length > 0 && 
+          !currentState.steps.every(step => 
+            step.name === "Hair Growth Serum" || 
+            step.name === "Gentle Scalp Massage" ||
+            step.product === "Fleur Growth Complex"
+          );
+        
+        if (hasCustomSteps) {
+          // Keep custom steps and mark as customized
+          set({ completedByDate: {}, hasSeenScheduleIntro: false, hasBeenCustomized: true });
+        } else {
+          // Reset everything for new users
+          set({ steps: [], completedByDate: {}, hasSeenScheduleIntro: false, hasBeenCustomized: false, hasBuiltFromPlan: false });
+        }
+      },
       
       // Storage maintenance function
       clearStorage: async () => {
@@ -426,6 +454,8 @@ export const useRoutineStore = create<RoutineState>()(
         completedByDate: state.completedByDate,
         hasSeenScheduleIntro: state.hasSeenScheduleIntro,
         lastSavedFromScheduling: state.lastSavedFromScheduling,
+        hasBeenCustomized: state.hasBeenCustomized,
+        hasBuiltFromPlan: state.hasBuiltFromPlan,
       }),
       // Add version for migration handling
       version: 2,

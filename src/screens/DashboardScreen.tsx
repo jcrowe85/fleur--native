@@ -16,7 +16,7 @@ import { router } from "expo-router";
 import Svg, { Path, Circle, Defs, LinearGradient as SvgGradient, Stop } from "react-native-svg";
 import dayjs from "dayjs";
 
-import { useRoutineStore, RoutineStep } from "@/state/routineStore";
+import { useRoutineStore, RoutineStep, inferPeriod } from "@/state/routineStore";
 import { useRewardsStore } from "@/state/rewardsStore";
 import { useCheckInStore } from "@/state/checkinStore";
 import { useAuthStore } from "@/state/authStore";
@@ -330,7 +330,20 @@ export default function DashboardScreen() {
 
   // Ensure defaults exist when dashboard is the first screen opened
   useEffect(() => {
-    applyDefaultIfEmpty();
+    // Wait for store hydration before applying defaults
+    const checkHydration = () => {
+      const store = useRoutineStore.getState();
+      // If store is hydrated and has no steps, apply defaults
+      if (store.steps.length === 0) {
+        applyDefaultIfEmpty();
+      }
+    };
+    
+    // Check immediately and also after a short delay to ensure hydration
+    checkHydration();
+    const timeoutId = setTimeout(checkHydration, 500);
+    
+    return () => clearTimeout(timeoutId);
   }, [applyDefaultIfEmpty]);
 
   // Rewards store
@@ -351,21 +364,44 @@ export default function DashboardScreen() {
   useEffect(() => {
     const { setFirstPointCallback, setSignupBonusCallback } = useRewardsStore.getState();
     
-    // Create a new callback that will show the popup
+    // Create a new callback that will show the popup with delay to prevent screen freeze
     const dashboardCallback = () => {
-      // Try immediate state update first
-      setShowFirstPointPopup(true);
+      // Clear any existing timeout
+      if (firstPointTimeoutRef.current) {
+        clearTimeout(firstPointTimeoutRef.current);
+      }
       
-      // Also try with a small delay as backup
+      // Quick response now that race conditions are eliminated
       firstPointTimeoutRef.current = setTimeout(() => {
         setShowFirstPointPopup(true);
         firstPointTimeoutRef.current = null;
-      }, 500); // Short backup delay
+      }, 1500); // Fast response - 1.5 seconds for immediate feedback
     };
     
     setFirstPointCallback(dashboardCallback);
     setSignupBonusCallback(() => setShowSignupBonusPopup(true));
-  }, []);
+  }, []); // Run only once on mount
+
+  // Check for daily check-in popup on dashboard load - INDEPENDENT with 10-second delay
+  useEffect(() => {
+    const checkForDailyCheckIn = () => {
+      console.log("Checking for daily check-in popup on dashboard load...");
+      console.log("shouldShowDailyPopup():", shouldShowDailyPopup());
+      
+      if (shouldShowDailyPopup()) {
+        console.log("Showing daily check-in popup");
+        setShowDailyCheckInPopup(true);
+        markPopupShown();
+      } else {
+        console.log("Daily check-in conditions not met");
+      }
+    };
+
+    // Use 10-second delay to prevent bombardment and allow users to settle in
+    const timeoutId = setTimeout(checkForDailyCheckIn, 10000);
+    
+    return () => clearTimeout(timeoutId);
+  }, [shouldShowDailyPopup, markPopupShown]);
 
 
   // Check for first login and show signup bonus - SIMPLE APPROACH
@@ -428,11 +464,45 @@ export default function DashboardScreen() {
     };
   }, []);
 
-  // Today’s routine (AM + PM) — recompute whenever steps change
-  const todaysSteps = useMemo(
-    () => [...stepsByPeriod("morning"), ...stepsByPeriod("evening")],
-    [stepsByPeriod, stepsAll]
-  );
+  // Today's routine (AM + PM) — recompute whenever steps change
+  const todaysSteps = useMemo(() => {
+    const todayDayOfWeek = dayjs().day(); // 0=Sunday, 1=Monday, etc.
+    
+    // Get enabled steps that are scheduled for today (same logic as routine screen)
+    const allSteps = stepsAll.filter(s => {
+      if (!s.enabled) return false;
+      
+      // If step has specific days, check if today is included
+      if (s.days && s.days.length > 0) {
+        return s.days.includes(todayDayOfWeek);
+      }
+      
+      // If no specific days, show based on frequency
+      // Daily steps should show every day
+      return s.frequency === "Daily" || s.frequency === "Weekly";
+    });
+    
+    // Filter by period (morning/evening only, not weekly)
+    const morningSteps = allSteps.filter(step => {
+      const period = step.period || inferPeriod(step);
+      return period === "morning";
+    }).sort((a, b) => {
+      const timeA = a.time || "23:59";
+      const timeB = b.time || "23:59";
+      return timeA.localeCompare(timeB);
+    });
+    
+    const eveningSteps = allSteps.filter(step => {
+      const period = step.period || inferPeriod(step);
+      return period === "evening";
+    }).sort((a, b) => {
+      const timeA = a.time || "23:59";
+      const timeB = b.time || "23:59";
+      return timeA.localeCompare(timeB);
+    });
+    
+    return [...morningSteps, ...eveningSteps];
+  }, [stepsAll]);
   const totalToday = todaysSteps.length;
   const doneToday = todaysSteps.filter((s) => isCompletedToday(s.id)).length;
 
@@ -820,19 +890,7 @@ export default function DashboardScreen() {
         visible={showSignupBonusPopup} 
         onClose={() => {
           setShowSignupBonusPopup(false);
-          // Show daily check-in popup 5 seconds after signup bonus closes
-          dailyCheckInTimeoutRef.current = setTimeout(() => {
-            console.log("Checking for daily check-in popup after signup bonus...");
-            console.log("shouldShowDailyPopup():", shouldShowDailyPopup());
-            if (shouldShowDailyPopup()) {
-              console.log("Showing daily check-in popup");
-              setShowDailyCheckInPopup(true);
-              markPopupShown();
-            } else {
-              console.log("Daily check-in conditions not met");
-            }
-            dailyCheckInTimeoutRef.current = null;
-          }, 5000);
+          // No callback to check-in popup - they are now decoupled
         }} 
       />
 

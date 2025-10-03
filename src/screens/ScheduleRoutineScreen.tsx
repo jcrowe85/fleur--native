@@ -280,9 +280,16 @@ export default function ScheduleRoutineScreen() {
           .filter(day => schedule.selectedDays[parseInt(day)])
           .map(day => parseInt(day));
         
+        // Try to find existing step to preserve ID
+        const existingStep = steps.find(s => 
+          s.product === schedule.title || 
+          s.name === schedule.title ||
+          s.product?.toLowerCase().includes(schedule.handle) ||
+          s.name?.toLowerCase().includes(schedule.handle)
+        );
         
         return {
-          id: Math.random().toString(36).slice(2, 8) + "-" + Date.now().toString(36),
+          id: existingStep?.id || Math.random().toString(36).slice(2, 8) + "-" + Date.now().toString(36),
           name: schedule.title,
           period: schedule.period,
           time: schedule.time,
@@ -317,8 +324,16 @@ export default function ScheduleRoutineScreen() {
         .filter(day => currentSchedule.selectedDays[parseInt(day)])
         .map(day => parseInt(day));
       
+      // Try to find existing step to preserve ID
+      const existingStep = steps.find(s => 
+        s.product === currentSchedule.title || 
+        s.name === currentSchedule.title ||
+        s.product?.toLowerCase().includes(currentSchedule.handle) ||
+        s.name?.toLowerCase().includes(currentSchedule.handle)
+      );
+      
       const currentRoutineStep: RoutineStep = {
-        id: Math.random().toString(36).slice(2, 8) + "-" + Date.now().toString(36),
+        id: existingStep?.id || Math.random().toString(36).slice(2, 8) + "-" + Date.now().toString(36),
         name: currentSchedule.title,
         period: currentSchedule.period,
         time: currentSchedule.time,
@@ -483,13 +498,13 @@ export default function ScheduleRoutineScreen() {
       <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1 }}>
         <View style={styles.headerWrap}>
           {/* Close button - absolutely positioned in top right within safe area */}
-          <Pressable
-            onPress={() => router.push("/(app)/routine")}
-            hitSlop={10}
-            style={styles.closeButton}
-          >
-            <Feather name="x" size={24} color="rgba(255,255,255,0.8)" />
-          </Pressable>
+      <Pressable
+        onPress={() => router.push('/routine')}
+        hitSlop={10}
+        style={styles.closeButton}
+      >
+        <Feather name="x" size={24} color="rgba(255,255,255,0.8)" />
+      </Pressable>
           
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 }}>
             <Pressable

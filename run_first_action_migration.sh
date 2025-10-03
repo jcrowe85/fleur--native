@@ -1,0 +1,28 @@
+#!/bin/bash
+
+echo "=== Adding has_performed_first_action Column to Profiles Table ==="
+echo ""
+echo "🔧 This migration adds the missing column that tracks whether a user"
+echo "   has performed their first action (earned their first point)."
+echo ""
+echo "📋 What this does:"
+echo "- Adds 'has_performed_first_action' BOOLEAN column to profiles table"
+echo "- Sets default value to false"
+echo "- Fixes the 'could not find the has_performed_first_action column' error"
+echo ""
+echo "🚀 To run this migration:"
+echo "1. Go to your Supabase dashboard"
+echo "2. Navigate to SQL Editor"
+echo "3. Copy and paste the contents of database/add_first_action_column.sql"
+echo "4. Run the SQL"
+echo ""
+echo "📁 Or run the complete schema:"
+echo "1. Copy and paste the contents of database/complete_schema.sql"
+echo "2. Run the SQL (it will only add missing columns)"
+echo ""
+echo "✅ After running the migration, the first action tracking will work properly!"
+echo ""
+echo "Press Enter to continue..."
+read -r
+
+echo "Migration instructions provided. The column will be added to your profiles table."

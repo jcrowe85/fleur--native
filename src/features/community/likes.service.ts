@@ -16,7 +16,7 @@ export function useLikesService() {
       console.log("[likes.toggle] uid:", uid, "post:", postId);
 
       // 1) Try to LIKE by inserting. If a row exists (unique constraint), we UNLIKE instead.
-      const { error: insErr } = await supabase.from("likes").insert({ post_id: postId });
+      const { error: insErr } = await supabase.from("likes").insert({ post_id: postId, user_id: uid });
       if (!insErr) {
         // insert succeeded → now liked
         // Award points for first like (one-time only, not reversible)

@@ -1,0 +1,25 @@
+#!/bin/bash
+
+echo "=== Fix Posts and Profiles Schema Cache ==="
+echo ""
+echo "🎯 You're right - if the app is working, we just need to fix the schema cache issue."
+echo ""
+echo "The error 'could not find a relationship between posts and profiles in the schema cache'"
+echo "means there's a foreign key constraint that the schema cache can't resolve."
+echo ""
+echo "🔧 SIMPLE FIX:"
+echo "1. Go to Supabase SQL Editor"
+echo "2. Run the SQL in database/fix_posts_profiles_cache.sql"
+echo ""
+echo "This will:"
+echo "✅ Check what foreign key constraints exist between posts and profiles"
+echo "✅ Drop and recreate the foreign key constraint to refresh the schema cache"
+echo "✅ Fix the schema cache issue without breaking anything else"
+echo ""
+echo "🎯 This is a minimal fix that just refreshes the foreign key relationship"
+echo "   without changing the working database structure."
+echo ""
+echo "Press Enter to continue..."
+read -r
+
+echo "✅ Run the SQL to fix the posts/profiles schema cache issue."

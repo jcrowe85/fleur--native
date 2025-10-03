@@ -41,7 +41,7 @@ echo "Linking to: $NEW_EMAIL"
 LINK_RESPONSE=$(curl -s -X POST "${SUPABASE_URL}/functions/v1/link-email" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-  -d "{\"email\":\"${NEW_EMAIL}\"}")
+  -d "{\"email\":\"${NEW_EMAIL}\",\"password\":\"testpassword123\"}")
 
 SUCCESS=$(echo "$LINK_RESPONSE" | jq -r '.success')
 if [ "$SUCCESS" != "true" ]; then

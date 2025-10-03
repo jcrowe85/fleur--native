@@ -26,7 +26,7 @@ import { useAuthStore } from "@/state/authStore";
 
 /* ========= Optional: kit SKUs for upsell ========= */
 const KIT_SKUS = [
-  "bloom",                 // bloom hair+scalp serum
+  "bloom",                 // hair growth serum
   "micro-roller",          // Derma Stamp
   "shampoo",               // shampoo
   "conditioner",           // conditioner

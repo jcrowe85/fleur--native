@@ -79,8 +79,12 @@ function getInitials(full?: string) {
 }
 
 export default function CommunityScreen() {
-  const { items, hasMore, loadMore, refresh, loading, error } = useFeed();
+  const { items, hasMore, loadMore, refresh, loading, error, setItems } = useFeed();
   const { create } = usePostsService();
+
+  const handlePostDeleted = (deletedPostId: string) => {
+    setItems((prevItems) => prevItems.filter((post) => post.id !== deletedPostId));
+  };
 
   const { profile } = useProfileStore();
   const { open: openPickHandle } = usePickHandleSheet();
@@ -107,6 +111,7 @@ export default function CommunityScreen() {
   const [composerText, setComposerText] = useState("");
   const [catError, setCatError] = useState(false); // highlight category section on submit if missing
   const [assets, setAssets] = useState<{ uri: string; width?: number; height?: number }[]>([]);
+  const [isPosting, setIsPosting] = useState(false);
   const maxChars = 500;
   const maxAssets = 3;
 
@@ -132,6 +137,7 @@ export default function CommunityScreen() {
     setAssets([]);
     setComposerCat(null);
     setCatError(false);
+    setIsPosting(false);
   }
 
   // 🔒 Guard: ensure session + handle before opening the composer
@@ -147,13 +153,14 @@ export default function CommunityScreen() {
 
   async function submitFromModal() {
     const body = composerText.trim();
-    if (!body) return;
+    if (!body || isPosting) return;
 
     if (!composerCat) {
       setCatError(true);
       return;
     }
 
+    setIsPosting(true);
     try {
       const mediaUrls = await uploadAll(assets, 3);
 
@@ -168,6 +175,8 @@ export default function CommunityScreen() {
       await refresh();
     } catch (e: any) {
       console.error("[create-post] failed:", e?.message ?? e);
+    } finally {
+      setIsPosting(false);
     }
   }
 
@@ -276,7 +285,7 @@ export default function CommunityScreen() {
           ListHeaderComponent={ListHeader}
           contentContainerStyle={styles.feedContent}
           bottomExtra={16}
-          renderItem={({ item }) => <PostCard post={item} />}
+          renderItem={({ item }) => <PostCard post={item} onPostDeleted={() => handlePostDeleted(item.id)} />}
           onEndReachedThreshold={0.4}
           onEndReached={() => hasMore && loadMore()}
           ListFooterComponent={loading ? <Text style={styles.footer}>Loading…</Text> : null}
@@ -406,10 +415,10 @@ export default function CommunityScreen() {
                 </Pressable>
                 <Pressable
                   onPress={submitFromModal}
-                  style={[styles.button, styles.btnPrimary, !composerText.trim() && { opacity: 0.4 }]}
-                  disabled={!composerText.trim()} // enabled by text; category validated on press
+                  style={[styles.button, styles.btnPrimary, (!composerText.trim() || isPosting) && { opacity: 0.4 }]}
+                  disabled={!composerText.trim() || isPosting} // enabled by text; category validated on press
                 >
-                  <Text style={styles.btnPrimaryText}>Post</Text>
+                  <Text style={styles.btnPrimaryText}>{isPosting ? "Posting..." : "Post"}</Text>
                 </Pressable>
               </View>
                 </View>

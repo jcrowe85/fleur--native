@@ -147,20 +147,33 @@ export const useCheckInStore = create<CheckInState>()(
         const now = dayjs();
         const currentHour = now.hour();
         const today = now.format("YYYY-MM-DD");
-        
-        // Only show popup after 4am (avoiding late night interruptions)
-        if (currentHour < 4) {
-          return false;
-        }
+        const state = get();
         
         // Don't show if already checked in today
-        if (get().hasCheckedInToday()) {
+        if (state.hasCheckedInToday()) {
           return false;
         }
         
         // Don't show if popup was already shown today
-        if (get().lastPopupShownDate === today) {
+        if (state.lastPopupShownDate === today) {
           return false;
+        }
+        
+        // Don't show on first login - too many popups happening (signup bonus, first point, etc.)
+        // Check if this is the user's first time by looking at check-in history
+        if (state.checkIns.length === 0) {
+          return false;
+        }
+        
+        // Check if this is a new day (after midnight) and before 4am
+        // If popup was shown yesterday and it's now a new day before 4am, don't show
+        if (currentHour < 4) {
+          const yesterday = dayjs().subtract(1, 'day').format("YYYY-MM-DD");
+          if (state.lastPopupShownDate === yesterday) {
+            // Popup was shown yesterday, and it's now a new day before 4am
+            // Don't show until after 4am
+            return false;
+          }
         }
         
         return true;

@@ -161,7 +161,7 @@ router.get("/products", async (req, res) => {
       const fallbackProducts = [
         { 
           handle: "bloom", 
-          title: "Bloom Hair+Scalp Serum", 
+          title: "Hair Growth Serum", 
           description: "Peptide-based serum for density and shedding",
           priceRange: { minVariantPrice: { amount: "48.00", currencyCode: "USD" } },
           images: { edges: [{ node: { url: "https://via.placeholder.com/300x300/4A5568/FFFFFF?text=Bloom+Serum" } }] },

@@ -8,7 +8,7 @@ export class NotificationExamples {
   // Example: Send a flash sale notification
   static async sendFlashSaleExample(): Promise<void> {
     await promotionalNotificationService.sendFlashSaleNotification(
-      'Bloom Hair+Scalp Serum',
+      'Hair Growth Serum',
       25,
       6 // 6 hours remaining
     );
@@ -44,7 +44,7 @@ export class NotificationExamples {
   static async sendCartReminderExample(): Promise<void> {
     await promotionalNotificationService.sendCartAbandonmentReminder(
       [
-        { name: 'Bloom Hair+Scalp Serum', price: 48.00 },
+        { name: 'Hair Growth Serum', price: 48.00 },
         { name: 'Gentle Shampoo', price: 28.00 }
       ],
       24 // 24 hours since abandonment
@@ -83,14 +83,14 @@ export class NotificationExamples {
     const mockRoutineSteps = [
       {
         id: '1',
-        name: 'Bloom Hair+Scalp Serum',
+        name: 'Hair Growth Serum',
         enabled: true,
         period: 'morning' as const,
         time: '8:00 AM',
         frequency: 'Daily' as const,
         days: [1, 2, 3, 4, 5], // Monday to Friday
         instructions: 'Apply 3-4 drops to clean scalp',
-        product: 'Bloom Hair+Scalp Serum',
+        product: 'Hair Growth Serum',
         icon: 'droplet',
       },
       {

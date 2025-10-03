@@ -63,9 +63,7 @@ export default function AppLayout() {
                 }
       }
       
-      // Set up first point callback early to avoid race conditions
-      const { setFirstPointCallback } = useRewardsStore.getState();
-      setFirstPointCallback(() => {});
+      // First point callback will be set up by DashboardScreen
       
       bootstrap();
       // Initialize notifications

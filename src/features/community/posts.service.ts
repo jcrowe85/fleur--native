@@ -39,7 +39,12 @@ export function usePostsService() {
         media_urls: media_urls ?? null,
       }).select("id").single();
 
-      if (error) throw error;
+      if (error) {
+        console.log("[posts.create] Detailed error:", error);
+        console.log("[posts.create] User ID:", user_id);
+        console.log("[posts.create] Auth UID:", (await supabase.auth.getUser()).data.user?.id);
+        throw error;
+      }
 
       // Award points for first post
       onFirstPost({ postId: postData.id });
@@ -119,5 +124,17 @@ export function usePostsService() {
     []
   );
 
-  return useMemo(() => ({ create, listPage }), [create, listPage]);
+  const remove = useCallback(async (postId: string) => {
+    const user_id = await getUserId();
+    
+    const { error } = await supabase
+      .from("posts")
+      .delete()
+      .eq("id", postId)
+      .eq("user_id", user_id); // Only allow users to delete their own posts
+    
+    if (error) throw error;
+  }, []);
+
+  return useMemo(() => ({ create, listPage, remove }), [create, listPage, remove]);
 }

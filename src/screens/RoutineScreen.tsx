@@ -124,6 +124,8 @@ export default function RoutineScreen() {
   const toggleStepOn = useRoutineStore((s) => s.toggleStepOn);
   const isCompletedOn = useRoutineStore((s) => s.isCompletedOn);
   const hasSeenScheduleIntro = useRoutineStore((s) => s.hasSeenScheduleIntro);
+  const hasBeenCustomized = useRoutineStore((s) => s.hasBeenCustomized);
+  const hasBuiltFromPlan = useRoutineStore((s) => s.hasBuiltFromPlan);
   
   // Get user's personalized plan
   const { plan } = usePlanStore();
@@ -132,21 +134,24 @@ export default function RoutineScreen() {
 
   // initialize routine from user's personalized plan
   useEffect(() => {
-    // Don't rebuild from plan if steps were recently saved from scheduling (within last 5 seconds)
+    // Don't rebuild from plan if:
+    // 1. We've already built from plan before, OR
+    // 2. User has customized their routine, OR
+    // 3. Steps were recently saved from scheduling (within last 5 seconds)
     const recentlySavedFromScheduling = lastSavedFromScheduling && 
       (Date.now() - lastSavedFromScheduling) < 5000;
     
-    if (plan && plan.recommendations && plan.recommendations.length > 0 && !recentlySavedFromScheduling) {
-      // Build routine from user's personalized recommendations
-      console.log("RoutineScreen: Building from plan");
+    if (plan && plan.recommendations && plan.recommendations.length > 0 && !hasBuiltFromPlan && !hasBeenCustomized && !recentlySavedFromScheduling) {
+      // Build routine from LLM recommendations (only once, on first login)
+      console.log("RoutineScreen: Building from plan (first time)");
       buildFromPlan(plan);
     } else if (!plan) {
       // Fallback to default routine if no personalized plan
       applyDefaultIfEmpty();
     } else {
-      console.log("RoutineScreen: Skipping build from plan - recently saved from scheduling");
+      console.log("RoutineScreen: Skipping build from plan - hasBuiltFromPlan:", hasBuiltFromPlan, "hasBeenCustomized:", hasBeenCustomized, "recentlySavedFromScheduling:", recentlySavedFromScheduling);
     }
-  }, [plan, buildFromPlan, applyDefaultIfEmpty, lastSavedFromScheduling]);
+  }, [plan, buildFromPlan, applyDefaultIfEmpty, lastSavedFromScheduling, hasBeenCustomized, hasBuiltFromPlan]);
 
   const [tab, setTab] = useState<Period>("morning");
 
@@ -208,13 +213,13 @@ export default function RoutineScreen() {
         // Only award points for today's tasks
         onRoutineTaskCompleted(step.id);
       }
-    } else if (!nowCompleted && wasCompleted) {
-      // Task was just undone
-      if (isToday) {
-        // Only remove points for today's tasks
-        onRoutineTaskUndone(step.id);
+      } else if (!nowCompleted && wasCompleted) {
+        // Task was just undone
+        if (isToday) {
+          // Only remove points for today's tasks
+          onRoutineTaskUndone(step.id);
+        }
       }
-    }
   }
 
   function headerCounts(period: Period) {
@@ -384,11 +389,24 @@ export default function RoutineScreen() {
             /* Weekly tab */
             <View style={{ gap: 12 }}>
               {next7Days().map((d) => {
-                // Get ALL enabled steps regardless of period or scheduled days
-                const allSteps = useRoutineStore.getState().steps.filter(s => s.enabled);
+                // Get current day of week (0=Sunday, 1=Monday, etc.)
+                const currentDayOfWeek = dayjs(d.iso).day();
+                
+                // Get enabled steps that are scheduled for this specific day
+                const allSteps = useRoutineStore.getState().steps.filter(s => {
+                  if (!s.enabled) return false;
+                  
+                  // If step has specific days, check if current day is included
+                  if (s.days && s.days.length > 0) {
+                    return s.days.includes(currentDayOfWeek);
+                  }
+                  
+                  // If no specific days, show based on frequency
+                  // Daily steps should show every day
+                  return s.frequency === "Daily" || s.frequency === "Weekly";
+                });
                 
                 // Separate into daily (morning/evening) and weekly steps
-                // Show ALL steps in weekly view regardless of their scheduled days
                 const dailyStepsAll = allSteps
                   .filter(step => {
                     const period = step.period || inferPeriod(step);

@@ -28,7 +28,9 @@ export default function RoutinePointsScreen() {
   const routinePoints = useMemo(() => {
     return ledger.filter(item => 
       item.reason === "daily_routine_task" || 
-      item.reason === "daily_routine_task_reversed"
+      item.reason === "daily_routine_task_reversed" ||
+      item.reason === "Sign up bonus" ||
+      item.reason === "first_routine_step_bonus"
     ).sort((a, b) => b.ts - a.ts); // Most recent first
   }, [ledger]);
 
@@ -65,13 +67,29 @@ export default function RoutinePointsScreen() {
     return dayjs(timestamp).format("h:mm A");
   };
 
+  // Get action label based on reason
+  const getActionLabel = (reason: string) => {
+    switch (reason) {
+      case "daily_routine_task":
+        return "Routine task completed";
+      case "daily_routine_task_reversed":
+        return "Routine task undone";
+      case "Sign up bonus":
+        return "Welcome bonus";
+      case "first_routine_step_bonus":
+        return "First routine step bonus";
+      default:
+        return reason.replace(/_/g, " ");
+    }
+  };
+
   // Render individual point item
   const renderPointItem = ({ item }: { item: any }) => {
     const isPositive = item.delta >= 0;
     const iconName = isPositive ? "arrow-up-right" : "arrow-down-right";
     const iconColor = isPositive ? "#4ade80" : "#f87171";
     const pointColor = isPositive ? "#4ade80" : "#f87171";
-    const actionLabel = isPositive ? "Routine task completed" : "Routine task undone";
+    const actionLabel = getActionLabel(item.reason);
     
     return (
       <View style={styles.pointItem}>
@@ -195,7 +213,7 @@ export default function RoutinePointsScreen() {
         >
           {/* Summary */}
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Net Routine Points</Text>
+            <Text style={styles.summaryTitle}>Total Routine Points</Text>
             <Text style={styles.summaryValue}>
               {routinePoints.reduce((sum, item) => sum + item.delta, 0)}
             </Text>

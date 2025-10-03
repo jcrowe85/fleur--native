@@ -61,8 +61,8 @@ export async function upsertMyProfile(input: { display_name: string; avatar_url?
   const { error } = await supabase
     .from("profiles")
     .upsert(
-      { user_id, display_name: input.display_name, handle, avatar_url: input.avatar_url ?? null, is_guest: true },
-      { onConflict: "user_id" }
+      { id: user_id, user_id, display_name: input.display_name, handle, avatar_url: input.avatar_url ?? null, is_guest: true },
+      { onConflict: "id" }
     );
   if (error) throw error;
   return { handle };
