@@ -27,6 +27,7 @@ type Grants = {
 type RewardsState = {
   pointsTotal: number;       // lifetime points earned (you can use for tiers if you like)
   pointsAvailable: number;   // spendable points shown in UI
+  points: number;            // alias for pointsAvailable (used in some screens)
   streakDays: number;
   lastCheckInISO: string | null;
   ledger: LedgerItem[];
@@ -39,6 +40,10 @@ type RewardsState = {
   dailyRoutinePoints: number; // points earned from routine tasks today
   lastRoutineDate: string | null; // YYYY-MM-DD format
   referralCount: number; // number of successful referrals (max 20)
+  
+  // Legacy properties for compatibility
+  events: LedgerItem[]; // alias for ledger
+  pointsHistory: LedgerItem[]; // alias for ledger
 
   // derived helpers (lightweight)
   hasCheckedInToday: () => boolean;
@@ -46,7 +51,7 @@ type RewardsState = {
   getDailyRoutinePointsRemaining: () => number;
 
   // core mutations
-  earn: (delta: number, reason: string, meta?: Record<string, any>, reversible?: boolean, relatedActionId?: string) => { ok: boolean; message: string };
+  earn: (delta: number, reason: string, meta?: Record<string, any>, reversible?: boolean, relatedActionId?: string) => { ok: boolean; message: string | undefined };
   checkIn: () => { ok: boolean; message: string };
   undoCheckIn: () => { ok: boolean; message: string };
   grantOnce: (key: keyof Grants, delta: number, reason: string) => boolean;
@@ -68,6 +73,12 @@ type RewardsState = {
 
   // admin/debug helpers (optionally use in dev menu)
   resetAll: () => void;
+  
+  // sync methods
+  syncFirstActionState: () => Promise<void>;
+  
+  // legacy methods for compatibility
+  addPoints: (points: number) => void;
 };
 
 function uid() {
@@ -79,9 +90,12 @@ export const useRewardsStore = create<RewardsState>()(
     (set, get) => ({
       pointsTotal: 0,
       pointsAvailable: 0,
+      points: 0, // alias for pointsAvailable
       streakDays: 0,
       lastCheckInISO: null,
       ledger: [],
+      events: [], // alias for ledger
+      pointsHistory: [], // alias for ledger
       grants: {},
       dailyRoutinePoints: 0,
       lastRoutineDate: null,
@@ -127,11 +141,8 @@ export const useRewardsStore = create<RewardsState>()(
         const isFirstRoutineTask = reason === "daily_routine_task" && currentState.dailyRoutinePoints === 0 && delta > 0;
         const shouldTriggerFirstPointPopup = isFirstUserAction || isFirstRoutineTask;
         
-        set((s) => ({
-          pointsTotal: Math.max(0, s.pointsTotal + delta),
-          pointsAvailable: Math.max(0, s.pointsAvailable + delta),
-          hasPerformedFirstAction: shouldTriggerFirstPointPopup ? true : s.hasPerformedFirstAction,
-          ledger: [{ 
+        set((s) => {
+          const newLedger = [{ 
             id: uid(), 
             ts: Date.now(), 
             delta, 
@@ -139,8 +150,18 @@ export const useRewardsStore = create<RewardsState>()(
             meta, 
             reversible,
             relatedActionId 
-          }, ...s.ledger].slice(0, 200),
-        }));
+          }, ...s.ledger].slice(0, 200);
+          
+          return {
+            pointsTotal: Math.max(0, s.pointsTotal + delta),
+            pointsAvailable: Math.max(0, s.pointsAvailable + delta),
+            points: Math.max(0, s.pointsAvailable + delta), // update alias
+            hasPerformedFirstAction: shouldTriggerFirstPointPopup ? true : s.hasPerformedFirstAction,
+            ledger: newLedger,
+            events: newLedger, // update alias
+            pointsHistory: newLedger, // update alias
+          };
+        });
         
         const newState = get();
         
@@ -428,9 +449,12 @@ export const useRewardsStore = create<RewardsState>()(
         set({
           pointsTotal: 0,
           pointsAvailable: 0,
+          points: 0,
           streakDays: 0,
           lastCheckInISO: null,
           ledger: [],
+          events: [],
+          pointsHistory: [],
           grants: {},
           dailyRoutinePoints: 0,
           lastRoutineDate: null,
@@ -439,6 +463,18 @@ export const useRewardsStore = create<RewardsState>()(
           signupBonusCallback: undefined,
           hasPerformedFirstAction: false,
         }),
+
+      syncFirstActionState: async () => {
+        try {
+          await FirstActionService.markFirstActionPerformed();
+        } catch (error) {
+          console.warn('Failed to sync first action state:', error);
+        }
+      },
+
+      addPoints: (points: number) => {
+        get().earn(points, "legacy_add_points");
+      },
     }),
     { 
       name: "rewards:v2",

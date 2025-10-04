@@ -15,7 +15,7 @@ const SEED: Article[] = [
       "Peptides are short chains of amino acids. In hair care, they may aid feel, manageability, and breakage resistance by forming films and improving lubrication. While claims vary, look for products with clear peptide identity and concentration.",
     read_minutes: 4,
     audio_available: false,
-    hero: null,
+    hero: undefined,
     published_at: "2025-09-01T00:00:00.000Z",
   },
   {
@@ -27,7 +27,7 @@ const SEED: Article[] = [
       "Start with a peptide leave-in on damp hair 2–3x/week. Pair with a moisturizing mask on alternate wash days. Track your results for 4–6 weeks and adjust cadence.",
     read_minutes: 3,
     audio_available: false,
-    hero: null,
+    hero: undefined,
     published_at: "2025-09-02T00:00:00.000Z",
   },
 
@@ -41,7 +41,7 @@ const SEED: Article[] = [
       "The cuticle consists of overlapping cells sealed by a lipid layer (18-MEA). Heat, UV, and chemical services erode this layer, increasing friction. Films, silicones, and conditioners can partially restore slip.",
     read_minutes: 5,
     audio_available: true,
-    hero: null,
+    hero: undefined,
     published_at: "2025-09-03T00:00:00.000Z",
   },
   {
@@ -53,7 +53,7 @@ const SEED: Article[] = [
       "If hair feels overly soft, mushy, or limp, a protein treatment may help structure. If it feels straw-like or brittle, prioritize moisture and emollients. Alternate as needed.",
     read_minutes: 4,
     audio_available: false,
-    hero: null,
+    hero: undefined,
     published_at: "2025-09-04T00:00:00.000Z",
   },
 
@@ -67,7 +67,7 @@ const SEED: Article[] = [
       "Keep the scalp clean and comfortable. If you notice persistent itching, scale, or shedding spikes, consult a dermatologist. Avoid harsh mechanical scrubbing.",
     read_minutes: 4,
     audio_available: false,
-    hero: null,
+    hero: undefined,
     published_at: "2025-09-05T00:00:00.000Z",
   },
   {
@@ -79,7 +79,7 @@ const SEED: Article[] = [
       "Chronic stress influences hair cycle dynamics. Prioritize sleep hygiene and gentle handling during high-stress periods. Satin/silk pillowcases can reduce friction.",
     read_minutes: 3,
     audio_available: false,
-    hero: null,
+    hero: undefined,
     published_at: "2025-09-06T00:00:00.000Z",
   },
 
@@ -93,7 +93,7 @@ const SEED: Article[] = [
       "Saturate with conditioner, detangle in sections from ends upward, and use wide-tooth tools. Avoid yanking through knots; add more slip as needed.",
     read_minutes: 3,
     audio_available: false,
-    hero: null,
+    hero: undefined,
     published_at: "2025-09-07T00:00:00.000Z",
   },
   {
@@ -105,7 +105,7 @@ const SEED: Article[] = [
       "Apply your styler on soaking-wet hair, encourage clumps, then hands-off while drying. Once fully dry, scrunch out the cast with a drop of lightweight oil.",
     read_minutes: 4,
     audio_available: false,
-    hero: null,
+    hero: undefined,
     published_at: "2025-09-08T00:00:00.000Z",
   },
 ];

@@ -51,5 +51,5 @@ function ScreenFlatListInner<T>(props: any, ref: any) {
 }
 // Preserve generics at the call site: <ScreenFlatList<ItemType> ... />
 export const ScreenFlatList = React.forwardRef(ScreenFlatListInner) as unknown as
-  (<T>(props: React.ComponentProps<typeof FlatList<T>> & { bottomExtra?: number }) => JSX.Element);
+  (<T>(props: React.ComponentProps<typeof FlatList<T>> & { bottomExtra?: number }) => React.ReactElement);
 (ScreenFlatList as any).displayName = "ScreenFlatList";

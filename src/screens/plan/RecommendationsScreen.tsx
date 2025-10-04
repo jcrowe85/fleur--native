@@ -244,7 +244,7 @@ export default function Recommendations() {
               why: `Essential for your ${slot} routine`,
             });
           } else {
-            console.warn(`Core product not found: LLM handle "${handle}" -> Shopify handle "${shopifyHandle}"`);
+            console.warn(`Core product not found: LLM handle "${handle}"`);
           }
         }
         if (kitItems.length >= 8) break; // Updated to 8 to include supplements for hormonal users

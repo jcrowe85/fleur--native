@@ -1,5 +1,5 @@
 // src/lib/products.ts
-import type { FleurPlan } from "@/types/plans";
+import type { FleurPlan } from "@/types";
 import type { FeatherName } from "@/lib/icons";
 
 export type ProductCategory =

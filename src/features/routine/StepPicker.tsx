@@ -223,6 +223,12 @@ const styles = StyleSheet.create({
   pickText: { color: "#fff", fontWeight: "700" },
   pickTextOn: { color: "#000" },
 
+  removeBtn: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    alignItems: "center", justifyContent: "center",
+  },
+
   empty: { color: "rgba(255,255,255,0.75)" },
 
   addBtn: {

@@ -16,7 +16,6 @@ export default function PlanLayout() {
               // OPAQUE so the prior screen never shows through
               contentStyle: { backgroundColor: "#0b0b0b" },
               animation: "slide_from_right", // or "none" if you prefer hard cut
-              detachPreviousScreen: true,
               freezeOnBlur: true,
             }}
       />

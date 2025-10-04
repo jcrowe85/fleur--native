@@ -6,7 +6,7 @@ type Answers = Record<string, string[]>;
 
 type OnboardingState = {
   answers: Answers;
-  setAnswers: (patch: Partial<Answers>) => void;          // merge by key
+  setAnswers: (patch: Partial<Answers> | ((state: OnboardingState) => Partial<Answers>)) => void;          // merge by key
   setAnswerFor: (id: string, values: string[]) => void;   // convenience
   reset: () => void;                                      // clear after plan build
 };

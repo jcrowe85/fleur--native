@@ -25,7 +25,7 @@ export async function resetLocalData() {
     usePlanStore.persist?.clearStorage?.(),
     useOnboardingStore.persist?.clearStorage?.(),
     useProfileStore.persist?.clearStorage?.(),
-    useAuthStore.persist?.clearStorage?.(),
+    // useAuthStore doesn't use persist middleware
     useRewardsStore.persist?.clearStorage?.(),
     useRoutineStore.persist?.clearStorage?.(),
     useCheckInStore.persist?.clearStorage?.(),
@@ -55,13 +55,13 @@ export async function resetLocalData() {
   }
 
   // 4) Reset in-memory state so UI reflects it immediately
-  usePlanStore.setState({ plan: null, hasSeenPlanIntro: false });
+  usePlanStore.setState({ plan: null });
   useOnboardingStore.setState({ answers: {} });
   useProfileStore.setState({ profile: null });
   useAuthStore.setState({ loading: false, error: null }); // optional, depending on your store shape
   useRewardsStore.getState().resetAll(); // Reset rewards store to initial state
   useRoutineStore.getState().resetAll(); // Reset routine store to initial state
-  useCheckInStore.setState({ checkIns: {} }); // Reset check-in store
+  useCheckInStore.setState({ checkIns: [] }); // Reset check-in store
   usePurchaseStore.setState({ purchases: [] }); // Reset purchase store
   useRecommendationsStore.setState({ items: [] }); // Reset recommendations store
 
