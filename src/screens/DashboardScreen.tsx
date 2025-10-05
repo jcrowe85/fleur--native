@@ -329,19 +329,34 @@ export default function DashboardScreen() {
   const firstPointTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Ensure defaults exist when dashboard is the first screen opened
+  // BUT only if cloud restoration is not in progress
   useEffect(() => {
-    // Wait for store hydration before applying defaults
-    const checkHydration = () => {
-      const store = useRoutineStore.getState();
-      // If store is hydrated and has no steps, apply defaults
-      if (store.steps.length === 0) {
+    const checkForDefaults = () => {
+      const routineStore = useRoutineStore.getState();
+      const authStore = useAuthStore.getState();
+      
+      // Don't apply defaults if:
+      // 1. Cloud restoration is in progress or recently completed
+      // 2. User has already customized their routine
+      // 3. Routine already has steps
+      if (
+        authStore.isCloudSynced || 
+        routineStore.hasBeenCustomized || 
+        routineStore.steps.length > 0
+      ) {
+        console.log('✅ DashboardScreen: Skipping default application - cloud synced or customized');
+        return;
+      }
+      
+      // Only apply defaults if truly empty and no cloud restoration happening
+      if (routineStore.steps.length === 0) {
+        console.log('⚠️ DashboardScreen: No routine steps found, applying defaults');
         applyDefaultIfEmpty();
       }
     };
     
-    // Check immediately and also after a short delay to ensure hydration
-    checkHydration();
-    const timeoutId = setTimeout(checkHydration, 500);
+    // Wait longer to allow cloud restoration to complete
+    const timeoutId = setTimeout(checkForDefaults, 1500);
     
     return () => clearTimeout(timeoutId);
   }, [applyDefaultIfEmpty]);

@@ -114,9 +114,7 @@ function StepRowWeekly({
 export default function RoutineScreen() {
   // routine store
   const applyDefaultIfEmpty = useRoutineStore((s) => s.applyDefaultIfEmpty);
-  const buildFromPlan = useRoutineStore((s) => s.buildFromPlan);
   const stepsByPeriod = useRoutineStore((s) => s.stepsByPeriod);
-  const lastSavedFromScheduling = useRoutineStore((s) => s.lastSavedFromScheduling);
   const isCompletedToday = useRoutineStore((s) => s.isCompletedToday);
   const toggleStepToday = useRoutineStore((s) => s.toggleStepToday);
   const stepsAll = useRoutineStore((s) => s.steps);
@@ -124,34 +122,39 @@ export default function RoutineScreen() {
   const toggleStepOn = useRoutineStore((s) => s.toggleStepOn);
   const isCompletedOn = useRoutineStore((s) => s.isCompletedOn);
   const hasSeenScheduleIntro = useRoutineStore((s) => s.hasSeenScheduleIntro);
-  const hasBeenCustomized = useRoutineStore((s) => s.hasBeenCustomized);
-  const hasBuiltFromPlan = useRoutineStore((s) => s.hasBuiltFromPlan);
   
   // Get user's personalized plan
   const { plan } = usePlanStore();
 
   // rewards (daily check-in is handled separately)
 
-  // initialize routine from user's personalized plan
+  // Ensure routine exists (fallback to defaults if needed)
+  // BUT only if cloud restoration is not in progress
   useEffect(() => {
-    // Don't rebuild from plan if:
-    // 1. We've already built from plan before, OR
-    // 2. User has customized their routine, OR
-    // 3. Steps were recently saved from scheduling (within last 5 seconds)
-    const recentlySavedFromScheduling = lastSavedFromScheduling && 
-      (Date.now() - lastSavedFromScheduling) < 5000;
+    const routineStore = useRoutineStore.getState();
+    const authStore = useAuthStore.getState();
     
-    if (plan && plan.recommendations && plan.recommendations.length > 0 && !hasBuiltFromPlan && !hasBeenCustomized && !recentlySavedFromScheduling) {
-      // Build routine from LLM recommendations (only once, on first login)
-      console.log("RoutineScreen: Building from plan (first time)");
-      buildFromPlan(plan);
-    } else if (!plan) {
-      // Fallback to default routine if no personalized plan
+    // Don't apply defaults if:
+    // 1. Cloud restoration is in progress or recently completed
+    // 2. User has already customized their routine
+    // 3. Routine already has steps
+    if (
+      authStore.isCloudSynced || 
+      routineStore.hasBeenCustomized || 
+      stepsAll.length > 0
+    ) {
+      console.log('✅ RoutineScreen: Skipping default application - cloud synced or customized');
+      return;
+    }
+    
+    // Only apply defaults if truly empty and no cloud restoration happening
+    if (stepsAll.length === 0) {
+      console.log("⚠️ RoutineScreen: No routine steps found, applying defaults");
       applyDefaultIfEmpty();
     } else {
-      console.log("RoutineScreen: Skipping build from plan - hasBuiltFromPlan:", hasBuiltFromPlan, "hasBeenCustomized:", hasBeenCustomized, "recentlySavedFromScheduling:", recentlySavedFromScheduling);
+      console.log("✅ RoutineScreen: Routine steps exist, no action needed");
     }
-  }, [plan, buildFromPlan, applyDefaultIfEmpty, lastSavedFromScheduling, hasBeenCustomized, hasBuiltFromPlan]);
+  }, [stepsAll.length, applyDefaultIfEmpty]);
 
   const [tab, setTab] = useState<Period>("morning");
 

@@ -157,7 +157,7 @@ function getDaysFromFrequency(frequency: Frequency, days: number[]): DaySelectio
 
 export default function ScheduleRoutineScreen() {
   const { plan } = usePlanStore();
-  const { buildFromPlan, steps } = useRoutineStore();
+  const { updateRoutineFromScheduling, steps } = useRoutineStore();
   
   const [currentProductIndex, setCurrentProductIndex] = useState(0);
   const [productSchedules, setProductSchedules] = useState<ProductSchedule[]>([]);
@@ -215,10 +215,13 @@ export default function ScheduleRoutineScreen() {
 
   // Reset header state when product changes
   useEffect(() => {
-    // Check current scroll position when product changes
-    // If we're already scrolled down, keep showing product name
-    // This handles the case where user hits "Next Step" while at bottom
-    setShowProductInHeader(true);
+    // Only show product name if we're not on the first product or if user has scrolled
+    // This ensures "Schedule Your Routine" shows initially
+    if (currentProductIndex > 0) {
+      setShowProductInHeader(true);
+    } else {
+      setShowProductInHeader(false);
+    }
   }, [currentProductIndex]);
 
   const updateProductSchedule = (updates: Partial<ProductSchedule>) => {
@@ -303,7 +306,7 @@ export default function ScheduleRoutineScreen() {
       });
 
       // Save to routine store with routineSteps
-      buildFromPlan({ routineSteps });
+      updateRoutineFromScheduling(routineSteps);
       
       // Schedule notifications for the new routine
       await notificationService.scheduleRoutineNotifications(routineSteps);
@@ -352,7 +355,7 @@ export default function ScheduleRoutineScreen() {
       updatedSteps.push(currentRoutineStep);
 
       // Save to routine store
-      buildFromPlan({ routineSteps: updatedSteps });
+      updateRoutineFromScheduling(updatedSteps);
       
       // Schedule notifications for the updated routine
       await notificationService.scheduleRoutineNotifications(updatedSteps);

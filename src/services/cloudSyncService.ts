@@ -7,6 +7,7 @@ import { useRewardsStore } from '@/state/rewardsStore';
 import { useCartStore } from '@/state/cartStore';
 import { usePurchaseStore } from '@/state/purchaseStore';
 import { useNotificationStore } from '@/state/notificationStore';
+import { useProfileStore } from '@/state/profileStore';
 
 export type SyncStatus = 'not_synced' | 'syncing' | 'synced' | 'error';
 export type SyncFrequency = 'immediate' | 'daily' | 'weekly' | 'manual';
@@ -168,15 +169,26 @@ export class CloudSyncService {
         .single();
 
       if (error) {
+        console.error('❌ Error fetching cloud data:', error);
         return { success: false, error: error.message };
       }
 
       if (!cloudData) {
+        console.error('❌ No cloud data found for user:', user.id);
         return { success: false, error: 'No cloud data found' };
       }
 
+      console.log('🔍 Raw cloud data from database:', {
+        hasRoutineData: !!cloudData.routine_data,
+        routineDataType: typeof cloudData.routine_data,
+        routineDataString: JSON.stringify(cloudData.routine_data).substring(0, 200) + '...'
+      });
+
       // Restore local data
       await this.restoreLocalData(cloudData);
+
+      // Clear local storage to prevent Zustand from rehydrating with stale data
+      await this.clearLocalStorageAfterRestore();
 
       this.syncStatus = 'synced';
       this.lastSyncAttempt = new Date();
@@ -219,16 +231,26 @@ export class CloudSyncService {
       email,
       plan_data: {
         plan: planData.plan,
-        hasSeenScheduleIntro: planData.hasSeenScheduleIntro,
       },
       routine_data: {
         steps: routineData.steps,
         completedByDate: routineData.completedByDate,
         hasSeenScheduleIntro: routineData.hasSeenScheduleIntro,
+        hasBeenCustomized: routineData.hasBeenCustomized,
+        hasBuiltFromPlan: routineData.hasBuiltFromPlan,
+        lastSavedFromScheduling: routineData.lastSavedFromScheduling,
       },
       rewards_data: {
         pointsTotal: rewardsData.pointsTotal,
+        pointsAvailable: rewardsData.pointsAvailable,
         pointsHistory: rewardsData.pointsHistory,
+        streakDays: rewardsData.streakDays,
+        lastCheckInISO: rewardsData.lastCheckInISO,
+        ledger: rewardsData.ledger,
+        grants: rewardsData.grants,
+        dailyRoutinePoints: rewardsData.dailyRoutinePoints,
+        lastRoutineDate: rewardsData.lastRoutineDate,
+        referralCount: rewardsData.referralCount,
       },
       cart_data: {
         items: cartData.items,
@@ -248,20 +270,46 @@ export class CloudSyncService {
   }
 
   private async restoreLocalData(cloudData: CloudSyncData): Promise<void> {
+    console.log('🔄 Restoring local data from cloud:', {
+      hasPlanData: !!cloudData.plan_data,
+      hasRoutineData: !!cloudData.routine_data,
+      hasRewardsData: !!cloudData.rewards_data,
+      hasCartData: !!cloudData.cart_data,
+      hasPurchaseData: !!cloudData.purchase_data,
+    });
+
     // Restore plan data
     if (cloudData.plan_data) {
       usePlanStore.setState({
         plan: cloudData.plan_data.plan,
-        hasSeenScheduleIntro: cloudData.plan_data.hasSeenScheduleIntro,
       });
+      console.log('✅ Plan data restored:', { hasPlan: !!cloudData.plan_data.plan });
     }
 
     // Restore routine data
     if (cloudData.routine_data) {
+      console.log('🔍 Raw routine data from cloud:', {
+        stepsLength: cloudData.routine_data.steps?.length || 0,
+        stepsPreview: cloudData.routine_data.steps?.slice(0, 2) || [],
+        hasBeenCustomized: cloudData.routine_data.hasBeenCustomized,
+        hasBuiltFromPlan: cloudData.routine_data.hasBuiltFromPlan
+      });
+      
       useRoutineStore.setState({
         steps: cloudData.routine_data.steps,
         completedByDate: cloudData.routine_data.completedByDate,
         hasSeenScheduleIntro: cloudData.routine_data.hasSeenScheduleIntro,
+        hasBeenCustomized: cloudData.routine_data.hasBeenCustomized,
+        hasBuiltFromPlan: cloudData.routine_data.hasBuiltFromPlan,
+        lastSavedFromScheduling: cloudData.routine_data.lastSavedFromScheduling,
+      });
+      
+      // Verify the data was actually set
+      const verifyState = useRoutineStore.getState();
+      console.log('✅ Routine data restored:', { 
+        stepsCount: verifyState.steps?.length || 0,
+        hasBeenCustomized: verifyState.hasBeenCustomized,
+        stepsPreview: verifyState.steps?.slice(0, 2) || []
       });
     }
 
@@ -269,7 +317,20 @@ export class CloudSyncService {
     if (cloudData.rewards_data) {
       useRewardsStore.setState({
         pointsTotal: cloudData.rewards_data.pointsTotal,
+        pointsAvailable: cloudData.rewards_data.pointsAvailable,
         pointsHistory: cloudData.rewards_data.pointsHistory,
+        streakDays: cloudData.rewards_data.streakDays,
+        lastCheckInISO: cloudData.rewards_data.lastCheckInISO,
+        ledger: cloudData.rewards_data.ledger,
+        grants: cloudData.rewards_data.grants,
+        dailyRoutinePoints: cloudData.rewards_data.dailyRoutinePoints,
+        lastRoutineDate: cloudData.rewards_data.lastRoutineDate,
+        referralCount: cloudData.rewards_data.referralCount,
+      });
+      console.log('✅ Rewards data restored:', { 
+        pointsTotal: cloudData.rewards_data.pointsTotal,
+        pointsAvailable: cloudData.rewards_data.pointsAvailable,
+        ledgerLength: cloudData.rewards_data.ledger?.length || 0 
       });
     }
 
@@ -278,6 +339,7 @@ export class CloudSyncService {
       useCartStore.setState({
         items: cloudData.cart_data.items,
       });
+      console.log('✅ Cart data restored:', { itemsCount: cloudData.cart_data.items?.length || 0 });
     }
 
     // Restore purchase data
@@ -285,6 +347,7 @@ export class CloudSyncService {
       usePurchaseStore.setState({
         purchases: cloudData.purchase_data.purchases,
       });
+      console.log('✅ Purchase data restored:', { purchasesCount: cloudData.purchase_data.purchases?.length || 0 });
     }
 
     // Restore notification preferences
@@ -292,6 +355,25 @@ export class CloudSyncService {
       useNotificationStore.setState({
         preferences: cloudData.notification_preferences,
       });
+      console.log('✅ Notification preferences restored');
+    }
+  }
+
+  private async clearLocalStorageAfterRestore(): Promise<void> {
+    try {
+      console.log('🧹 Clearing local storage after cloud restoration to prevent rehydration conflicts');
+      
+      // Use the store's built-in clearStorage methods instead of direct AsyncStorage access
+      await Promise.all([
+        usePlanStore.persist?.clearStorage?.(),
+        useRoutineStore.persist?.clearStorage?.(),
+        useRewardsStore.persist?.clearStorage?.(),
+        useProfileStore.persist?.clearStorage?.(),
+      ]);
+      
+      console.log('✅ Local storage cleared after cloud restoration');
+    } catch (error) {
+      console.error('❌ Error clearing local storage after restore:', error);
     }
   }
 

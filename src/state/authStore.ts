@@ -93,8 +93,25 @@ export const useAuthStore = create<AuthState>((set) => ({
 
       // 3) Keep store in sync with any token refresh or sign-out (register once)
       if (!subscribed) {
-        supabase.auth.onAuthStateChange((_event, session) => {
+        supabase.auth.onAuthStateChange(async (_event, session) => {
           set({ session: session ?? null, user: session?.user ?? null });
+          
+          // If user signed in with real email (not guest), restore their cloud data
+          if (session?.user?.email && !session.user.email.includes('@guest.local')) {
+            console.log('🔄 User signed in with real email, restoring cloud data...');
+            try {
+              const { cloudSyncService } = await import('@/services/cloudSyncService');
+              const result = await cloudSyncService.syncFromCloud();
+              if (result.success) {
+                console.log('✅ Cloud data restored successfully');
+                set({ isCloudSynced: true });
+              } else {
+                console.warn('⚠️ Cloud data restoration failed:', result.error);
+              }
+            } catch (error) {
+              console.error('❌ Error during cloud data restoration:', error);
+            }
+          }
         });
         subscribed = true;
       }

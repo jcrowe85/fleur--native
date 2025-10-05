@@ -59,10 +59,12 @@ type RoutineState = {
   toggleStepToday: (id: string) => boolean; // returns isNowCompleted
   applyDefaultIfEmpty: () => void;
   buildFromPlan: (plan: any) => void;
+  updateRoutineFromScheduling: (routineSteps: RoutineStep[]) => void;
   markPlanBuilt: () => void;
   markScheduleIntroSeen: () => void;
   scheduleNotifications: () => Promise<void>;
   resetAll: () => void;
+  resetAllForDev: () => void; // Dev function that bypasses all protections
   clearStorage: () => Promise<void>;
 };
 
@@ -322,9 +324,13 @@ export const useRoutineStore = create<RoutineState>()(
       setSteps: (steps) => set({ steps }),
 
       updateStep: (id, patch) =>
-        set((state) => ({
-          steps: state.steps.map((s) => (s.id === id ? { ...s, ...patch } : s)),
-        })),
+        set((state) => {
+          console.log("🔄 updateStep: Updating routine step:", id);
+          return {
+            steps: state.steps.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+            hasBeenCustomized: true // Mark as customized when user makes changes
+          };
+        }),
 
       replaceSteps: (steps) => set({ steps }),
 
@@ -335,14 +341,22 @@ export const useRoutineStore = create<RoutineState>()(
 
       upsertStep: (s) =>
         set((state) => {
+          console.log("🔄 upsertStep: Updating routine step:", s.name);
           const idx = state.steps.findIndex((x) => x.id === s.id);
           const next = [...state.steps];
           if (idx >= 0) next[idx] = s;
           else next.unshift(s);
-          return { steps: next };
+          
+          // Mark routine as customized when user makes changes
+          return { 
+            steps: next,
+            hasBeenCustomized: true // Ensure this is set when user modifies routine
+          };
         }),
 
       removeStep: (id) => {
+        console.log("🗑️ removeStep: Removing routine step:", id);
+        
         // First, reverse any points earned from this step
         const { onRoutineStepDeleted } = require("@/services/rewards");
         const result = onRoutineStepDeleted(id);
@@ -353,7 +367,10 @@ export const useRoutineStore = create<RoutineState>()(
         }
         
         // Then remove the step from the routine
-        set((state) => ({ steps: state.steps.filter((s) => s.id !== id) }));
+        set((state) => ({ 
+          steps: state.steps.filter((s) => s.id !== id),
+          hasBeenCustomized: true // Mark as customized when user makes changes
+        }));
       },
 
       toggleStepToday: (id) => {
@@ -376,6 +393,14 @@ export const useRoutineStore = create<RoutineState>()(
       },
 
       buildFromPlan: (plan: any) => {
+        const currentState = get();
+        
+        console.log("🔍 buildFromPlan called (one-time only during onboarding):", {
+          stepsCount: currentState.steps.length,
+          planHasRoutineSteps: !!plan?.routineSteps,
+          planHasRecommendations: !!plan?.recommendations
+        });
+        
         // If plan has routineSteps (from scheduling), use those directly
         if (plan?.routineSteps && Array.isArray(plan.routineSteps)) {
           set({ 
@@ -384,20 +409,34 @@ export const useRoutineStore = create<RoutineState>()(
             hasBeenCustomized: true // Mark as customized since user saved from scheduling
           });
         } else {
-          // Build from LLM recommendations and save to storage (only on first login)
+          // Build from LLM recommendations (only during onboarding)
           const personalizedSteps = buildRoutineFromPlan(plan);
           if (personalizedSteps.length > 0) {
+            console.log("✅ buildFromPlan: Building routine from LLM recommendations");
             set({ steps: personalizedSteps });
-            // Mark that we've built from plan, so we don't rebuild again
-            get().markPlanBuilt();
           } else {
             // Fallback to default steps if no personalized recommendations
+            console.log("⚠️ buildFromPlan: No personalized steps, using defaults");
             get().applyDefaultIfEmpty();
           }
         }
+        
+        // Mark as built (this should only happen once during onboarding)
+        get().markPlanBuilt();
+      },
+
+      // Separate method for scheduling updates (always allowed)
+      updateRoutineFromScheduling: (routineSteps: RoutineStep[]) => {
+        console.log("📅 updateRoutineFromScheduling: Updating routine from scheduling");
+        set({ 
+          steps: routineSteps,
+          lastSavedFromScheduling: Date.now(),
+          hasBeenCustomized: true // Mark as customized since user scheduled it
+        });
       },
 
         markPlanBuilt: () => {
+          console.log("✅ markPlanBuilt: Setting hasBuiltFromPlan = true");
           set({ hasBuiltFromPlan: true });
         },
 
@@ -428,11 +467,36 @@ export const useRoutineStore = create<RoutineState>()(
         
         if (hasCustomSteps) {
           // Keep custom steps and mark as customized
-          set({ completedByDate: {}, hasSeenScheduleIntro: false, hasBeenCustomized: true });
+          // IMPORTANT: Preserve hasBuiltFromPlan to prevent routine rebuilding
+          set({ 
+            completedByDate: {}, 
+            hasSeenScheduleIntro: false, 
+            hasBeenCustomized: true,
+            hasBuiltFromPlan: currentState.hasBuiltFromPlan // Preserve this flag
+          });
         } else {
           // Reset everything for new users
-          set({ steps: [], completedByDate: {}, hasSeenScheduleIntro: false, hasBeenCustomized: false, hasBuiltFromPlan: false });
+          set({ 
+            steps: [], 
+            completedByDate: {}, 
+            hasSeenScheduleIntro: false, 
+            hasBeenCustomized: false, 
+            hasBuiltFromPlan: false 
+          });
         }
+      },
+
+      // DEV FUNCTION: Complete reset that bypasses all protections
+      resetAllForDev: () => {
+        console.log("🧪 DEV: Complete routine reset including plan build protection");
+        set({ 
+          steps: [], 
+          completedByDate: {}, 
+          hasSeenScheduleIntro: false, 
+          hasBeenCustomized: false, 
+          hasBuiltFromPlan: false, // Reset this flag for dev testing
+          lastSavedFromScheduling: null
+        });
       },
       
       // Storage maintenance function
@@ -462,3 +526,9 @@ export const useRoutineStore = create<RoutineState>()(
     }
   )
 );
+
+// Export the buildFromPlan function for use in onboarding
+export function buildFromPlan(plan: any) {
+  const store = useRoutineStore.getState();
+  store.buildFromPlan(plan);
+}

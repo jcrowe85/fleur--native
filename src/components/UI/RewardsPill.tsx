@@ -3,7 +3,7 @@ import { Pressable, Text, View, Animated, Easing, StyleSheet, Alert } from "reac
 import { Feather } from "@expo/vector-icons";
 import { useRewardsStore } from "../../state/rewardsStore";
 import { router } from "expo-router";
-import { resetLocalData } from "../../dev/resetLocalData";
+import { resetAllDataForDev } from "../../dev/resetLocalData";
 
 type Props = {
   compact?: boolean;
@@ -39,19 +39,20 @@ export default function RewardsPill({ compact }: Props) {
 
   const handleLongPress = () => {
     Alert.alert(
-      "Reset All Data",
-      "This will delete all your local data and reset the app to its initial state. Are you sure?",
+      "🧪 Dev Reset - Reset ALL Data",
+      "This will completely reset the app including plan build protection. Perfect for testing the full onboarding flow. Are you sure?",
       [
         {
           text: "Cancel",
           style: "cancel",
         },
         {
-          text: "Reset",
+          text: "Reset Everything",
           style: "destructive",
           onPress: async () => {
             try {
-              await resetLocalData();
+              await resetAllDataForDev();
+              // Navigation will be handled by the reset function
             } catch (error) {
               console.error("Error resetting data:", error);
               Alert.alert("Error", "Failed to reset data. Please try again.");

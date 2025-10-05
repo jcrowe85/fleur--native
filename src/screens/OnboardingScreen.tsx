@@ -19,6 +19,7 @@ import { CustomButton } from '@/components/UI/CustomButton';
 import { fetchPlan } from "@/services/planClient";
 import { usePlanStore } from "@/state/planStore";
 import { useOnboardingStore } from "@/state/onboardingStore";
+import { buildFromPlan } from "@/state/routineStore";
 
 // Reanimated (aliased as Animated component + hooks)
 import Animated, {
@@ -625,18 +626,22 @@ function SetupSequence({
   // JS wait helper
   const wait = React.useCallback((ms: number) => new Promise<void>((r) => setTimeout(r, ms)), []);
 
-  // Build plan (unchanged)
+  // Build plan and routine (one-time only)
   async function buildPlan(): Promise<void> {
     try {
       if (!planInput) throw new Error("Missing planInput");
       const plan = await fetchPlan(planInput);
       setPlan(plan);
+      
+      // Immediately build routine from the plan (one-time only)
+      buildFromPlan(plan);
+      console.log("✅ Onboarding: Built routine from plan (one-time only)");
     } catch (e) {
       console.warn("plan build failed, using fallback:", e);
-      setPlan({
+      const fallbackPlan = {
         summary: {
           headline: "Personalizing your routine",
-          subhead: "We’ll refine details shortly.",
+          subhead: "We'll refine details shortly.",
           why: ["Hydration", "Gentle cleansing", "Heat protection"],
         },
         routine: {
@@ -649,7 +654,11 @@ function SetupSequence({
           notes: ["Stay hydrated", "Silk pillowcase helps reduce friction"],
         },
         recommendations: [],
-      } as any);
+      } as any;
+      setPlan(fallbackPlan);
+      
+      // Also build routine from fallback plan
+      buildFromPlan(fallbackPlan);
     }
   }
 

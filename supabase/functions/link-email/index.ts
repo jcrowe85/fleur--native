@@ -151,6 +151,7 @@ serve(async (req) => {
       // Don't fail if profile update fails - email is already updated
     }
 
+
     return new Response(
       JSON.stringify({
         success: true,

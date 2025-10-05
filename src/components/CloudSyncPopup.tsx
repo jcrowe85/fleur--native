@@ -12,7 +12,6 @@ import {
 import { BlurView } from 'expo-blur';
 import { Feather } from '@expo/vector-icons';
 import { cloudSyncService } from '@/services/cloudSyncService';
-import { supabase } from '@/services/supabase';
 
 interface CloudSyncPopupProps {
   visible: boolean;
@@ -60,74 +59,21 @@ export default function CloudSyncPopup({
     setIsLoading(true);
 
     try {
-      console.log('=== CLOUD SYNC POPUP DEBUG START ===');
+      console.log('=== CLOUD SYNC USING EXISTING SERVICE ===');
       
-      // Get current session
-      const { data: { session } } = await supabase.auth.getSession();
-      console.log('Session check:', { hasSession: !!session });
+      // Use the existing cloudSyncService which handles both email linking AND data sync
+      const result = await cloudSyncService.syncToCloud(email.trim(), password.trim());
       
-      if (!session) {
-        console.log('ERROR: No active session');
-        throw new Error("No active session");
-      }
-
-      console.log('User details:', {
-        id: session.user.id,
-        email: session.user.email,
-        tokenLength: session.access_token.length
-      });
-
-      // Call the link-email Edge Function
-      const functionsUrl = process.env.EXPO_PUBLIC_FUNCTIONS_URL || 
-        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1`;
-      
-      console.log('Environment check:', {
-        hasFunctionsUrl: !!process.env.EXPO_PUBLIC_FUNCTIONS_URL,
-        hasSupabaseUrl: !!process.env.EXPO_PUBLIC_SUPABASE_URL,
-        functionsUrl: functionsUrl
-      });
-
-      console.log('Making request to:', `${functionsUrl}/link-email`);
-      console.log('Request body:', { email: email.trim(), password: '***' });
-      
-      const response = await fetch(`${functionsUrl}/link-email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ 
-          email: email.trim(),
-          password: password.trim()
-        }),
-      });
-
-      console.log('Response received:', {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok
-      });
-
-      const result = await response.json();
-      console.log('Link-email response:', result);
-      console.log('Response status:', response.status);
-
       if (result.success) {
-        console.log('✅ Link-email successful');
-        // Don't show alert - let the parent component handle success
+        console.log('✅ Cloud sync successful');
         onSuccess();
         resetForm();
       } else {
-        console.error('❌ Link-email failed:', result.error);
+        console.error('❌ Cloud sync failed:', result.error);
         Alert.alert('Sync Failed', result.error || 'Failed to sync data. Please try again.');
       }
     } catch (error: any) {
-      console.error('❌ Email link error:', error);
-      console.error('Error details:', {
-        message: error.message,
-        status: error.status,
-        response: error.response
-      });
+      console.error('❌ Cloud sync error:', error);
       Alert.alert('Error', error.message || 'An unexpected error occurred. Please try again.');
     } finally {
       setIsLoading(false);
