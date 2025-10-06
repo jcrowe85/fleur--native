@@ -23,19 +23,18 @@ import { useRewardsStore } from "@/state/rewardsStore";
 import { isHandleAvailable } from "@/services/profile";
 import { ScreenScrollView } from "@/components/UI/bottom-space";
 import RewardsPill from "@/components/UI/RewardsPill";
+import { CustomButton } from "@/components/UI/CustomButton";
 import { supabase } from "@/services/supabase";
 import { cloudSyncService } from "@/services/cloudSyncService";
-import CloudSyncPopup from "@/components/CloudSyncPopup";
 
 export default function ProfileScreen() {
-  const { user } = useAuthStore();
+  const { user, signOut } = useAuthStore();
   const { points } = useRewardsStore();
   const { setProfile: setProfileStore } = useProfileStore();
   const [loading, setLoading] = useState(false);
   const [editingHandle, setEditingHandle] = useState(false);
   const [newHandle, setNewHandle] = useState("");
   const [handleError, setHandleError] = useState("");
-  const [showCloudSyncPopup, setShowCloudSyncPopup] = useState(false);
 
   // Profile data
   const [profile, setProfile] = useState({
@@ -341,33 +340,6 @@ export default function ProfileScreen() {
     );
   };
 
-  const handleAddEmail = () => {
-    setShowCloudSyncPopup(true);
-  };
-
-  const handleCloudSyncSuccess = async () => {
-    // Close the popup first
-    setShowCloudSyncPopup(false);
-    
-    // Show success message with clear explanation
-    Alert.alert(
-      "Account Synced! 🎉", 
-      "Your email has been successfully linked and your data is backed up!\n\nYour session will now end so you can sign in with your new email and password. This is normal and expected.",
-      [
-        {
-          text: "Sign In with New Email",
-          onPress: async () => {
-            // Sign out and redirect to welcome screen
-            // This is necessary because the session becomes invalid after email update
-            await supabase.auth.signOut();
-            router.replace("/");
-          }
-        }
-      ]
-    );
-    
-    console.log('Email linked successfully - user signed out to use new credentials');
-  };
 
   const handleSignOut = async () => {
     const hasRealEmail = user?.email && !user.email.includes('@guest.local');
@@ -385,8 +357,11 @@ export default function ProfileScreen() {
             onPress: async () => {
               setLoading(true);
               try {
-                await supabase.auth.signOut();
-                router.replace("/");
+                await signOut();
+                // Small delay to ensure plan store is cleared before navigation
+                setTimeout(() => {
+                  router.replace("/");
+                }, 100);
               } catch (error) {
                 console.error('Sign out error:', error);
                 Alert.alert("Error", "Could not sign out. Please try again.");
@@ -411,10 +386,13 @@ export default function ProfileScreen() {
               setLoading(true);
               try {
                 // Sign out and clear all local data
-                await supabase.auth.signOut();
+                await signOut();
                 // Clear all local storage/state
                 // Note: You might want to add more cleanup here
-                router.replace("/");
+                // Small delay to ensure plan store is cleared before navigation
+                setTimeout(() => {
+                  router.replace("/");
+                }, 100);
               } catch (error) {
                 console.error('Delete account error:', error);
                 Alert.alert("Error", "Could not delete account. Please try again.");
@@ -559,11 +537,11 @@ export default function ProfileScreen() {
                   </View>
                   <Pressable 
                     style={styles.addEmailButton} 
-                    onPress={handleAddEmail}
+                    onPress={() => router.push('/cloud-sync')}
                     disabled={loading}
                   >
                     <Text style={styles.addEmailButtonText}>
-                      {loading ? "Adding..." : "Add Email & Sync"}
+                      Add Email & Sync
                     </Text>
                   </Pressable>
                 </View>
@@ -627,34 +605,30 @@ export default function ProfileScreen() {
 
           {/* Sign Out / Delete Account */}
           <View style={styles.section}>
-            <Pressable onPress={handleSignOut} style={styles.signOutButton} disabled={loading}>
+            <CustomButton
+              onPress={handleSignOut}
+              variant="ghost"
+              disabled={loading}
+            >
               {loading ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <ActivityIndicator size="small" color="white" />
               ) : (
-                <>
+                <View style={styles.signOutButtonContent}>
                   <Feather 
                     name={user?.email && !user.email.includes('@guest.local') ? "log-out" : "trash-2"} 
                     size={20} 
-                    color="#fff" 
+                    color="white" 
                   />
                   <Text style={styles.signOutText}>
                     {user?.email && !user.email.includes('@guest.local') ? "Sign Out" : "Delete Account"}
                   </Text>
-                </>
+                </View>
               )}
-            </Pressable>
+            </CustomButton>
           </View>
         </ScreenScrollView>
       </SafeAreaView>
 
-      {/* Cloud Sync Popup */}
-      <CloudSyncPopup
-        visible={showCloudSyncPopup}
-        onClose={() => setShowCloudSyncPopup(false)}
-        onSuccess={handleCloudSyncSuccess}
-        title="Sync Your Data"
-        message="Enter your email and password to sync your hair care data to the cloud."
-      />
     </View>
   );
 }
@@ -855,19 +829,14 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
   },
-  signOutButton: {
+  signOutButtonContent: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,107,107,0.2)",
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,107,107,0.3)",
     gap: 8,
   },
   signOutText: {
-    color: "#ff6b6b",
+    color: "white",
     fontSize: 16,
     fontWeight: "600",
   },

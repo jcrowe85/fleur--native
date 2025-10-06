@@ -1,6 +1,5 @@
 // src/services/cloudSyncService.ts
 import { supabase } from './supabase';
-import { useAuthStore } from '@/state/authStore';
 import { usePlanStore } from '@/state/planStore';
 import { useRoutineStore } from '@/state/routineStore';
 import { useRewardsStore } from '@/state/rewardsStore';
@@ -61,6 +60,13 @@ export class CloudSyncService {
       const sanitizedEmail = email.trim().toLowerCase();
       const sanitizedPassword = password.trim();
 
+      // Check if user is already logged in with a real email (not guest)
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (currentUser && currentUser.email && !currentUser.email.includes('@guest.local')) {
+        console.log('⚠️ User already logged in with real email, skipping syncToCloud');
+        return { success: false, error: 'User is already logged in with a real account. Please sign out first.' };
+      }
+
       // Validate email format
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(sanitizedEmail)) {
@@ -90,63 +96,124 @@ export class CloudSyncService {
       }
       this.setLastAuthAttempt(now);
 
-      // Create or sign in user with enhanced error handling
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      // Get current user (should be the guest user)
+      const { data: { user: guestUser } } = await supabase.auth.getUser();
+      if (!guestUser) {
+        this.syncStatus = 'error';
+        return { success: false, error: 'No user session found. Please restart the app and try again.' };
+      }
+
+      console.log('🔄 Current user:', guestUser.email, '(guest:', guestUser.email?.includes('@guest.local'), ')');
+
+      // First, try to sign in with the provided email/password
+      // This will handle the case where the email already exists
+      console.log('🔐 Attempting to sign in with provided credentials...');
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email: sanitizedEmail,
         password: sanitizedPassword,
       });
 
-      if (authError) {
-        // If sign in fails, try to sign up
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email: sanitizedEmail,
-          password: sanitizedPassword,
-          options: {
-            data: {
-              created_at: new Date().toISOString(),
-              app_version: '1.0.0',
-              platform: 'mobile'
-            }
-          }
-        });
+      let user = signInData?.user;
 
-        if (signUpError) {
+      if (signInError) {
+        // If sign in fails, it could be because:
+        // 1. Email doesn't exist (we can update guest user)
+        // 2. Wrong password (user exists but wrong password)
+        // 3. Email exists but not confirmed
+        
+        console.log('⚠️ Sign in failed:', signInError.message);
+        
+        if (signInError.message.includes('Invalid login credentials')) {
+          // Email doesn't exist or wrong password
+          // Try to update the guest user's email
+          console.log('📧 Email not found or wrong password, updating guest user email...');
+          
+          // Use the link-email edge function instead of direct updateUser
+          const { data: updateData, error: updateError } = await supabase.functions.invoke('link-email', {
+            body: {
+              email: sanitizedEmail,
+              password: sanitizedPassword,
+            },
+          });
+
+          if (updateError) {
+            this.syncStatus = 'error';
+            console.error('❌ Failed to update user email:', updateError);
+            return { success: false, error: updateError.message || 'Failed to update user email. Please try again.' };
+          }
+
+          // Check if the edge function returned success
+          if (!updateData?.success) {
+            this.syncStatus = 'error';
+            return { success: false, error: updateData?.error || 'Failed to update user account. Please try again.' };
+          }
+
+          // Get the updated user from the response
+          const updatedUser = updateData.user;
+          if (!updatedUser) {
+            this.syncStatus = 'error';
+            return { success: false, error: 'Failed to update user account. Please try again.' };
+          }
+
+          // Update the local user object
+          user = {
+            id: updatedUser.id,
+            email: updatedUser.email,
+            // Add other required user properties
+          } as any;
+
+          console.log('✅ Guest user email updated successfully:', user.email);
+        } else {
+          // Other sign in errors
           this.syncStatus = 'error';
-          // Don't expose internal error details for security
-          const userFriendlyError = this.getUserFriendlyError(signUpError.message);
+          const userFriendlyError = this.getUserFriendlyError(signInError.message);
           return { success: false, error: userFriendlyError };
+        }
+      } else {
+        // Sign in successful - user already exists
+        console.log('✅ Successfully signed in with existing account:', user.email);
+        
+        // Sign out the guest user and sign in the real user
+        await supabase.auth.signOut();
+        
+        // The sign in above should have already set the session, but let's verify
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        if (currentUser && currentUser.email === sanitizedEmail) {
+          user = currentUser;
+          console.log('✅ Switched to existing user account');
+        } else {
+          this.syncStatus = 'error';
+          return { success: false, error: 'Failed to switch to existing account. Please try again.' };
         }
       }
 
-      const user = authData?.user || (await supabase.auth.getUser()).data.user;
-      if (!user) {
-        this.syncStatus = 'error';
-        return { success: false, error: 'Authentication failed. Please try again.' };
-      }
-
       // Collect all local data
-      const syncData = await this.collectLocalData(user.id, email);
+      const syncData = await this.collectLocalData(user.id, sanitizedEmail);
 
-      // Upload to cloud
+      // Upload full data to cloud
       const { error: uploadError } = await supabase
         .from('user_sync_data')
         .upsert(syncData, { onConflict: 'user_id' });
 
       if (uploadError) {
         this.syncStatus = 'error';
+        console.error('❌ Database insert failed:', uploadError);
         return { success: false, error: uploadError.message };
       }
 
+      // Only update sync status and auth store AFTER successful database insert
       this.syncStatus = 'synced';
       this.lastSyncAttempt = new Date();
 
-      // Update auth store with user info
+      // Update auth store with user info (imported dynamically to avoid circular dependency)
+      const { useAuthStore } = await import('@/state/authStore');
       useAuthStore.getState().setUser({
         id: user.id,
         email: user.email!,
         isCloudSynced: true,
       });
 
+      console.log('✅ Cloud sync completed successfully - user marked as synced');
       return { success: true };
     } catch (error) {
       this.syncStatus = 'error';
@@ -218,7 +285,7 @@ export class CloudSyncService {
     }
   }
 
-  private async collectLocalData(userId: string, email: string): Promise<CloudSyncData> {
+  async collectLocalData(userId: string, email: string): Promise<CloudSyncData> {
     const planData = usePlanStore.getState();
     const routineData = useRoutineStore.getState();
     const rewardsData = useRewardsStore.getState();
@@ -458,6 +525,8 @@ export class CloudSyncService {
       'Signup is disabled': 'Account creation is currently disabled. Please contact support.',
       'Email rate limit exceeded': 'Too many attempts. Please wait a few minutes before trying again.',
       'Password rate limit exceeded': 'Too many password attempts. Please wait before trying again.',
+      'already registered': 'An account with this email already exists. Please use a different email or sign in with your existing password.',
+      'already exists': 'An account with this email already exists. Please use a different email or sign in with your existing password.',
     };
 
     // Return user-friendly error or generic message

@@ -19,8 +19,10 @@ export function useCloudSyncPopup() {
 
   const handleSyncSuccess = useCallback(async () => {
     setVisible(false);
-    // Notify cloud sync manager that user has synced
-    await cloudSyncManager.onUserSync();
+    // Note: We don't call cloudSyncManager.onUserSync() here because
+    // the sync service already handles updating the auth store after successful sync.
+    // This prevents false positive sync states.
+    console.log('✅ Cloud sync popup closed after successful sync');
   }, []);
 
   const showBackupPopup = useCallback(() => {

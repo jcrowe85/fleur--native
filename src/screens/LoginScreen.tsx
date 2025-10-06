@@ -16,6 +16,7 @@ import { router } from 'expo-router';
 import { ImageBackground } from 'react-native';
 
 import { cloudSyncService } from '@/services/cloudSyncService';
+import { supabase } from '@/services/supabase';
 import { CustomButton } from '@/components/UI/CustomButton';
 import { ScreenScrollView } from '@/components/UI/bottom-space';
 
@@ -74,26 +75,26 @@ export default function LoginScreen() {
     setIsLoading(true);
 
     try {
-      const result = await cloudSyncService.syncToCloud(email.trim(), password);
-      
-      if (result.success) {
-        Alert.alert(
-          'Success! 🎉',
-          isSignUp 
-            ? 'Account created successfully! Your data has been synced to the cloud.'
-            : 'Welcome back! Your data has been synced from the cloud.',
-          [
-            {
-              text: 'Continue',
-              onPress: () => router.replace('/dashboard')
-            }
-          ]
-        );
-      } else {
-        Alert.alert('Authentication Failed', result.error || 'Failed to authenticate. Please try again.');
+      // For login, use direct sign in with Supabase
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password,
+      });
+
+      if (error) {
+        Alert.alert('Authentication Failed', error.message || 'Failed to authenticate. Please try again.');
+        return;
       }
-    } catch (error) {
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+
+      if (data.user && data.session) {
+        // Successfully signed in - navigate directly to dashboard
+        router.replace('/dashboard');
+      } else {
+        Alert.alert('Authentication Failed', 'No user session found. Please try again.');
+      }
+    } catch (error: any) {
+      console.error('Login error:', error);
+      Alert.alert('Error', error.message || 'An unexpected error occurred. Please try again.');
     } finally {
       setIsLoading(false);
     }

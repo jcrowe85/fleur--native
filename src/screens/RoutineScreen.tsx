@@ -132,28 +132,31 @@ export default function RoutineScreen() {
   // BUT only if cloud restoration is not in progress
   useEffect(() => {
     const routineStore = useRoutineStore.getState();
-    const authStore = useAuthStore.getState();
-    
-    // Don't apply defaults if:
-    // 1. Cloud restoration is in progress or recently completed
-    // 2. User has already customized their routine
-    // 3. Routine already has steps
-    if (
-      authStore.isCloudSynced || 
-      routineStore.hasBeenCustomized || 
-      stepsAll.length > 0
-    ) {
-      console.log('✅ RoutineScreen: Skipping default application - cloud synced or customized');
-      return;
-    }
-    
-    // Only apply defaults if truly empty and no cloud restoration happening
-    if (stepsAll.length === 0) {
-      console.log("⚠️ RoutineScreen: No routine steps found, applying defaults");
-      applyDefaultIfEmpty();
-    } else {
-      console.log("✅ RoutineScreen: Routine steps exist, no action needed");
-    }
+    // Import authStore dynamically to avoid circular dependency
+    import('@/state/authStore').then(({ useAuthStore }) => {
+      const authStore = useAuthStore.getState();
+      
+      // Don't apply defaults if:
+      // 1. Cloud restoration is in progress or recently completed
+      // 2. User has already customized their routine
+      // 3. Routine already has steps
+      if (
+        authStore.isCloudSynced || 
+        routineStore.hasBeenCustomized || 
+        stepsAll.length > 0
+      ) {
+        console.log('✅ RoutineScreen: Skipping default application - cloud synced or customized');
+        return;
+      }
+      
+      // Only apply defaults if truly empty and no cloud restoration happening
+      if (stepsAll.length === 0) {
+        console.log("⚠️ RoutineScreen: No routine steps found, applying defaults");
+        applyDefaultIfEmpty();
+      } else {
+        console.log("✅ RoutineScreen: Routine steps exist, no action needed");
+      }
+    });
   }, [stepsAll.length, applyDefaultIfEmpty]);
 
   const [tab, setTab] = useState<Period>("morning");

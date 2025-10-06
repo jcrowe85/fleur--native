@@ -1,7 +1,6 @@
 // src/services/cloudSyncManager.ts
 import { cloudSyncService } from './cloudSyncService';
 import { cloudSyncPromotionService } from './cloudSyncPromotionService';
-import { useAuthStore } from '@/state/authStore';
 
 export class CloudSyncManager {
   private static instance: CloudSyncManager;
@@ -62,6 +61,8 @@ export class CloudSyncManager {
   }
 
   private async checkAndSendPromotion(): Promise<void> {
+    // Import authStore dynamically to avoid circular dependency
+    const { useAuthStore } = await import('@/state/authStore');
     const { isCloudSynced } = useAuthStore.getState();
     
     // Don't send promotions if user is already synced
@@ -77,6 +78,8 @@ export class CloudSyncManager {
   }
 
   private async performBackgroundSync(): Promise<void> {
+    // Import authStore dynamically to avoid circular dependency
+    const { useAuthStore } = await import('@/state/authStore');
     const { isCloudSynced } = useAuthStore.getState();
     
     // Only perform background sync if user is synced
@@ -88,6 +91,8 @@ export class CloudSyncManager {
   }
 
   async sendFirstLoginPromotion(): Promise<void> {
+    // Import authStore dynamically to avoid circular dependency
+    const { useAuthStore } = await import('@/state/authStore');
     const { isCloudSynced } = useAuthStore.getState();
     
     if (!isCloudSynced) {
@@ -96,6 +101,8 @@ export class CloudSyncManager {
   }
 
   async sendMonthlyReminder(): Promise<void> {
+    // Import authStore dynamically to avoid circular dependency
+    const { useAuthStore } = await import('@/state/authStore');
     const { isCloudSynced } = useAuthStore.getState();
     
     if (!isCloudSynced) {
@@ -107,18 +114,14 @@ export class CloudSyncManager {
     // Reset promotion count when user syncs
     cloudSyncPromotionService.resetPromotionCount();
     
-    // Update auth store
-    const { data: { user } } = await cloudSyncService['supabase'].auth.getUser();
-    if (user) {
-      useAuthStore.getState().setUser({
-        id: user.id,
-        email: user.email!,
-        isCloudSynced: true,
-      });
-    }
+    // Note: We no longer update the auth store here to prevent false positive sync states.
+    // The cloudSyncService handles auth store updates after successful database operations.
+    console.log('✅ User sync completed - promotion count reset');
   }
 
   async onDataChange(): Promise<void> {
+    // Import authStore dynamically to avoid circular dependency
+    const { useAuthStore } = await import('@/state/authStore');
     const { isCloudSynced } = useAuthStore.getState();
     
     // If user is synced and frequency is immediate, sync right away

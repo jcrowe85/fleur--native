@@ -41,7 +41,7 @@ Deno.serve(async (req)=>{
       }
     });
     const body = await req.json().catch(()=>({}));
-    const email = `guest_${crypto.randomUUID()}@guest.local`;
+    const email = `guest${Math.random().toString(36).substring(2, 15)}@guest.local`;
     const password = randomPassword();
     const { data: created, error: createErr } = await supa.auth.admin.createUser({
       email,

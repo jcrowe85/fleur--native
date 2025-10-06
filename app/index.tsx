@@ -6,7 +6,13 @@ import { usePlanStore } from "@/state/planStore";
 import WelcomeScreen from "../src/screens/WelcomeScreen";
 
 // Keep splash until we decide
-SplashScreen.preventAutoHideAsync().catch(() => {});
+let splashScreenReady = false;
+let splashScreenHidden = false;
+SplashScreen.preventAutoHideAsync()
+  .then(() => {
+    splashScreenReady = true;
+  })
+  .catch(() => {});
 
 function useStoreHydrated(): boolean {
   // Prefer zustand's own hydration flags; fall back to false
@@ -43,7 +49,8 @@ export default function IndexGate() {
 
   // Hide splash as soon as we can show *something*
   useEffect(() => {
-    if (hydrated || timeoutFired) {
+    if ((hydrated || timeoutFired) && splashScreenReady && !splashScreenHidden) {
+      splashScreenHidden = true;
       SplashScreen.hideAsync().catch(() => {});
     }
   }, [hydrated, timeoutFired]);

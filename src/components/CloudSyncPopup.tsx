@@ -9,9 +9,14 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { Feather } from '@expo/vector-icons';
+import { ImageBackground } from 'react-native';
+import { router } from 'expo-router';
 import { cloudSyncService } from '@/services/cloudSyncService';
+import { CustomButton } from '@/components/UI/CustomButton';
+import { ScreenScrollView } from '@/components/UI/bottom-space';
 
 interface CloudSyncPopupProps {
   visible: boolean;
@@ -25,7 +30,7 @@ export default function CloudSyncPopup({
   visible,
   onClose,
   onSuccess,
-  title = "Sync Your Data",
+  title = "Add Email & Sync",
   message = "Enter your email and password to sync your hair care data to the cloud."
 }: CloudSyncPopupProps) {
   const [email, setEmail] = useState('');
@@ -96,18 +101,37 @@ export default function CloudSyncPopup({
   if (!visible) return null;
 
   return (
-    <View style={styles.overlay}>
-      <BlurView intensity={90} tint="dark" style={styles.blurContainer}>
-        <View style={styles.popup}>
-          {/* Header */}
-          <View style={styles.header}>
+    <View style={styles.container}>
+      <ImageBackground
+        source={require('../../assets/dashboard.png')}
+        resizeMode="cover"
+        style={StyleSheet.absoluteFillObject as any}
+      />
+      <StatusBar style="light" />
+      
+      <SafeAreaView edges={['top', 'left', 'right']} style={{ flex: 1 }}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Pressable
+            onPress={handleClose}
+            style={styles.backButton}
+          >
+            <Feather name="arrow-left" size={20} color="white" />
+          </Pressable>
+          
+          <View style={styles.headerContent}>
             <View style={styles.iconContainer}>
               <Feather name="cloud" size={24} color="white" />
             </View>
             <Text style={styles.title}>{title}</Text>
-            <Text style={styles.message}>{message}</Text>
+            <Text style={styles.subtitle}>{message}</Text>
           </View>
+        </View>
 
+        <ScreenScrollView
+          contentContainerStyle={styles.content}
+          bottomExtra={20}
+        >
           {/* Form */}
           <View style={styles.form}>
             {/* Email Input */}
@@ -187,22 +211,42 @@ export default function CloudSyncPopup({
 
           {/* Benefits */}
           <View style={styles.benefits}>
+            <Text style={styles.benefitsTitle}>Why sync your data?</Text>
             <View style={styles.benefitItem}>
-              <Feather name="shield" size={16} color="rgba(255,255,255,0.8)" />
+              <Feather name="shield" size={14} color="rgba(255,255,255,0.75)" />
               <Text style={styles.benefitText}>Secure cloud backup</Text>
             </View>
             <View style={styles.benefitItem}>
-              <Feather name="smartphone" size={16} color="rgba(255,255,255,0.8)" />
+              <Feather name="smartphone" size={14} color="rgba(255,255,255,0.75)" />
               <Text style={styles.benefitText}>Access on any device</Text>
             </View>
             <View style={styles.benefitItem}>
-              <Feather name="refresh-cw" size={16} color="rgba(255,255,255,0.8)" />
+              <Feather name="refresh-cw" size={14} color="rgba(255,255,255,0.75)" />
               <Text style={styles.benefitText}>Automatic sync</Text>
+            </View>
+            <View style={styles.benefitItem}>
+              <Feather name="trending-up" size={14} color="rgba(255,255,255,0.75)" />
+              <Text style={styles.benefitText}>Never lose progress</Text>
             </View>
           </View>
 
           {/* Actions */}
           <View style={styles.actions}>
+            <CustomButton
+              onPress={handleSync}
+              variant="wellness"
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator size="small" color="#1a1a1a" />
+              ) : (
+                <View style={styles.buttonContent}>
+                  <Feather name="cloud" size={14} color="#1a1a1a" />
+                  <Text style={styles.syncButtonText}>Add Email & Sync</Text>
+                </View>
+              )}
+            </CustomButton>
+
             <Pressable
               onPress={handleClose}
               style={styles.cancelButton}
@@ -210,106 +254,87 @@ export default function CloudSyncPopup({
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </Pressable>
-            
-            <Pressable
-              onPress={handleSync}
-              style={[styles.syncButton, isLoading && styles.syncButtonDisabled]}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator size="small" color="white" />
-              ) : (
-                <>
-                  <Feather name="cloud" size={16} color="white" />
-                  <Text style={styles.syncButtonText}>Sync to Cloud</Text>
-                </>
-              )}
-            </Pressable>
           </View>
-        </View>
-      </BlurView>
+        </ScreenScrollView>
+      </SafeAreaView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 1000,
-  },
-  blurContainer: {
+  container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  popup: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 20,
-    padding: 24,
-    width: '100%',
-    maxWidth: 400,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#120d0a',
   },
   header: {
-    alignItems: 'center',
-    marginBottom: 24,
+    paddingTop: 32,
+    paddingHorizontal: 20,
+    paddingBottom: 24,
   },
-  iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+  backButton: {
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: 24,
+  },
+  headerContent: {
+    alignItems: 'center',
+  },
+  iconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
   },
   title: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 24,
+    fontWeight: '600',
     color: 'white',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
-  message: {
+  subtitle: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.8)',
+    color: 'rgba(255,255,255,0.75)',
     textAlign: 'center',
     lineHeight: 20,
   },
+  content: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+  },
   form: {
-    marginBottom: 20,
+    marginBottom: 28,
   },
   inputContainer: {
     marginBottom: 16,
   },
   inputLabel: {
     fontSize: 14,
-    fontWeight: '600',
-    color: 'white',
-    marginBottom: 8,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.9)',
+    marginBottom: 6,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: 'rgba(255,255,255,0.15)',
   },
   inputIcon: {
-    marginRight: 8,
+    marginRight: 10,
   },
   input: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     color: 'white',
     paddingVertical: 0,
   },
@@ -317,7 +342,17 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   benefits: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 24,
+  },
+  benefitsTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.9)',
+    marginBottom: 12,
+    textAlign: 'center',
   },
   benefitItem: {
     flexDirection: 'row',
@@ -325,45 +360,31 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   benefitText: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.8)',
-    marginLeft: 8,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.75)',
+    marginLeft: 10,
   },
   actions: {
-    flexDirection: 'row',
     gap: 12,
   },
-  cancelButton: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.8)',
-  },
-  syncButton: {
-    flex: 2,
+  buttonContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: 'white',
-    gap: 8,
-  },
-  syncButtonDisabled: {
-    opacity: 0.6,
   },
   syncButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '500',
     color: '#1a1a1a',
+    marginLeft: 8,
+  },
+  cancelButton: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  cancelButtonText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.65)',
+    textDecorationLine: 'underline',
   },
 });

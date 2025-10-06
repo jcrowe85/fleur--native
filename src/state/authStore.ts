@@ -122,8 +122,35 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   signOut: async () => {
+    // Perform final sync before signing out to prevent data loss
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && user.email && !user.email.includes('@guest.local')) {
+        console.log('🔄 Performing final sync before sign out...');
+        const { cloudSyncService } = await import('@/services/cloudSyncService');
+        const { supabase } = await import('@/services/supabase');
+        
+        // Force sync regardless of frequency settings
+        const syncData = await cloudSyncService.collectLocalData(user.id, user.email);
+        await supabase
+          .from('user_sync_data')
+          .upsert(syncData, { onConflict: 'user_id' });
+        
+        console.log('✅ Final sync completed before sign out');
+      }
+    } catch (error) {
+      console.warn('⚠️ Final sync failed before sign out:', error);
+      // Continue with sign out even if sync fails
+    }
+    
     await supabase.auth.signOut();
     set({ session: null, user: null, isCloudSynced: false });
+    
+    // Clear plan store both in memory and from persistent storage
+    const { usePlanStore } = await import('@/state/planStore');
+    usePlanStore.getState().clearPlan();
+    // Also clear from persistent storage to prevent rehydration
+    await usePlanStore.persist?.clearStorage?.();
   },
 
   setUser: (user: { id: string; email: string; isCloudSynced: boolean }) => {
