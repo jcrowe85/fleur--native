@@ -163,7 +163,7 @@ export default function CloudSyncScreen() {
     // Show success message with clear explanation
     Alert.alert(
       "Account Synced! 🎉", 
-      "Your email has been successfully linked and your data is backed up!\n\nYour session will now end so you can sign in with your new email and password. This is normal and expected.",
+      "Your email has been successfully linked and your data is backed up!\n\nPlease check your spam/junk folder if you don't see the verification email.\n\nYour session will now end so you can sign in with your new email and password. This is normal and expected.",
       [
         {
           text: "Sign In with New Email",

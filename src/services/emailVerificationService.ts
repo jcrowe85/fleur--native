@@ -75,16 +75,6 @@ class EmailVerificationService {
 
       console.log('✅ Verification code sent to:', email);
       
-      // For development: Also show the code in alert for easy testing
-      if (__DEV__) {
-        console.log('🔑 DEVELOPMENT MODE - Verification Code:', code);
-        setTimeout(() => {
-          if (typeof alert !== 'undefined') {
-            alert(`🔑 DEVELOPMENT MODE\n\nVerification Code: ${code}\n\nEmail: ${email}\n\nCheck your email for the official verification code.`);
-          }
-        }, 1000);
-      }
-      
       return { success: true };
     } catch (error) {
       console.error('Error sending verification code:', error);
