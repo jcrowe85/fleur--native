@@ -2,11 +2,10 @@
 // deno-lint-ignore-file no-explicit-any
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-// ⚠️ Use non-reserved names (the CLI blocks SUPABASE_* secrets)
-const SB_URL = Deno.env.get('SB_URL');
-const SB_SERVICE_ROLE_KEY = Deno.env.get('SB_SERVICE_ROLE_KEY');
+const SB_URL = Deno.env.get('SUPABASE_URL');
+const SB_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 if (!SB_URL || !SB_SERVICE_ROLE_KEY) {
-  throw new Error('Missing SB_URL or SB_SERVICE_ROLE_KEY env vars');
+  throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars');
 }
 function randomPassword(len = 32) {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';

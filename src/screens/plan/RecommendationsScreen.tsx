@@ -25,6 +25,8 @@ function getProductSlot(productHandle: string): Slot {
   const slotMapping: Record<string, Slot> = {
     "shampoo": "cleanse",
     "conditioner": "condition", 
+    "bloom-hair-scalp-serum-longform": "treat",
+    // Legacy short key kept for backward compat
     "bloom": "treat",
     "micro-roller": "protect",
     "hair-mask": "treat",
@@ -78,7 +80,7 @@ function getUsageBadges(productHandle: string, slot: Slot): string[] {
   const badges: Record<string, string[]> = {
     "fleur-shampoo": ["Wash days"],
     "fleur-conditioner": ["2×/wk"],
-    "bloom": ["Daily PM", "Dry/clean scalp"],
+    "bloom-hair-scalp-serum-longform": ["Daily PM", "Dry/clean scalp"],
     "fleur-derma-stamp": ["1–2×/wk", "Patch test"],
     "fleur-repair-mask": ["1×/wk", "7-10 min"],
     "fleur-heat-shield": ["Before heat"],
@@ -227,7 +229,7 @@ export default function Recommendations() {
     if (kitItems.length < 8) { // Updated to 8 to include supplements for hormonal users
       const usedHandles = new Set(kitItems.map(item => item.product.handle));
       const coreProducts = [
-        { handle: "bloom", slot: "treat" as Slot },
+        { handle: "bloom-hair-scalp-serum-longform", slot: "treat" as Slot },
         { handle: "micro-roller", slot: "protect" as Slot },
         { handle: "shampoo", slot: "cleanse" as Slot },
         { handle: "conditioner", slot: "condition" as Slot },
@@ -244,7 +246,7 @@ export default function Recommendations() {
               why: `Essential for your ${slot} routine`,
             });
           } else {
-            console.warn(`Core product not found: LLM handle "${handle}"`);
+            console.warn(`Core product not found: handle "${handle}"`);
           }
         }
         if (kitItems.length >= 8) break; // Updated to 8 to include supplements for hormonal users

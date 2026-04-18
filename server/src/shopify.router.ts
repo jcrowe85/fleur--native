@@ -70,18 +70,22 @@ router.post("/checkout", async (req, res) => {
 });
 
 // Get products endpoint - fetches from Shopify Storefront API
+// Optional ?tag= query param filters by tag (e.g. ?tag=redeemable-with-points for rewards).
+// Omitting the param returns all products, which is what the recommendations screen needs.
 router.get("/products", async (req, res) => {
   try {
     const STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
     const STOREFRONT_TOKEN = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
-    
+    const tagFilter = typeof req.query.tag === "string" ? req.query.tag.trim() : null;
+    const shopifyQueryStr = tagFilter ? `tag:${tagFilter}` : "";
+
     // Try to fetch from real Shopify API first
     if (STORE_DOMAIN && STOREFRONT_TOKEN) {
       try {
-        console.log("Fetching products from real Shopify API...");
+        console.log(`Fetching products from Shopify${tagFilter ? ` (tag:${tagFilter})` : " (all)"}...`);
         const domain = STORE_DOMAIN.replace(/^https?:\/\//, "").replace(/\/$/, "");
         const url = `https://${domain}/api/2023-10/graphql.json`;
-        
+
         const query = `
           query getProducts($first: Int!, $query: String!) {
             products(first: $first, query: $query) {
@@ -124,7 +128,7 @@ router.get("/products", async (req, res) => {
             }
           }
         `;
-        
+
         const response = await fetch(url, {
           method: 'POST',
           headers: {
@@ -133,13 +137,10 @@ router.get("/products", async (req, res) => {
           },
           body: JSON.stringify({
             query,
-            variables: {
-              first: 50,
-              query: 'tag:redeemable-with-points'
-            }
+            variables: { first: 50, query: shopifyQueryStr }
           })
         });
-        
+
         if (response.ok) {
           const data = await response.json();
           if (data.data && data.data.products) {
@@ -148,7 +149,7 @@ router.get("/products", async (req, res) => {
             return res.json({ products });
           }
         }
-        
+
         console.warn("Shopify API call failed, falling back to hardcoded products");
       } catch (error) {
         console.warn("Error calling Shopify API:", error);
@@ -160,7 +161,7 @@ router.get("/products", async (req, res) => {
       // Fallback to hardcoded list if credentials missing
       const fallbackProducts = [
         { 
-          handle: "bloom", 
+          handle: "bloom-hair-scalp-serum-longform",
           title: "Hair Growth Serum", 
           description: "Peptide-based serum for density and shedding",
           priceRange: { minVariantPrice: { amount: "48.00", currencyCode: "USD" } },
@@ -261,8 +262,8 @@ router.get("/products", async (req, res) => {
 
     // Fetch from Shopify Storefront API
     const query = `
-      query getProducts {
-        products(first: 50, query: "tag:redeemable-with-points") {
+      query getProducts($query: String!) {
+        products(first: 50, query: $query) {
           edges {
             node {
               id
@@ -296,7 +297,7 @@ router.get("/products", async (req, res) => {
         'Content-Type': 'application/json',
         'X-Shopify-Storefront-Access-Token': STOREFRONT_TOKEN,
       },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, variables: { query: shopifyQueryStr } }),
     });
 
     if (!response.ok) {

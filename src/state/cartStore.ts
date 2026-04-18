@@ -32,6 +32,7 @@ type CartState = {
 const SKU_TO_VARIANT: Record<string, string> = {
   // ✅ Real Shopify variant IDs from API - using Shopify handles as primary keys
   "bloom": "gid://shopify/ProductVariant/44138306273459",
+  "bloom-hair-scalp-serum-longform": "gid://shopify/ProductVariant/44138306273459",
   "micro-roller": "gid://shopify/ProductVariant/44138710597811",
   "detangling-comb": "gid://shopify/ProductVariant/45032094597299",
   "vegan-biotin": "gid://shopify/ProductVariant/45032903278771",
@@ -67,6 +68,7 @@ const SKU_TO_VARIANT: Record<string, string> = {
 const SKU_PRICE_CENTS: Record<string, number> = {
   // Real prices from Shopify API - using Shopify handles as primary keys
   "bloom": 4800,
+  "bloom-hair-scalp-serum-longform": 4800,
   "micro-roller": 3000,
   "detangling-comb": 4200,
   "vegan-biotin": 1500,
@@ -102,6 +104,7 @@ const SKU_PRICE_CENTS: Record<string, number> = {
 const SKU_NAME: Record<string, string> = {
   // Real product names from Shopify API - using Shopify handles as primary keys
   "bloom": "hair growth serum",
+  "bloom-hair-scalp-serum-longform": "hair growth serum",
   "micro-roller": "Derma Stamp",
   "detangling-comb": "Detangling Comb",
   "vegan-biotin": "vegan biotin",
@@ -138,6 +141,7 @@ const SKU_NAME: Record<string, string> = {
 const SKU_IMAGE: Record<string, string | undefined> = {
   // Real Shopify product images
   "bloom": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/new_single_23e90b78-701c-4676-bf9c-6ce115c58ccd.png?v=1738964215",
+  "bloom-hair-scalp-serum-longform": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/new_single_23e90b78-701c-4676-bf9c-6ce115c58ccd.png?v=1738964215",
   "micro-roller": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/Derma_Stamp_Final_hero.png?v=1734400492",
   "detangling-comb": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/fleur_comb_f1e00f2c-b8e5-4c64-912a-c6ef73339efd.png?v=1758929620",
   "vegan-biotin": "https://cdn.shopify.com/s/files/1/0683/1256/3891/files/amazon_biotin_2000x2000_dc31b961-07be-4704-b038-e19a2e891d6d.png?v=1758922325",

@@ -266,22 +266,17 @@ export async function fetchRedeemableProducts(tag: string = "redeemable-with-poi
   // Use the same backend API as fetchAllProducts to ensure consistency
   try {
     const serverUrl = process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:3000';
-    const response = await fetch(`${serverUrl}/api/shopify/products`);
-    
+    const response = await fetch(`${serverUrl}/api/shopify/products?tag=${encodeURIComponent(tag)}`);
+
     if (!response.ok) {
       throw new Error(`Backend API error: ${response.status}`);
     }
-    
+
     const data = await response.json();
-    
-    // Filter products by tag on the frontend since backend doesn't support tag filtering
-    const allProducts = data.products || [];
-    const redeemableProducts = allProducts.filter((product: any) => 
-      product.tags && product.tags.includes(tag)
-    );
-    
-    console.log(`Found ${redeemableProducts.length} redeemable products out of ${allProducts.length} total products`);
-    
+    const redeemableProducts = data.products || [];
+
+    console.log(`Found ${redeemableProducts.length} redeemable products (tag: ${tag})`);
+
     return redeemableProducts.map((product: any) => ({
       id: product.id,
       handle: product.handle,

@@ -42,7 +42,7 @@ router.post("/build", async (req, res) => {
   // Use hardcoded products with actual Shopify SKUs and handles
   const shopifyProducts = [
     { 
-      handle: "bloom", 
+      handle: "bloom-hair-scalp-serum-longform", 
       sku: "fleur-1",
       title: "Hair Growth Serum", 
       description: "Peptide-based serum for density and shedding",
@@ -597,7 +597,7 @@ function ensurePriorityRecs(plan: any, flags: ReturnType<typeof deriveFlags>) {
   const routineMentionsMask = /mask|deep.*condition/.test(routineText);
   
   // Only add products that are mentioned in routine but missing from recommendations
-  if (routineMentionsSerum && !usedHandles.has("bloom")) {
+  if (routineMentionsSerum && !usedHandles.has("bloom-hair-scalp-serum-longform")) {
     recs.push(makeSerumRec());
   }
   
@@ -678,7 +678,7 @@ function ensurePriorityRecs(plan: any, flags: ReturnType<typeof deriveFlags>) {
 
 function makeSerumRec() {
   return {
-    handle: "bloom",
+    handle: "bloom-hair-scalp-serum-longform",
     sku: "fleur-1",
     title: "Hair Growth Serum",
     why: "To address your shedding concern by delivering peptide-rich nutrients directly to hair follicles, promoting stronger roots and denser growth where you need it most.",
@@ -792,7 +792,7 @@ function normalizeRecTitles(r: any) {
 
   if (/serum|peptide/.test(text)) {
     out.title = "Hair Growth Serum";
-    out.handle = "bloom";
+    out.handle = "bloom-hair-scalp-serum-longform";
     out.sku = "fleur-1";
   } else if (/stamp|microneedl/.test(text)) {
     out.title = "Derma Stamp";

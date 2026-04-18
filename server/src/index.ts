@@ -12,6 +12,8 @@ const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json({ limit: "1mb" }));
 
+app.get("/health", (_req, res) => res.json({ ok: true }));
+
 app.use("/api/plan", planRouter);
 app.use("/api/shopify", shopifyRouter);
 app.use("/api/promotions", promotionRouter);

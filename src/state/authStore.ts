@@ -39,7 +39,10 @@ async function createGuestViaFetch(): Promise<{ email: string; password: string 
   
   const res = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "Authorization": `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
+    },
     body: JSON.stringify({}),
   });
   
