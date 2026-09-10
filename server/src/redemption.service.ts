@@ -43,9 +43,25 @@ async function assertWithinLimits(userId: string): Promise<void> {
     .eq("user_id", userId)
     .eq("status", "issued");
 
-  if (activeErr) throw new RedemptionError("Could not check redemption status", 500);
+  // Fail closed.
+  //
+  // These limits are the only thing standing between a tampered client and an
+  // unbounded run of free-product discount codes, and the row we write is the
+  // only record that a code was ever issued. If the table cannot be read — it
+  // was missing entirely until the migration was applied — we must refuse, not
+  // sail past the guard. A null count with no error means the same thing.
+  if (activeErr || activeCount === null || activeCount === undefined) {
+    console.error(
+      "[redemption] cannot read point_redemptions; refusing to issue.",
+      activeErr?.message ?? "no count returned"
+    );
+    throw new RedemptionError(
+      "Redemptions are temporarily unavailable. Please try again later.",
+      503
+    );
+  }
 
-  if ((activeCount ?? 0) >= MAX_ACTIVE_REDEMPTIONS) {
+  if (activeCount >= MAX_ACTIVE_REDEMPTIONS) {
     throw new RedemptionError(
       "You already have an unused redemption. Finish or cancel that checkout first.",
       409
@@ -59,9 +75,18 @@ async function assertWithinLimits(userId: string): Promise<void> {
     .eq("user_id", userId)
     .gte("created_at", since);
 
-  if (dayErr) throw new RedemptionError("Could not check redemption status", 500);
+  if (dayErr || dayCount === null || dayCount === undefined) {
+    console.error(
+      "[redemption] cannot read point_redemptions; refusing to issue.",
+      dayErr?.message ?? "no count returned"
+    );
+    throw new RedemptionError(
+      "Redemptions are temporarily unavailable. Please try again later.",
+      503
+    );
+  }
 
-  if ((dayCount ?? 0) >= MAX_REDEMPTIONS_PER_DAY) {
+  if (dayCount >= MAX_REDEMPTIONS_PER_DAY) {
     throw new RedemptionError(
       "Daily redemption limit reached. Please try again tomorrow.",
       429

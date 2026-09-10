@@ -15,7 +15,21 @@ function fail(res: express.Response, error: unknown, fallback: string) {
   if (error instanceof RedemptionError) {
     return res.status(error.status).json({ error: error.message });
   }
+
   console.error(fallback, error);
+
+  // A missing Shopify scope or credential is a deployment problem, not
+  // something the customer did. Say so plainly — the generic "Failed to create
+  // redemption" gave no clue that the Admin token simply lacked write_discounts
+  // — while still keeping the raw Shopify message server-side.
+  const message = error instanceof Error ? error.message : "";
+  if (/access denied|not configured|required access/i.test(message)) {
+    return res.status(503).json({
+      error:
+        "Rewards are temporarily unavailable. Our team has been notified.",
+    });
+  }
+
   // Internal messages can carry Shopify/API detail — don't leak them to clients.
   return res.status(500).json({ error: fallback });
 }
