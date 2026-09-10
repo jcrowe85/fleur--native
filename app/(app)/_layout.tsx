@@ -111,13 +111,17 @@ export default function AppLayout() {
       <CommentsSheetProvider>
         <Tabs
           screenOptions={{
-            headerTransparent: true,
-            headerTitle: "",
-            headerTintColor: "#fff",
-            headerShadowVisible: false,
-            headerStyle: { backgroundColor: "transparent" },
-            // headerRight: () => <HeaderRight />,
-            headerLeft: () => null,
+            // Every screen in this group renders its own header inside its
+            // content. The navigator header drew nothing at all (empty title,
+            // null headerLeft, no headerRight) but still laid out a transparent
+            // view across the top ~368px of the screen, and that view sat above
+            // the screen content and swallowed every touch underneath it —
+            // which is why the rewards pill in each header was visible but
+            // completely dead, on tap and on long-press alike.
+            //
+            // `community` already set headerShown: false to work around this on
+            // that one screen; turning it off for the group fixes the rest.
+            headerShown: false,
             tabBarShowLabel: false,
           }}
           tabBar={(props) => <FleurTabBar {...props} />}
@@ -127,7 +131,7 @@ export default function AppLayout() {
           <Tabs.Screen name="routine"   options={{ title: "Routine",   tabBarIcon: () => null }} />
           <Tabs.Screen name="shop"      options={{ title: "Shop",      tabBarIcon: () => null }} />
           <Tabs.Screen name="education" options={{ title: "Education", tabBarIcon: () => null }} />
-          <Tabs.Screen name="community" options={{ title: "Community", tabBarIcon: () => null, headerShown: false }} />
+          <Tabs.Screen name="community" options={{ title: "Community", tabBarIcon: () => null }} />
 
           {/* Hide non-tab routes inside this group */}
           {/* Removed: <Tabs.Screen name="article" options={{ href: null }} /> */}
