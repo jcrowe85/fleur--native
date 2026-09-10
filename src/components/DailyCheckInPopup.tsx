@@ -7,8 +7,8 @@ import {
   Pressable,
   Modal,
   ImageBackground,
-  SafeAreaView,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import dayjs from "dayjs";

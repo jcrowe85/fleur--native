@@ -7,9 +7,9 @@ import {
   Pressable,
   Modal,
   ImageBackground,
-  SafeAreaView,
   ScrollView,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 
 interface HowToEarnPointsPopupProps {

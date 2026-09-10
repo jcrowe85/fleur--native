@@ -6,7 +6,11 @@ import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import type { RoutineStep } from '@/state/routineStore';
 import { useNotificationStore } from '@/state/notificationStore';
-import { cloudSyncPromotionService } from './cloudSyncPromotionService';
+// cloudSyncPromotionService is imported lazily inside triggerCloudSyncPopup.
+// A static import here closes a require cycle
+// (notificationService -> cloudSyncPromotionService -> cloudSyncService ->
+// routineStore -> notificationService) that Metro warns about and that leaves
+// whichever module is entered second holding undefined references.
 
 /**
  * Foreground presentation.
@@ -490,7 +494,9 @@ export class NotificationService {
   private triggerCloudSyncPopup(promotionType?: string): void {
     router.push('/(app)/dashboard');
 
-    setTimeout(() => {
+    setTimeout(async () => {
+      const { cloudSyncPromotionService } = await import('./cloudSyncPromotionService');
+
       switch (promotionType) {
         case 'backup_data':
           cloudSyncPromotionService.showBackupPopup();

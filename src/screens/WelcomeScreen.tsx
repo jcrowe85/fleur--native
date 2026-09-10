@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { SafeAreaView, View, ImageBackground, Text } from 'react-native';
+import { View, ImageBackground, Text } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { CustomButton } from '@/components/UI/CustomButton';
