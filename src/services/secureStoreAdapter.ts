@@ -108,3 +108,21 @@ export const SecureStoreAdapter = {
     }
   },
 };
+
+/**
+ * Delete a key and any chunks belonging to it.
+ *
+ * SecureStore has no key-enumeration API, so callers must name the key. Used by
+ * the dev reset, which otherwise cannot clear the Supabase session: sessions
+ * moved from AsyncStorage into SecureStore when this adapter was introduced, so
+ * an AsyncStorage-only wipe leaves the user signed in.
+ */
+export async function purgeSecureKey(key: string): Promise<void> {
+  await SecureStoreAdapter.removeItem(key);
+}
+
+/** The storage key supabase-js uses for a given project URL. */
+export function supabaseAuthStorageKey(supabaseUrl: string): string | null {
+  const match = supabaseUrl.match(/^https:\/\/([a-z0-9-]+)\.supabase\.co/i);
+  return match ? `sb-${match[1]}-auth-token` : null;
+}

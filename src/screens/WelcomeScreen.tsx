@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { CustomButton } from '@/components/UI/CustomButton';
+import DevResetGesture from '@/dev/DevResetGesture';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -81,14 +82,19 @@ export default function Welcome() {
       {/* Content */}
       <View className="flex-1 items-center justify-center py-12">
         <View className="w-full items-center">
-          {/* Logo */}
-          <View className="px-6">
-            <ImageBackground
-              source={require('../../assets/logo.png')}
-              resizeMode="contain"
-              className="w-48 h-12"
-            />
-          </View>
+          {/* Logo.
+              Doubles as the hidden dev reset: hold it for 3 seconds to wipe
+              local data and start onboarding over. Compiles away outside
+              __DEV__. */}
+          <DevResetGesture label="Welcome logo">
+            <View className="px-6">
+              <ImageBackground
+                source={require('../../assets/logo.png')}
+                resizeMode="contain"
+                className="w-48 h-12"
+              />
+            </View>
+          </DevResetGesture>
 
           {/* Invisible measuring copy (on-screen, absolutely positioned, no layout impact) */}
           <Text

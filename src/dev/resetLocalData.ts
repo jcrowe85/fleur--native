@@ -12,15 +12,55 @@ import { useCheckInStore } from "@/state/checkinStore";
 import { usePurchaseStore } from "@/state/purchaseStore";
 import { useRecommendationsStore } from "@/state/recommendationsStore";
 
+/** Resolve, or give up, after `ms` — so a dead backend cannot stall the reset. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T | void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(`[resetAllDataForDev] ${label} timed out after ${ms}ms; continuing`);
+      resolve();
+    }, ms);
+  });
+
+  // Clearing the timer matters: without it a fast signOut still logged a
+  // "timed out" warning seconds later, after the reset had already finished.
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 // Complete dev reset that bypasses all protections (for testing)
 export async function resetAllDataForDev() {
-  console.log("🧪 DEV RESET: Complete data reset including plan build protection");
-  
-  // 1) Drop Supabase session (so next launch gets a fresh anon user)
+  console.log("🧪 DEV RESET: clearing all local data");
+
+  // 1) Drop the Supabase session so the next launch mints a fresh guest.
+  //
+  //    signOut() makes several network calls (getUser, a final cloud sync, then
+  //    signOut). If the project is paused or the device is offline those hang
+  //    for the full socket timeout and the reset appears to do nothing, so cap
+  //    it and fall through to the local cleanup either way.
   try {
-    await useAuthStore.getState().signOut();
+    await withTimeout(useAuthStore.getState().signOut(), 4000, "signOut");
   } catch (e) {
     console.warn("[resetAllDataForDev] signOut failed:", e);
+  }
+
+  // 1b) Clear the session from SecureStore directly.
+  //
+  //     Sessions live in SecureStore (see secureStoreAdapter), not AsyncStorage,
+  //     so the multiRemove below cannot reach them. Without this the "reset"
+  //     leaves the user signed in to the same guest account and onboarding is
+  //     skipped on relaunch.
+  try {
+    const { purgeSecureKey, supabaseAuthStorageKey } = await import(
+      "@/services/secureStoreAdapter"
+    );
+    const { SUPABASE_URL } = await import("@/config/env");
+    const key = supabaseAuthStorageKey(SUPABASE_URL);
+    if (key) await purgeSecureKey(key);
+  } catch (e) {
+    console.warn("[resetAllDataForDev] SecureStore purge failed:", e);
   }
 
   // 2) Clear persisted stores
@@ -74,8 +114,11 @@ export async function resetAllDataForDev() {
   // Longer delay to ensure all state is fully cleared and stores are rehydrated
   setTimeout(() => {
     console.log("🧪 DEV RESET: Navigating to welcome screen");
-    // Clear navigation stack and go to root
-    router.dismissAll();
+    // Only dismiss when there is actually a stack to unwind. Calling
+    // dismissAll() at the root makes expo-router log "The action 'POP_TO_TOP'
+    // was not handled by any navigator", which is the common case when
+    // resetting from the welcome screen itself.
+    if (router.canDismiss?.()) router.dismissAll();
     router.replace("/");
   }, 500);
 }

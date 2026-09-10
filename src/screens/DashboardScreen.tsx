@@ -590,18 +590,20 @@ export default function DashboardScreen() {
 
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
         {/* Header */}
-         <View style={styles.headerWrap}>
-           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, position: "relative" }}>
-          <View style={{ flex: 1, alignItems: "center" }}>
-               <Text style={styles.headerTitle}>Your Hair Journey</Text>
-               <Text style={styles.headerSub}>Your routine, progress, and rewards in one place.</Text>
+        <View style={styles.headerWrap}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16 }}>
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text style={styles.headerTitle}>Your Hair Journey</Text>
+              <Text style={styles.headerSub}>Your routine, progress, and rewards in one place.</Text>
+            </View>
           </View>
 
-             <View style={[styles.rewardsPillContainer, { padding: 8, borderRadius: 20 }]}>
+          {/* Sits in headerWrap's padding, NOT pulled above the title row.
+              Android clips touch dispatch to a view's parent bounds, so the
+              previous `top: -24` inside the row rendered the pill correctly but
+              made it completely untappable. */}
+          <View style={styles.rewardsPillContainer}>
             <RewardsPill compact />
-             </View>
-
-
           </View>
         </View>
 
@@ -957,14 +959,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 12,
+    position: "relative",
   },
   headerTitle: { color: "#fff", fontSize: 22, fontWeight: "600", textAlign: "center" },
   headerSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 4, textAlign: "center" },
-   rewardsPillContainer: {
-     position: "absolute",
-     right: 16,
-     top: -24,
-   },
+  rewardsPillContainer: {
+    position: "absolute",
+    right: 16,
+    top: 8,
+    padding: 8,
+    borderRadius: 20,
+  },
 
   axisLabel: { color: "rgba(255,255,255,0.7)", fontSize: 10 },
 

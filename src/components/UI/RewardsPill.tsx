@@ -3,6 +3,7 @@ import { Pressable, Text, View, Animated, Easing, StyleSheet, Alert } from "reac
 import { Feather } from "@expo/vector-icons";
 import { useRewardsStore } from "../../state/rewardsStore";
 import { router } from "expo-router";
+import { DEV_RESET_HOLD_MS } from "../../dev/DevResetGesture";
 import { resetAllDataForDev } from "../../dev/resetLocalData";
 
 type Props = {
@@ -119,6 +120,7 @@ export default function RewardsPill({ compact }: Props) {
       <Pressable
         onPress={() => router.push("/(app)/rewards")}
         onLongPress={__DEV__ ? handleLongPress : undefined}
+        delayLongPress={DEV_RESET_HOLD_MS}
         onPressIn={onPressIn}
         onPressOut={onPressOut}
         hitSlop={10}
