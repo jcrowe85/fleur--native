@@ -132,6 +132,8 @@ export async function createProductRedemptionDiscount(params: {
   productSku: string;
   variantId: string;
   productTitle: string;
+  /** Price of one unit, as a decimal string — the value being given away. */
+  unitPrice: string;
 }): Promise<{ discountCode: string; discountNodeId: string; expiresAt: string }> {
   if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_ACCESS_TOKEN) {
     throw new Error("Shopify Admin API not configured");
@@ -151,11 +153,19 @@ export async function createProductRedemptionDiscount(params: {
       appliesOncePerCustomer: true,
       customerSelection: { all: true },
       customerGets: {
-        // 100% off, but only on a single unit of the redeemed variant.
+        // A fixed amount equal to one unit's price, restricted to the redeemed
+        // variant and NOT applied per item.
+        //
+        // `discountOnQuantity` is rejected here — Shopify permits it only on
+        // BXGY discounts ("discountOnQuantity field is only permitted with bxgy
+        // discounts"), so the earlier shape could never have been created. A
+        // flat `percentage: 1.0` would work but discounts *every* unit of that
+        // variant in the cart, so adding three would make all three free.
+        // Capping at one unit's value gives away exactly what was redeemed.
         value: {
-          discountOnQuantity: {
-            quantity: "1",
-            effect: { percentage: 1.0 },
+          discountAmount: {
+            amount: params.unitPrice,
+            appliesOnEachItem: false,
           },
         },
         items: {
@@ -403,6 +413,7 @@ export async function createRedemptionCheckout(params: {
     productSku: sku,
     variantId: variant.variantId,
     productTitle: variant.title,
+    unitPrice: variant.price,
   });
 
   try {
