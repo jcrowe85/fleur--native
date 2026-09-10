@@ -614,6 +614,8 @@ function SetupSequence({
 
   // ── State & layout ─────────────────────────────────────────────
   const [active, setActive] = React.useState(0);
+  /** True when the plan builder failed and the generic fallback was used. */
+  const [planFailed, setPlanFailed] = React.useState(false);
   const { height: H } = Dimensions.get("window");
   const TOP_OFFSET = Math.max(24, Math.round(H * 0.3));
 
@@ -632,12 +634,22 @@ function SetupSequence({
       if (!planInput) throw new Error("Missing planInput");
       const plan = await fetchPlan(planInput);
       setPlan(plan);
-      
+
       // Immediately build routine from the plan (one-time only)
       buildFromPlan(plan);
-      console.log("✅ Onboarding: Built routine from plan (one-time only)");
+      setPlanFailed(false);
     } catch (e) {
-      console.warn("plan build failed, using fallback:", e);
+      // The generic plan below keeps onboarding from dead-ending, but it is NOT
+      // the personalized plan the user was promised: it has no recommendations,
+      // so the shop and routine screens come up empty.
+      //
+      // This used to be a console.warn and nothing else, which made a failing
+      // plan builder indistinguishable from a working one — the user just
+      // silently received the generic plan. Flag it so the UI can say so and
+      // offer a retry.
+      console.error("[onboarding] plan build failed, using generic fallback:", e);
+      setPlanFailed(true);
+
       const fallbackPlan = {
         summary: {
           headline: "Personalizing your routine",
@@ -654,9 +666,11 @@ function SetupSequence({
           notes: ["Stay hydrated", "Silk pillowcase helps reduce friction"],
         },
         recommendations: [],
+        /** Marks this as the offline fallback rather than a generated plan. */
+        isFallback: true,
       } as any;
       setPlan(fallbackPlan);
-      
+
       // Also build routine from fallback plan
       buildFromPlan(fallbackPlan);
     }
@@ -725,7 +739,19 @@ function SetupSequence({
         >
           {steps[active]}
         </Animated.Text>
-        <Text className="text-white/60 mt-8" style={{ fontSize: 12 }} />
+
+        {planFailed ? (
+          <Text
+            className="text-white/70 mt-8 text-center"
+            style={{ fontSize: 12, lineHeight: 18 }}
+          >
+            We couldn't reach our servers, so we've started you on a general
+            routine. You can rebuild your personalized plan from Profile once
+            you're back online.
+          </Text>
+        ) : (
+          <Text className="text-white/60 mt-8" style={{ fontSize: 12 }} />
+        )}
       </View>
     </View>
   );

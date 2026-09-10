@@ -1,5 +1,5 @@
 import type { FleurPlan } from "@/types/plan";
-import { API_BASE } from "@/config/env";
+import { authedFetch, readApiError } from "./apiClient";
 
 type PlanInput = {
   persona: "menopause" | "postpartum" | "general";
@@ -10,12 +10,23 @@ type PlanInput = {
   __detail?: any; // raw multi-selects + extras for personalization
 };
 
+/**
+ * Build the personalized plan.
+ *
+ * `/api/plan/build` calls a paid LLM, so it requires an authenticated caller.
+ * This request previously carried no Authorization header and every plan build
+ * came back 401 — which OnboardingScreen swallowed, substituting the generic
+ * fallback plan so the failure was invisible.
+ */
 export async function fetchPlan(input: PlanInput): Promise<FleurPlan> {
-  const r = await fetch(`${API_BASE}/api/plan/build`, {
+  const res = await authedFetch("/api/plan/build", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!r.ok) throw new Error(`Plan build failed: ${r.status}`);
-  return r.json();
+
+  if (!res.ok) {
+    throw new Error(await readApiError(res, `Plan build failed (${res.status})`));
+  }
+
+  return res.json();
 }

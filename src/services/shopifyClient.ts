@@ -10,6 +10,7 @@ import {
   SHOPIFY_STORE_DOMAIN as STORE_DOMAIN,
   SHOPIFY_STOREFRONT_TOKEN as STOREFRONT_TOKEN,
 } from "@/config/env";
+import { authedFetch, readApiError } from "./apiClient";
 
 if (__DEV__ && (!STORE_DOMAIN || !STOREFRONT_TOKEN)) {
   console.warn(
@@ -370,36 +371,6 @@ export interface PointRedemption {
   expiresAt: string;
 }
 
-/** Attach the caller's Supabase access token to a request to our API. */
-async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const { supabase } = await import("./supabase");
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-
-  if (!token) {
-    throw new Error("You need to be signed in to do that.");
-  }
-
-  return fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...(init.headers ?? {}),
-    },
-  });
-}
-
-/** Read `{ error }` from a failed API response without throwing on bad JSON. */
-async function readError(res: Response, fallback: string): Promise<string> {
-  try {
-    const body = await res.json();
-    return typeof body?.error === "string" ? body.error : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 /**
  * Ask the server to issue a point redemption and return a checkout with the
  * reward already applied.
@@ -417,7 +388,7 @@ export async function createPointRedemption(
   });
 
   if (!res.ok) {
-    throw new Error(await readError(res, "Could not create your redemption."));
+    throw new Error(await readApiError(res, "Could not create your redemption."));
   }
 
   return res.json();
@@ -429,7 +400,7 @@ export async function completePointRedemption(redemptionId: string): Promise<voi
     method: "POST",
   });
   if (!res.ok) {
-    console.warn("[redeem] failed to mark redemption complete:", await readError(res, ""));
+    console.warn("[redeem] failed to mark redemption complete:", await readApiError(res, ""));
   }
 }
 
@@ -442,7 +413,7 @@ export async function cancelPointRedemption(redemptionId: string): Promise<void>
     method: "POST",
   });
   if (!res.ok) {
-    console.warn("[redeem] failed to cancel redemption:", await readError(res, ""));
+    console.warn("[redeem] failed to cancel redemption:", await readApiError(res, ""));
   }
 }
 
@@ -468,7 +439,7 @@ export async function createKitDiscountCode(
   });
 
   if (!res.ok) {
-    throw new Error(await readError(res, "Could not create your bundle discount."));
+    throw new Error(await readApiError(res, "Could not create your bundle discount."));
   }
 
   return res.json();

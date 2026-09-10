@@ -1,6 +1,7 @@
 // src/services/cloudSyncPromotionService.ts
 import { notificationService } from './notificationService';
 import { cloudSyncService } from './cloudSyncService';
+import { authedFetch } from './apiClient';
 
 export type SyncPromotionType = 
   | 'backup_data'
@@ -33,9 +34,12 @@ export class CloudSyncPromotionService {
 
   private async getPromotionMessages(): Promise<SyncPromotionMessage[]> {
     try {
-      // Try to fetch promotions from server first
-      const serverUrl = process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:3000';
-      const response = await fetch(`${serverUrl}/api/promotions/active/current-user`);
+      // Fetch this user's eligible promotions.
+      //
+      // The route used to be /active/:userId with a literal 'current-user'
+      // placeholder, which meant it never matched a real user; it is now
+      // /active, with the user resolved from the caller's token.
+      const response = await authedFetch('/api/promotions/active');
       
       if (response.ok) {
         const data = await response.json();
