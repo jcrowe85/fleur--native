@@ -7,6 +7,8 @@ import { useCommentsSheet } from "./commentsSheet";
 import { onPostEngagement } from "@/services/rewards";
 import { usePostsService } from "./posts.service";
 import { supabase } from "@/services/supabase";
+import { blockUser, reportPost, type ReportReason } from "./moderation.service";
+import ReportSheet from "./ReportSheet";
 
 function timeAgo(iso: string) {
   const s = Math.max(1, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -22,7 +24,16 @@ function initials(name?: string | null) {
   return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "AN";
 }
 
-export function PostCard({ post, onPostDeleted }: { post: PostItem; onPostDeleted?: () => void }) {
+export function PostCard({
+  post,
+  onPostDeleted,
+  onAuthorBlocked,
+}: {
+  post: PostItem;
+  onPostDeleted?: () => void;
+  /** Called after the author is blocked so the feed can drop their posts. */
+  onAuthorBlocked?: (userId: string) => void;
+}) {
   const display = post.author?.display_name ?? post.author?.handle ?? "Anonymous User";
   const { toggle } = useLikesService();
   const { open } = useCommentsSheet();
@@ -32,6 +43,7 @@ export function PostCard({ post, onPostDeleted }: { post: PostItem; onPostDelete
   const [count, setCount] = useState(post.comments_count ?? 0);
   const [likeCount, setLikeCount] = useState((post as any).likes_count as number | undefined ?? 0);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [reportSheetOpen, setReportSheetOpen] = useState(false);
 
   // Get current user ID
   useEffect(() => {
@@ -117,31 +129,89 @@ export function PostCard({ post, onPostDeleted }: { post: PostItem; onPostDelete
     }
   }
 
-  /** Show post actions menu (author only) */
+  /** File a report against this post. */
+  async function submitReport(reason: ReportReason) {
+    try {
+      await reportPost(post.id, reason);
+      setReportSheetOpen(false);
+      Alert.alert(
+        "Report received",
+        "Thanks — our team reviews every report within 24 hours."
+      );
+    } catch (e: any) {
+      setReportSheetOpen(false);
+      Alert.alert("Couldn't send report", e?.message ?? "Please try again.");
+    }
+  }
+
+  /** Block this post's author and hide their content. */
+  function confirmBlockAuthor() {
+    Alert.alert(
+      `Block ${display}?`,
+      "You won't see their posts or comments any more. You can unblock them from your profile.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Block",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await blockUser(post.user_id);
+              onAuthorBlocked?.(post.user_id);
+            } catch (e: any) {
+              Alert.alert("Couldn't block", e?.message ?? "Please try again.");
+            }
+          },
+        },
+      ]
+    );
+  }
+
+  /**
+   * Post actions.
+   *
+   * The menu button used to render only for the post's author, so there was no
+   * way at all to report or block someone else's content — which both app
+   * stores require for a public feed.
+   */
   function showPostActions() {
-    if (!currentUserId || post.user_id !== currentUserId) return;
-    
+    const isAuthor = !!currentUserId && post.user_id === currentUserId;
+
+    if (isAuthor) {
+      if (Platform.OS === "ios") {
+        ActionSheetIOS.showActionSheetWithOptions(
+          { options: ["Cancel", "Delete"], destructiveButtonIndex: 1, cancelButtonIndex: 0 },
+          (index) => {
+            if (index === 1) onDeletePost();
+          }
+        );
+      } else {
+        Alert.alert("Post options", undefined, [
+          { text: "Delete", style: "destructive", onPress: onDeletePost },
+          { text: "Cancel", style: "cancel" },
+        ]);
+      }
+      return;
+    }
+
     if (Platform.OS === "ios") {
-      const options = ["Cancel", "Delete"];
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options,
-          destructiveButtonIndex: 1,
+          options: ["Cancel", "Report post", `Block ${display}`],
+          destructiveButtonIndex: 2,
           cancelButtonIndex: 0,
         },
         (index) => {
-          if (index === 1) onDeletePost();
+          if (index === 1) setReportSheetOpen(true);
+          if (index === 2) confirmBlockAuthor();
         }
       );
     } else {
-      Alert.alert(
-        "Post Options",
-        undefined,
-        [
-          { text: "Delete", style: "destructive", onPress: onDeletePost },
-          { text: "Cancel", style: "cancel" },
-        ]
-      );
+      Alert.alert("Post options", undefined, [
+        { text: "Report post", onPress: () => setReportSheetOpen(true) },
+        { text: `Block ${display}`, style: "destructive", onPress: confirmBlockAuthor },
+        { text: "Cancel", style: "cancel" },
+      ]);
     }
   }
 
@@ -166,11 +236,15 @@ export function PostCard({ post, onPostDeleted }: { post: PostItem; onPostDelete
               <Text style={styles.handle}>{display}</Text>
               <Text style={styles.meta}>{timeAgo(post.created_at)}</Text>
             </View>
-            {currentUserId === post.user_id && (
-              <Pressable onPress={showPostActions} style={styles.menuButton} hitSlop={8}>
-                <Feather name="more-horizontal" size={18} color="rgba(255,255,255,0.7)" />
-              </Pressable>
-            )}
+            <Pressable
+              onPress={showPostActions}
+              style={styles.menuButton}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Post options"
+            >
+              <Feather name="more-horizontal" size={18} color="rgba(255,255,255,0.7)" />
+            </Pressable>
           </View>
 
           {/* Body */}
@@ -246,6 +320,13 @@ export function PostCard({ post, onPostDeleted }: { post: PostItem; onPostDelete
           </View>
         </View>
       </View>
+
+      <ReportSheet
+        visible={reportSheetOpen}
+        onClose={() => setReportSheetOpen(false)}
+        onSubmit={submitReport}
+        title="Report post"
+      />
     </View>
   );
 }

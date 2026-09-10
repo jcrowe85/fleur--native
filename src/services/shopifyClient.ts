@@ -1,11 +1,17 @@
 // src/services/shopifyClient.ts
-// Cart/checkout helpers for Shopify Storefront API
+// Cart/checkout helpers for the Shopify Storefront API.
+//
+// Read-only storefront traffic (products, cart creation) goes direct from the
+// app. Anything that creates money — discount codes, point redemptions — goes
+// through our API server, which holds the Admin token and does the authorising.
 
-// Public envs (available at runtime in Expo)
-const STORE_DOMAIN = process.env.EXPO_PUBLIC_SHOPIFY_STORE_DOMAIN;
-const STOREFRONT_TOKEN = process.env.EXPO_PUBLIC_SHOPIFY_STOREFRONT_TOKEN;
+import {
+  API_BASE,
+  SHOPIFY_STORE_DOMAIN as STORE_DOMAIN,
+  SHOPIFY_STOREFRONT_TOKEN as STOREFRONT_TOKEN,
+} from "@/config/env";
 
-if (!STORE_DOMAIN || !STOREFRONT_TOKEN) {
+if (__DEV__ && (!STORE_DOMAIN || !STOREFRONT_TOKEN)) {
   console.warn(
     "[shopifyClient] Missing EXPO_PUBLIC_SHOPIFY_STORE_DOMAIN or EXPO_PUBLIC_SHOPIFY_STOREFRONT_TOKEN"
   );
@@ -265,7 +271,7 @@ export async function fetchProducts(options: {
 export async function fetchRedeemableProducts(tag: string = "redeemable-with-points"): Promise<ShopifyProduct[]> {
   // Use the same backend API as fetchAllProducts to ensure consistency
   try {
-    const serverUrl = process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:3000';
+    const serverUrl = API_BASE;
     const response = await fetch(`${serverUrl}/api/shopify/products?tag=${encodeURIComponent(tag)}`);
 
     if (!response.ok) {
@@ -304,7 +310,7 @@ export async function fetchRedeemableProducts(tag: string = "redeemable-with-poi
 export async function fetchAllProducts(): Promise<ShopifyProduct[]> {
   // Try backend API first, fallback to direct Shopify API
   try {
-    const serverUrl = process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:3000';
+    const serverUrl = API_BASE;
     const response = await fetch(`${serverUrl}/api/shopify/products`);
     
     if (!response.ok) {
@@ -344,430 +350,126 @@ export async function fetchAllProducts(): Promise<ShopifyProduct[]> {
   }
 }
 
-// Discount Code Types
-export interface DiscountCode {
-  id: string;
-  code: string;
-  amount: number;
-  type: 'fixed_amount' | 'percentage';
-  expiresAt?: string;
-}
+// ---------------------------------------------------------------------------
+// Point redemption
+//
+// All discount-code creation happens on our API server, which authenticates the
+// caller, resolves the point price from its own catalog, and records the
+// redemption. The client previously tried to call Shopify's
+// `discountCodeBasicCreate` directly with the *Storefront* token — a mutation
+// that only exists on the Admin API — so that path could never have worked, and
+// the server path it fell back to accepted an arbitrary discount amount from
+// whatever called it.
+// ---------------------------------------------------------------------------
 
 export interface PointRedemption {
+  redemptionId: string;
   pointsUsed: number;
-  discountAmount: number;
-  discountCode: string;
+  productTitle: string;
+  checkoutUrl: string;
   expiresAt: string;
 }
 
-// GraphQL: Create discount code
-const DISCOUNT_CODE_CREATE = /* GraphQL */ `
-  mutation discountCodeBasicCreate($basicCodeDiscount: DiscountCodeBasicInput!) {
-    discountCodeBasicCreate(basicCodeDiscount: $basicCodeDiscount) {
-      codeDiscountNode {
-        id
-        codeDiscount {
-          ... on DiscountCodeBasic {
-            codes(first: 1) {
-              edges {
-                node {
-                  code
-                }
-              }
-            }
-            status
-            summary
-            title
-            usageLimit
-            startsAt
-            endsAt
-            customerSelection {
-              ... on DiscountCustomerAll {
-                allCustomers
-              }
-            }
-            customerGets {
-              value {
-                ... on DiscountPercentage {
-                  percentage
-                }
-                ... on DiscountAmount {
-                  amount {
-                    amount
-                    currencyCode
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-      userErrors {
-        field
-        message
-      }
-    }
-  }
-`;
+/** Attach the caller's Supabase access token to a request to our API. */
+async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const { supabase } = await import("./supabase");
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
 
-/**
- * Create a discount code for point redemption
- * @param productSku - Product SKU to determine point value
- * @param userId - User ID for unique code generation
- * @returns Promise<PointRedemption>
- */
-export async function createPointDiscountCode(productSku: string, userId: string): Promise<PointRedemption> {
-  if (!STORE_DOMAIN || !STOREFRONT_TOKEN) {
-    throw new Error("Shopify credentials not configured");
+  if (!token) {
+    throw new Error("You need to be signed in to do that.");
   }
 
-  // Get product point value from catalog
-  const { getProductPointValue } = require("@/data/productPointCatalog");
-  const pointsRequired = getProductPointValue(productSku);
-  
-  if (pointsRequired === 0) {
-    throw new Error(`Product ${productSku} not found in point catalog`);
-  }
-
-  // Convert points to dollars (1 point = $0.10)
-  const discountAmount = pointsRequired * 0.10;
-  
-  // Generate unique discount code
-  const timestamp = Date.now();
-  const code = `POINTS_${userId.slice(-6)}_${timestamp}`;
-  
-  // Set expiration (24 hours from now)
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  
-  const domain = String(STORE_DOMAIN).replace(/^https?:\/\//, "").replace(/\/$/, "");
-  const url = `https://${domain}/api/2024-07/graphql.json`;
-
-  const variables = {
-    basicCodeDiscount: {
-      title: `Points Redemption - ${pointsRequired} points`,
-      code: code,
-      startsAt: new Date().toISOString(),
-      endsAt: expiresAt,
-      usageLimit: 1, // Single use only
-      customerSelection: {
-        allCustomers: true
-      },
-      customerGets: {
-        value: {
-          fixedAmount: {
-            amount: discountAmount.toFixed(2),
-            currencyCode: "USD"
-          }
-        }
-      },
-      minimumRequirement: {
-        quantity: 1
-      }
-    }
-  };
-
-  const response = await fetch(url, {
-    method: "POST",
+  return fetch(`${API_BASE}${path}`, {
+    ...init,
     headers: {
-      "X-Shopify-Storefront-Access-Token": String(STOREFRONT_TOKEN),
       "Content-Type": "application/json",
-      Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+      ...(init.headers ?? {}),
     },
-    body: JSON.stringify({ 
-      query: DISCOUNT_CODE_CREATE, 
-      variables 
-    }),
   });
+}
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Shopify discount creation error: ${response.status} - ${errorText}`);
+/** Read `{ error }` from a failed API response without throwing on bad JSON. */
+async function readError(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json();
+    return typeof body?.error === "string" ? body.error : fallback;
+  } catch {
+    return fallback;
   }
-
-  const data = await response.json();
-  
-  if (data.errors) {
-    throw new Error(`GraphQL errors: ${data.errors.map((e: any) => e.message).join(", ")}`);
-  }
-
-  const userErrors = data?.data?.discountCodeBasicCreate?.userErrors;
-  if (Array.isArray(userErrors) && userErrors.length) {
-    throw new Error(`Discount creation errors: ${userErrors.map((e: any) => e.message).join(", ")}`);
-  }
-
-  const discountNode = data?.data?.discountCodeBasicCreate?.codeDiscountNode;
-  if (!discountNode) {
-    throw new Error("No discount code created");
-  }
-
-  return {
-    pointsUsed: pointsRequired,
-    discountAmount: discountAmount,
-    discountCode: code,
-    expiresAt: expiresAt
-  };
 }
 
 /**
- * Calculate point redemption for a specific product
- * @param productSku - Product SKU to look up point value
- * @param userPoints - User's available points
- * @returns Object with redemption details
+ * Ask the server to issue a point redemption and return a checkout with the
+ * reward already applied.
+ *
+ * `availablePoints` is advisory — the server enforces the real limits — but
+ * sending it lets the server reject an obviously ineligible request early.
  */
-export function calculatePointRedemption(productSku: string, userPoints: number) {
-  // Import the product catalog
-  const { getProductPointValue, canAffordProduct } = require("@/data/productPointCatalog");
-  
-  const pointsRequired = getProductPointValue(productSku);
-  const canAfford = canAffordProduct(productSku, userPoints);
-  
-  return {
-    pointsRequired: pointsRequired,
-    pointsToUse: canAfford ? pointsRequired : 0,
-    canAfford: canAfford,
-    remainingPoints: Math.max(0, userPoints - pointsRequired),
-    savings: canAfford ? pointsRequired : 0
-  };
-}
-
-/**
- * Calculate point redemption for a product by price (fallback method)
- * @param productPrice - Product price in dollars
- * @param userPoints - User's available points
- * @returns Object with points needed and remaining cost
- */
-export function calculatePointRedemptionByPrice(productPrice: number, userPoints: number) {
-  const maxPointsToUse = Math.min(userPoints, productPrice);
-  const remainingCost = productPrice - maxPointsToUse;
-  
-  return {
-    pointsToUse: maxPointsToUse,
-    remainingCost: remainingCost,
-    canAfford: userPoints >= productPrice,
-    savings: maxPointsToUse
-  };
-}
-
-/**
- * Create a kit discount code (20% off)
- */
-export async function createKitDiscountCode(
-  userId: string,
-  cartItems: Array<{ sku: string; qty: number }>
-): Promise<{ success: boolean; discountCode: string; expiresAt: string }> {
-  const serverUrl = process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:3000';
-  
-  const response = await fetch(`${serverUrl}/api/shopify/kit-discount`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      userId,
-      cartItems
-    })
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error || 'Failed to create kit discount code');
-  }
-
-  return response.json();
-}
-
-/**
- * Create a seamless checkout URL with discount pre-applied using Admin API
- * This creates the discount code via Admin API, then creates checkout with it applied
- */
-export async function createSeamlessCheckoutWithDiscount(
-  productSku: string, 
-  userId: string, 
-  userPoints: number
-): Promise<{ checkoutUrl: string; pointsUsed: number; discountAmount: number }> {
-  if (!STORE_DOMAIN || !STOREFRONT_TOKEN) {
-    throw new Error("Shopify credentials not configured");
-  }
-
-  // Get product point value from catalog
-  const { getProductPointValue } = require("@/data/productPointCatalog");
-  const pointsRequired = getProductPointValue(productSku);
-  
-  if (pointsRequired === 0) {
-    throw new Error(`Product ${productSku} not found in point catalog`);
-  }
-
-  if (userPoints < pointsRequired) {
-    throw new Error(`Insufficient points. Need ${pointsRequired}, have ${userPoints}`);
-  }
-
-  // Convert points to dollars (1 point = $0.10)
-  const discountAmount = pointsRequired * 0.10;
-  
-  // Generate unique discount code
-  const timestamp = Date.now();
-  const discountCode = `POINTS_${userId.slice(-6)}_${timestamp}`;
-  
-  // Step 1: Create discount code using Admin API
-  await createDiscountCodeViaAdminAPI(discountCode, discountAmount, userId, productSku);
-  
-  // Step 2: Find the product variant
-  const products = await fetchAllProducts();
-  const product = products.find(p => {
-    const handle = p.handle?.toLowerCase();
-    const titleSlug = p.title.toLowerCase().replace(/[^a-z0-9]/g, '-');
-    return handle === productSku || titleSlug === productSku || 
-           handle?.includes(productSku) || titleSlug.includes(productSku);
-  });
-
-  if (!product || !product.variants?.edges?.[0]?.node) {
-    throw new Error(`Product ${productSku} not found in Shopify`);
-  }
-
-  const variant = product.variants.edges[0].node;
-  
-  // Step 3: Create checkout with discount code applied
-  const domain = String(STORE_DOMAIN).replace(/^https?:\/\//, "").replace(/\/$/, "");
-  const url = `https://${domain}/api/2024-07/graphql.json`;
-
-  const CART_CREATE_WITH_DISCOUNT = `
-    mutation CartCreate($input: CartInput!) {
-      cartCreate(input: $input) {
-        cart {
-          id
-          checkoutUrl
-          cost {
-            totalAmount {
-              amount
-              currencyCode
-            }
-          }
-          discountCodes {
-            code
-            applicable
-          }
-        }
-        userErrors {
-          field
-          message
-        }
-      }
-    }
-  `;
-
-  const variables = {
-    input: {
-      lines: [{
-        merchandiseId: variant.id,
-        quantity: 1
-      }],
-      discountCodes: [discountCode]
-    }
-  };
-
-  const res = await fetch(url, {
+export async function createPointRedemption(
+  productSku: string,
+  availablePoints: number
+): Promise<PointRedemption> {
+  const res = await authedFetch("/api/shopify/redeem", {
     method: "POST",
-    headers: {
-      "X-Shopify-Storefront-Access-Token": String(STOREFRONT_TOKEN),
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({ query: CART_CREATE_WITH_DISCOUNT, variables }),
+    body: JSON.stringify({ productSku, availablePoints }),
   });
 
   if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Shopify checkout creation failed: ${res.status} – ${txt}`);
+    throw new Error(await readError(res, "Could not create your redemption."));
   }
 
-  const data = await res.json();
-  
-  if (data.errors) {
-    throw new Error(`GraphQL errors: ${JSON.stringify(data.errors)}`);
+  return res.json();
+}
+
+/** Tell the server a redemption checkout completed, so the code is consumed. */
+export async function completePointRedemption(redemptionId: string): Promise<void> {
+  const res = await authedFetch(`/api/shopify/redeem/${redemptionId}/complete`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    console.warn("[redeem] failed to mark redemption complete:", await readError(res, ""));
   }
-
-  const cart = data.data?.cartCreate?.cart;
-  const errors = data.data?.cartCreate?.userErrors;
-
-  if (errors && errors.length > 0) {
-    throw new Error(`Checkout errors: ${errors.map(e => e.message).join(', ')}`);
-  }
-
-  if (!cart?.checkoutUrl) {
-    throw new Error("Failed to create cart checkout URL");
-  }
-
-  return {
-    checkoutUrl: cart.checkoutUrl,
-    pointsUsed: pointsRequired,
-    discountAmount: discountAmount
-  };
 }
 
 /**
- * Create discount code using Shopify Admin API via our server
+ * Release a redemption the user backed out of, so its discount code is
+ * deactivated and they are not blocked from redeeming again.
  */
-async function createDiscountCodeViaAdminAPI(code: string, amount: number, userId: string, productSku: string): Promise<void> {
-  const serverUrl = process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:3000';
-  
-  // Enhanced retry logic for network issues
-  const maxRetries = 4; // Increased from 3 to 4
-  let lastError: Error | null = null;
-  const baseTimeout = 35000; // Increased from 30s to 35s
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      console.log(`Attempt ${attempt}/${maxRetries} to create discount code via server: ${code}`);
-      
-      // Progressive timeout: 35s, 50s, 65s, 80s
-      const timeout = baseTimeout + (attempt - 1) * 15000;
-      
-      const response = await fetch(`${serverUrl}/api/shopify/discount-code`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          code,
-          amount,
-          userId,
-          productSku
-        }),
-        // Add timeout for mobile (React Native compatible)
-        signal: (() => {
-          const controller = new AbortController();
-          setTimeout(() => controller.abort(), timeout);
-          return controller.signal;
-        })()
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create discount code');
-      }
-      
-      // Success - break out of retry loop
-      console.log(`✅ Successfully created discount code on attempt ${attempt} (timeout: ${timeout}ms)`);
-      return;
-      
-    } catch (error) {
-      lastError = error as Error;
-      const isTimeout = lastError.message.includes('aborted') || lastError.message.includes('timeout');
-      const isNetworkError = lastError.message.includes('Network request failed') || lastError.message.includes('fetch failed');
-      
-      console.warn(`❌ Attempt ${attempt} failed (${isTimeout ? 'timeout' : isNetworkError ? 'network' : 'other'}):`, lastError.message);
-      
-      if (attempt === maxRetries) {
-        throw new Error(`Failed to create discount code after ${maxRetries} attempts. Last error: ${lastError.message}`);
-      }
-      
-      // Enhanced backoff with jitter: 1s, 2s, 4s, 8s + random 0-1s
-      const baseDelay = Math.pow(2, attempt - 1) * 1000;
-      const jitter = Math.random() * 1000; // 0-1s random
-      const delay = Math.floor(baseDelay + jitter);
-      
-      console.log(`⏳ Waiting ${delay}ms before retry...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
+export async function cancelPointRedemption(redemptionId: string): Promise<void> {
+  const res = await authedFetch(`/api/shopify/redeem/${redemptionId}/cancel`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    console.warn("[redeem] failed to cancel redemption:", await readError(res, ""));
   }
+}
+
+/** Point prices straight from the server catalog. */
+export async function fetchPointCatalog(): Promise<Record<string, number>> {
+  const res = await fetch(`${API_BASE}/api/shopify/point-catalog`);
+  if (!res.ok) throw new Error("Could not load point prices");
+
+  const body = (await res.json()) as { products: Array<{ sku: string; points: number }> };
+  return Object.fromEntries(body.products.map((p) => [p.sku, p.points]));
+}
+
+/**
+ * Create the 20%-off kit bundle code. The server derives the user from the JWT
+ * and validates that the cart actually qualifies.
+ */
+export async function createKitDiscountCode(
+  cartItems: Array<{ sku: string; qty: number }>
+): Promise<{ success: boolean; discountCode: string; expiresAt: string }> {
+  const res = await authedFetch("/api/shopify/kit-discount", {
+    method: "POST",
+    body: JSON.stringify({ cartItems }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await readError(res, "Could not create your bundle discount."));
+  }
+
+  return res.json();
 }

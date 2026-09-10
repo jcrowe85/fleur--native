@@ -4,6 +4,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import dayjs from "dayjs";
 import { FirstActionService } from "../services/firstActionService";
+import { useCheckInStore } from "./checkinStore";
 
 type LedgerItem = {
   id: string;             // uuid-ish
@@ -73,16 +74,35 @@ type RewardsState = {
 
   // admin/debug helpers (optionally use in dev menu)
   resetAll: () => void;
-  
-  // sync methods
-  syncFirstActionState: () => Promise<void>;
-  
+
   // legacy methods for compatibility
   addPoints: (points: number) => void;
 };
 
 function uid() {
   return Math.random().toString(36).slice(2) + "-" + Date.now().toString(36);
+}
+
+const MAX_LEDGER_ENTRIES = 200;
+
+/**
+ * `points`, `events` and `pointsHistory` are read-only aliases of
+ * `pointsAvailable` / `ledger` kept for older screens.
+ *
+ * They were previously updated by hand inside `earn` only, so `reverseAction`
+ * (undo a check-in, delete a routine step) left them stale: the rewards pill
+ * kept showing the pre-undo balance and the analytics screen kept showing the
+ * reversed entries. Every mutation now goes through this helper.
+ */
+function withAliases(ledger: LedgerItem[], pointsAvailable: number) {
+  const trimmed = ledger.slice(0, MAX_LEDGER_ENTRIES);
+  return {
+    ledger: trimmed,
+    events: trimmed,
+    pointsHistory: trimmed,
+    pointsAvailable,
+    points: pointsAvailable,
+  };
 }
 
 export const useRewardsStore = create<RewardsState>()(
@@ -103,9 +123,8 @@ export const useRewardsStore = create<RewardsState>()(
       hasPerformedFirstAction: false,
 
       hasCheckedInToday: () => {
-        // Check the check-in store instead of our own lastCheckInISO
-        const { hasCheckedInToday: checkInStoreHasCheckedIn } = require("./checkinStore").useCheckInStore.getState();
-        return checkInStoreHasCheckedIn();
+        // Delegates to the check-in store, which owns the daily record.
+        return useCheckInStore.getState().hasCheckedInToday();
       },
 
       hasCompletedRoutineToday: () => {
@@ -142,24 +161,23 @@ export const useRewardsStore = create<RewardsState>()(
         const shouldTriggerFirstPointPopup = isFirstUserAction || isFirstRoutineTask;
         
         set((s) => {
-          const newLedger = [{ 
-            id: uid(), 
-            ts: Date.now(), 
-            delta, 
-            reason, 
-            meta, 
+          const entry: LedgerItem = {
+            id: uid(),
+            ts: Date.now(),
+            delta,
+            reason,
+            meta,
             reversible,
-            relatedActionId 
-          }, ...s.ledger].slice(0, 200);
-          
+            relatedActionId,
+          };
+
           return {
-            pointsTotal: Math.max(0, s.pointsTotal + delta),
-            pointsAvailable: Math.max(0, s.pointsAvailable + delta),
-            points: Math.max(0, s.pointsAvailable + delta), // update alias
-            hasPerformedFirstAction: shouldTriggerFirstPointPopup ? true : s.hasPerformedFirstAction,
-            ledger: newLedger,
-            events: newLedger, // update alias
-            pointsHistory: newLedger, // update alias
+            // pointsTotal is lifetime *earned*, so spending must not reduce it.
+            pointsTotal: delta > 0 ? s.pointsTotal + delta : s.pointsTotal,
+            hasPerformedFirstAction: shouldTriggerFirstPointPopup
+              ? true
+              : s.hasPerformedFirstAction,
+            ...withAliases([entry, ...s.ledger], Math.max(0, s.pointsAvailable + delta)),
           };
         });
         
@@ -187,13 +205,20 @@ export const useRewardsStore = create<RewardsState>()(
         }
         
         const state = get();
-        const newStreakDays = state.streakDays + 1;
-        const isSevenDayStreak = newStreakDays % 7 === 0;
-        
-        set((s) => ({
+
+        // A streak is only continued when the previous check-in was yesterday.
+        // This used to do `streakDays + 1` unconditionally, so a user who
+        // checked in once a month still climbed toward a "7 day streak" bonus.
+        const lastCheckIn = state.lastCheckInISO ? dayjs(state.lastCheckInISO) : null;
+        const isConsecutive =
+          !!lastCheckIn && lastCheckIn.isSame(dayjs().subtract(1, "day"), "day");
+        const newStreakDays = isConsecutive ? state.streakDays + 1 : 1;
+        const isSevenDayStreak = newStreakDays > 0 && newStreakDays % 7 === 0;
+
+        set({
           lastCheckInISO: dayjs().toISOString(),
           streakDays: newStreakDays,
-        }));
+        });
         
         // Award 1 point for check-in (reversible)
         get().earn(1, "daily_check_in", { streakDays: newStreakDays }, true);
@@ -405,19 +430,26 @@ export const useRewardsStore = create<RewardsState>()(
           return { ok: false, message: "Action cannot be reversed" };
         }
         
-        // Create a reversal entry
-        const reversalId = uid();
+        // Reversing the same action twice would double-debit the user.
+        const alreadyReversed = state.ledger.some(
+          (item) => item.meta?.originalActionId === actionId
+        );
+        if (alreadyReversed) {
+          return { ok: false, message: "Action already reversed" };
+        }
+
+        const reversal: LedgerItem = {
+          id: uid(),
+          ts: Date.now(),
+          delta: -action.delta,
+          reason: `${action.reason}_reversed`,
+          meta: { originalActionId: actionId, ...action.meta },
+          reversible: false,
+        };
+
         set((s) => ({
           pointsTotal: Math.max(0, s.pointsTotal - action.delta),
-          pointsAvailable: Math.max(0, s.pointsAvailable - action.delta),
-          ledger: [{ 
-            id: reversalId, 
-            ts: Date.now(), 
-            delta: -action.delta, 
-            reason: `${action.reason}_reversed`, 
-            meta: { originalActionId: actionId, ...action.meta },
-            reversible: false
-          }, ...s.ledger].slice(0, 200),
+          ...withAliases([reversal, ...s.ledger], Math.max(0, s.pointsAvailable - action.delta)),
         }));
         
         return { ok: true, message: "Action reversed successfully" };
@@ -476,12 +508,35 @@ export const useRewardsStore = create<RewardsState>()(
         get().earn(points, "legacy_add_points");
       },
     }),
-    { 
+    {
       name: "rewards:v2",
       storage: createJSONStorage(() => AsyncStorage),
+      // Persist only durable state. `ledger` is the source of truth; `events`
+      // and `pointsHistory` are aliases of it and were being written to disk
+      // three times over, and the two callbacks are functions that JSON cannot
+      // round-trip anyway.
+      partialize: (s) => ({
+        pointsTotal: s.pointsTotal,
+        pointsAvailable: s.pointsAvailable,
+        streakDays: s.streakDays,
+        lastCheckInISO: s.lastCheckInISO,
+        ledger: s.ledger,
+        grants: s.grants,
+        dailyRoutinePoints: s.dailyRoutinePoints,
+        lastRoutineDate: s.lastRoutineDate,
+        referralCount: s.referralCount,
+        hasPerformedFirstAction: s.hasPerformedFirstAction,
+      }),
       onRehydrateStorage: () => (state) => {
-        console.log('DEBUG: Rewards store rehydrated:', state);
-      }
+        if (!state) return;
+        // Rebuild the aliases from the persisted ledger.
+        const ledger = state.ledger ?? [];
+        useRewardsStore.setState({
+          events: ledger,
+          pointsHistory: ledger,
+          points: state.pointsAvailable ?? 0,
+        });
+      },
     }
   )
 );

@@ -14,11 +14,12 @@ import { useCartStore } from "@/state/cartStore";
 /** Product slot mapping for recommendations */
 type Slot = "cleanse" | "condition" | "treat" | "protect";
 
-/** Map LLM handles to actual Shopify product handles */
-// No longer needed - LLM now returns original SKUs directly
-// function mapLlmHandleToShopifyHandle(llmHandle: string): string {
-//   return llmHandle; // LLM now returns original SKUs like "fleur-1", "fleur-shampoo", etc.
-// }
+// Handle mapping is no longer needed - the LLM now returns original SKUs
+// like "fleur-1" / "fleur-shampoo" directly.
+
+/** Image retry policy for the product image component. */
+const MAX_IMAGE_RETRIES = 3;
+const IMAGE_RETRY_BASE_MS = 1500;
 
 /** Map Shopify products to slots based on their handles */
 function getProductSlot(productHandle: string): Slot {
@@ -109,7 +110,7 @@ function ProductImage({ uri, title }: { uri?: string; title: string }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [retryAttempt, setRetryAttempt] = useState(0);
-  
+
   // Reset states when URI changes
   useEffect(() => {
     setImageLoaded(false);
@@ -117,19 +118,17 @@ function ProductImage({ uri, title }: { uri?: string; title: string }) {
     setRetryAttempt(0);
   }, [uri]);
 
-  // Retry mechanism - keep trying every 2 seconds until it loads
+  // Retry a failed image a few times with backoff, then give up and show the
+  // placeholder. This used to poll every 2 seconds forever, so a single dead
+  // CDN URL produced an endless request loop for as long as the screen was open.
   useEffect(() => {
-    if (!uri || imageLoaded) return;
-    
-    const retryInterval = setInterval(() => {
-      setRetryAttempt(prev => {
-        console.log(`Retrying image load for ${title}: ${uri}, attempt ${prev + 1}`);
-        return prev + 1;
-      });
-    }, 2000);
+    if (!uri || imageLoaded || retryAttempt >= MAX_IMAGE_RETRIES) return;
 
-    return () => clearInterval(retryInterval);
-  }, [uri, imageLoaded, title]);
+    const delay = IMAGE_RETRY_BASE_MS * 2 ** retryAttempt;
+    const timer = setTimeout(() => setRetryAttempt((prev) => prev + 1), delay);
+
+    return () => clearTimeout(timer);
+  }, [uri, imageLoaded, retryAttempt]);
 
   // Don't render anything if no valid URI
   if (!uri || uri === "null") {

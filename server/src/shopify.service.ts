@@ -1,9 +1,18 @@
+// server/src/shopify.service.ts
 // Using built-in fetch (Node.js 18+)
+
+import { canonicalSku, getProductPointValue } from "./points.catalog";
 
 // Shopify Admin API configuration
 const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
 const SHOPIFY_ADMIN_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
 const SHOPIFY_STOREFRONT_ACCESS_TOKEN = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
+
+const ADMIN_API_VERSION = "2024-07";
+const STOREFRONT_API_VERSION = "2024-07";
+
+/** How long an issued redemption code stays valid. */
+const CODE_TTL_MS = 24 * 60 * 60 * 1000;
 
 if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_ACCESS_TOKEN || !SHOPIFY_STOREFRONT_ACCESS_TOKEN) {
   console.warn("⚠️  Shopify environment variables not configured. Please set:");
@@ -12,375 +21,169 @@ if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_ACCESS_TOKEN || !SHOPIFY_STOREFRONT_
   console.warn("   SHOPIFY_STOREFRONT_ACCESS_TOKEN");
 }
 
-/**
- * Create a discount code using Shopify Admin API with retry logic
- */
-export async function createDiscountCode(
-  code: string, 
-  amount: number, 
-  userId: string, 
-  productSku: string
-): Promise<{ success: boolean; discountCode: string; expiresAt: string }> {
-  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_ACCESS_TOKEN) {
-    throw new Error("Shopify Admin API not configured");
-  }
+function adminUrl(): string {
+  const domain = String(SHOPIFY_STORE_DOMAIN).replace(/^https?:\/\//, "").replace(/\/$/, "");
+  return `https://${domain}/admin/api/${ADMIN_API_VERSION}/graphql.json`;
+}
 
-  const domain = SHOPIFY_STORE_DOMAIN.replace(/^https?:\/\//, "").replace(/\/$/, "");
-  const url = `https://${domain}/admin/api/2024-07/graphql.json`;
+function storefrontUrl(): string {
+  const domain = String(SHOPIFY_STORE_DOMAIN).replace(/^https?:\/\//, "").replace(/\/$/, "");
+  return `https://${domain}/api/${STOREFRONT_API_VERSION}/graphql.json`;
+}
 
-  // Set expiration (24 hours from now)
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+/** Discount codes are generated server-side only; a client-supplied code is ignored. */
+function generateCode(prefix: string, userId: string): string {
+  const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `${prefix}-${userId.slice(-6).toUpperCase()}-${Date.now().toString(36).toUpperCase()}-${rand}`;
+}
 
-  const mutation = `
-    mutation discountCodeBasicCreate($basicCodeDiscount: DiscountCodeBasicInput!) {
-      discountCodeBasicCreate(basicCodeDiscount: $basicCodeDiscount) {
-        codeDiscountNode {
-          id
-          codeDiscount {
-            ... on DiscountCodeBasic {
-              codes(first: 1) {
-                nodes {
-                  code
-                }
-              }
-              status
-              usageLimit
-              startsAt
-              endsAt
-            }
-          }
-        }
-        userErrors {
-          field
-          message
-        }
-      }
-    }
-  `;
-
-  const variables = {
-    basicCodeDiscount: {
-      title: `Points Redemption - ${productSku}`,
-      code: code,
-      startsAt: new Date().toISOString(),
-      endsAt: expiresAt,
-      usageLimit: 1,
-      customerSelection: {
-        all: true
-      },
-      customerGets: {
-        value: {
-          percentage: 1.0
-        },
-        items: {
-          all: true
-        }
-      },
-      minimumRequirement: {
-        quantity: {
-          greaterThanOrEqualToQuantity: "1"
-        }
-      },
-      appliesOncePerCustomer: true
-    }
-  };
-
-  // Enhanced retry logic for network issues
+async function shopifyFetch(
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+  { retries = 3, timeoutMs = 20000 }: { retries?: number; timeoutMs?: number } = {}
+): Promise<any> {
   let lastError: Error | null = null;
-  let data: any = null;
-  const maxRetries = 5; // Increased from 3 to 5
-  const baseTimeout = 45000; // Increased from 30s to 45s
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      console.log(`Attempt ${attempt}/${maxRetries} to create discount code: ${code}`);
-      
-      // Progressive timeout: 45s, 60s, 75s, 90s, 105s
-      const timeout = baseTimeout + (attempt - 1) * 15000;
-      
       const response = await fetch(url, {
         method: "POST",
-        headers: {
-          "X-Shopify-Access-Token": SHOPIFY_ADMIN_ACCESS_TOKEN,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({ query: mutation, variables }),
-        signal: (() => {
-          const controller = new AbortController();
-          setTimeout(() => controller.abort(), timeout);
-          return controller.signal;
-        })()
+        headers: { "Content-Type": "application/json", Accept: "application/json", ...headers },
+        body: JSON.stringify(body),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(`Shopify Admin API error: ${response.status} – ${text}`);
+        // 4xx other than 429 will never succeed on retry — fail fast.
+        if (response.status < 500 && response.status !== 429) {
+          throw new Error(`Shopify API error: ${response.status} – ${text}`);
+        }
+        throw new Error(`Shopify API transient error: ${response.status} – ${text}`);
       }
 
-      data = await response.json();
-      
-      // If we get here, the request was successful
-      console.log(`✅ Successfully created discount code on attempt ${attempt} (timeout: ${timeout}ms)`);
-      break;
+      return await response.json();
     } catch (error) {
       lastError = error as Error;
-      const isTimeout = lastError.message.includes('aborted') || lastError.message.includes('timeout');
-      const isNetworkError = lastError.message.includes('fetch failed') || lastError.message.includes('ETIMEDOUT');
-      
-      console.warn(`❌ Attempt ${attempt} failed (${isTimeout ? 'timeout' : isNetworkError ? 'network' : 'other'}):`, lastError.message);
-      
-      if (attempt === maxRetries) {
-        throw new Error(`Failed to create discount code after ${maxRetries} attempts. Last error: ${lastError.message}`);
-      }
-      
-      // Enhanced backoff with jitter: 1s, 2s, 4s, 8s, 16s + random 0-1s
-      const baseDelay = Math.pow(2, attempt - 1) * 1000;
-      const jitter = Math.random() * 1000; // 0-1s random
-      const delay = Math.floor(baseDelay + jitter);
-      
-      console.log(`⏳ Waiting ${delay}ms before retry...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
+      const fatal = /Shopify API error: 4/.test(lastError.message);
+      if (fatal || attempt === retries) throw lastError;
+
+      const delay = Math.floor(Math.pow(2, attempt - 1) * 500 + Math.random() * 500);
+      console.warn(`[shopify] attempt ${attempt}/${retries} failed (${lastError.message}); retrying in ${delay}ms`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    } finally {
+      clearTimeout(timer);
     }
   }
 
-  if (data.errors) {
+  throw lastError ?? new Error("Shopify request failed");
+}
+
+function assertNoGraphqlErrors(data: any, mutationKey: string): any {
+  if (data?.errors?.length) {
     throw new Error(`GraphQL errors: ${data.errors.map((e: any) => e.message).join(", ")}`);
   }
-
-  const userErrors = data?.data?.discountCodeBasicCreate?.userErrors;
+  const payload = data?.data?.[mutationKey];
+  const userErrors = payload?.userErrors;
   if (Array.isArray(userErrors) && userErrors.length) {
-    throw new Error(`Discount creation errors: ${userErrors.map((e: any) => e.message).join(", ")}`);
+    throw new Error(`${mutationKey} errors: ${userErrors.map((e: any) => e.message).join(", ")}`);
   }
-
-  const discountNode = data?.data?.discountCodeBasicCreate?.codeDiscountNode;
-  if (!discountNode) {
-    throw new Error("No discount code created");
-  }
-
-  return {
-    success: true,
-    discountCode: code,
-    expiresAt: expiresAt
-  };
+  return payload;
 }
 
-/**
- * Create checkout with discount code using Shopify Storefront API
- */
-export async function createCheckoutWithDiscount(
-  productSku: string,
-  userId: string,
-  userPoints: number
-): Promise<{ checkoutUrl: string; pointsUsed: number; discountAmount: number }> {
-  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_STOREFRONT_ACCESS_TOKEN) {
-    throw new Error("Shopify Storefront API not configured");
-  }
-
-  // Get product point value (you'll need to implement this based on your catalog)
-  const pointsRequired = getProductPointValue(productSku);
-  
-  if (pointsRequired === 0) {
-    throw new Error(`Product ${productSku} not found in point catalog`);
-  }
-
-  if (userPoints < pointsRequired) {
-    throw new Error(`Insufficient points. Need ${pointsRequired}, have ${userPoints}`);
-  }
-
-  // Convert points to dollars (1 point = $0.10)
-  const discountAmount = pointsRequired * 0.10;
-  
-  // Generate unique discount code
-  const timestamp = Date.now();
-  const discountCode = `POINTS_${userId.slice(-6)}_${timestamp}`;
-  
-  // Step 1: Create discount code using Admin API
-  await createDiscountCode(discountCode, discountAmount, userId, productSku);
-  
-  // Step 2: Find the product variant
-  const products = await fetchAllProducts();
-  const product = products.find(p => {
-    const handle = p.handle?.toLowerCase();
-    const titleSlug = p.title.toLowerCase().replace(/[^a-z0-9]/g, '-');
-    return handle === productSku || titleSlug === productSku || 
-           handle?.includes(productSku) || titleSlug.includes(productSku);
-  });
-
-  if (!product || !product.variants?.edges?.[0]?.node) {
-    throw new Error(`Product ${productSku} not found in Shopify`);
-  }
-
-  const variant = product.variants.edges[0].node;
-  
-  // Step 3: Create checkout with discount code applied
-  const domain = SHOPIFY_STORE_DOMAIN.replace(/^https?:\/\//, "").replace(/\/$/, "");
-  const url = `https://${domain}/api/2024-07/graphql.json`;
-
-  const CART_CREATE_WITH_DISCOUNT = `
-    mutation CartCreate($input: CartInput!) {
-      cartCreate(input: $input) {
-        cart {
-          id
-          checkoutUrl
-          cost {
-            totalAmount {
-              amount
-              currencyCode
-            }
+const DISCOUNT_CODE_BASIC_CREATE = `
+  mutation discountCodeBasicCreate($basicCodeDiscount: DiscountCodeBasicInput!) {
+    discountCodeBasicCreate(basicCodeDiscount: $basicCodeDiscount) {
+      codeDiscountNode {
+        id
+        codeDiscount {
+          ... on DiscountCodeBasic {
+            codes(first: 1) { nodes { code } }
+            status
+            usageLimit
+            startsAt
+            endsAt
           }
-          discountCodes {
-            code
-            applicable
-          }
-        }
-        userErrors {
-          field
-          message
         }
       }
+      userErrors { field message }
     }
-  `;
+  }
+`;
+
+/**
+ * Mint a single-use discount that makes ONE unit of ONE specific variant free.
+ *
+ * This replaces the previous implementation, which built
+ *   customerGets: { value: { percentage: 1.0 }, items: { all: true } }
+ * — i.e. 100% off the customer's entire cart — while silently ignoring the
+ * `amount` it was passed. Any point redemption handed the user a code that
+ * zeroed out an order of any size.
+ *
+ * Scoping the discount to the redeemed variant is what the redemption UI
+ * actually promises ("redeem N points for this product") and it stays correct
+ * no matter what else the customer adds to the cart.
+ */
+export async function createProductRedemptionDiscount(params: {
+  userId: string;
+  productSku: string;
+  variantId: string;
+  productTitle: string;
+}): Promise<{ discountCode: string; discountNodeId: string; expiresAt: string }> {
+  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_ACCESS_TOKEN) {
+    throw new Error("Shopify Admin API not configured");
+  }
+
+  const code = generateCode("PTS", params.userId);
+  const startsAt = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + CODE_TTL_MS).toISOString();
 
   const variables = {
-    input: {
-      lines: [{
-        merchandiseId: variant.id,
-        quantity: 1
-      }],
-      discountCodes: [discountCode]
-    }
-  };
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "X-Shopify-Storefront-Access-Token": SHOPIFY_STOREFRONT_ACCESS_TOKEN,
-      "Content-Type": "application/json",
-      Accept: "application/json",
+    basicCodeDiscount: {
+      title: `Points redemption — ${params.productTitle} (${params.userId.slice(0, 8)})`,
+      code,
+      startsAt,
+      endsAt: expiresAt,
+      usageLimit: 1,
+      appliesOncePerCustomer: true,
+      customerSelection: { all: true },
+      customerGets: {
+        // 100% off, but only on a single unit of the redeemed variant.
+        value: {
+          discountOnQuantity: {
+            quantity: "1",
+            effect: { percentage: 1.0 },
+          },
+        },
+        items: {
+          products: { productVariantsToAdd: [params.variantId] },
+        },
+      },
     },
-    body: JSON.stringify({ query: CART_CREATE_WITH_DISCOUNT, variables }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Shopify checkout creation failed: ${response.status} – ${text}`);
-  }
-
-  const data = await response.json();
-  
-  if (data.errors) {
-    throw new Error(`GraphQL errors: ${JSON.stringify(data.errors)}`);
-  }
-
-  const cart = data.data?.cartCreate?.cart;
-  const errors = data.data?.cartCreate?.userErrors;
-
-  if (errors && errors.length > 0) {
-    throw new Error(`Checkout errors: ${errors.map((e: any) => e.message).join(', ')}`);
-  }
-
-  if (!cart?.checkoutUrl) {
-    throw new Error("Failed to create cart checkout URL");
-  }
-
-  return {
-    checkoutUrl: cart.checkoutUrl,
-    pointsUsed: pointsRequired,
-    discountAmount: discountAmount
-  };
-}
-
-/**
- * Fetch all products using Shopify Storefront API
- */
-async function fetchAllProducts(): Promise<any[]> {
-  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_STOREFRONT_ACCESS_TOKEN) {
-    throw new Error("Shopify Storefront API not configured");
-  }
-
-  const domain = SHOPIFY_STORE_DOMAIN.replace(/^https?:\/\//, "").replace(/\/$/, "");
-  const url = `https://${domain}/api/2024-07/graphql.json`;
-
-  const query = `
-    query getProducts($first: Int!) {
-      products(first: $first) {
-        edges {
-          node {
-            id
-            title
-            handle
-            description
-            variants(first: 1) {
-              edges {
-                node {
-                  id
-                  title
-                  price {
-                    amount
-                    currencyCode
-                  }
-                }
-              }
-            }
-            images(first: 1) {
-              edges {
-                node {
-                  url
-                  altText
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  `;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "X-Shopify-Storefront-Access-Token": SHOPIFY_STOREFRONT_ACCESS_TOKEN,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({ query, variables: { first: 50 } }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch products: ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.data?.products?.edges?.map((edge: any) => edge.node) || [];
-}
-
-/**
- * Get product point value (you'll need to implement this based on your catalog)
- */
-function getProductPointValue(sku: string): number {
-  // This should match your product catalog from the mobile app
-  const productPointValues: Record<string, number> = {
-    'bloom': 850,
-    'detangling-comb': 250,
-    'fleur-shampoo': 750,
-    'fleur-conditioner': 780,
-    'fleur-repair-mask': 900,
-    'fleur-heat-shield': 700,
-    'fleur-silk-pillowcase': 650,
-    'fleur-derma-stamp': 725,
-    'fleur-complete-kit': 3500,
-    'fleur-biotin': 500,
-    'fleur-vitamin-d3': 500,
-    'fleur-iron': 500,
   };
 
-  return productPointValues[sku] || 0;
+  const data = await shopifyFetch(
+    adminUrl(),
+    { "X-Shopify-Access-Token": String(SHOPIFY_ADMIN_ACCESS_TOKEN) },
+    { query: DISCOUNT_CODE_BASIC_CREATE, variables }
+  );
+
+  const payload = assertNoGraphqlErrors(data, "discountCodeBasicCreate");
+  const nodeId = payload?.codeDiscountNode?.id;
+  if (!nodeId) throw new Error("Shopify did not return a discount node");
+
+  return { discountCode: code, discountNodeId: nodeId, expiresAt };
 }
 
-/**
- * Create a 20% kit discount code
- */
+/** Percentage of the cart taken off by the kit bundle promotion. */
+const KIT_DISCOUNT_PERCENTAGE = 0.2;
+
+/** Minimum distinct items required to qualify for the kit bundle discount. */
+const KIT_MIN_ITEMS = 3;
+
 export async function createKitDiscountCode(
   userId: string,
   cartItems: Array<{ sku: string; qty: number }>
@@ -389,107 +192,205 @@ export async function createKitDiscountCode(
     throw new Error("Shopify Admin API not configured");
   }
 
-  // Generate unique discount code for kit
-  const timestamp = Date.now();
-  const code = `KIT_20_${userId.slice(-6)}_${timestamp}`;
-  
-  console.log(`🎁 Creating kit discount code: ${code} for user: ${userId}`);
-  console.log(`🛒 Cart items:`, cartItems);
-  
-  // Set expiration (24 hours from now)
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const distinctItems = new Set(
+    (cartItems ?? []).filter((i) => i && i.sku && Number(i.qty) > 0).map((i) => canonicalSku(i.sku))
+  );
+  if (distinctItems.size < KIT_MIN_ITEMS) {
+    throw new Error(`Kit discount requires at least ${KIT_MIN_ITEMS} different products`);
+  }
 
-  const domain = SHOPIFY_STORE_DOMAIN.replace(/^https?:\/\//, "").replace(/\/$/, "");
-  const url = `https://${domain}/admin/api/2024-07/graphql.json`;
+  const code = generateCode("KIT20", userId);
+  const startsAt = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + CODE_TTL_MS).toISOString();
+
+  const variables = {
+    basicCodeDiscount: {
+      title: `Kit bundle 20% off (${userId.slice(0, 8)})`,
+      code,
+      startsAt,
+      endsAt: expiresAt,
+      usageLimit: 1,
+      appliesOncePerCustomer: true,
+      customerSelection: { all: true },
+      customerGets: {
+        value: { percentage: KIT_DISCOUNT_PERCENTAGE },
+        items: { all: true },
+      },
+      minimumRequirement: {
+        quantity: { greaterThanOrEqualToQuantity: String(KIT_MIN_ITEMS) },
+      },
+    },
+  };
+
+  const data = await shopifyFetch(
+    adminUrl(),
+    { "X-Shopify-Access-Token": String(SHOPIFY_ADMIN_ACCESS_TOKEN) },
+    { query: DISCOUNT_CODE_BASIC_CREATE, variables }
+  );
+
+  assertNoGraphqlErrors(data, "discountCodeBasicCreate");
+  return { success: true, discountCode: code, expiresAt };
+}
+
+/** Deactivate a code that was minted but never used (e.g. checkout abandoned). */
+export async function revokeDiscountNode(discountNodeId: string): Promise<void> {
+  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_ACCESS_TOKEN) return;
 
   const mutation = `
-    mutation discountCodeBasicCreate($basicCodeDiscount: DiscountCodeBasicInput!) {
-      discountCodeBasicCreate(basicCodeDiscount: $basicCodeDiscount) {
-        codeDiscountNode {
-          id
-          codeDiscount {
-            ... on DiscountCodeBasic {
-              codes(first: 1) {
-                nodes {
-                  code
-                }
-              }
-              status
-              usageLimit
-              startsAt
-              endsAt
-            }
-          }
-        }
-        userErrors {
-          field
-          message
-        }
+    mutation discountCodeDeactivate($id: ID!) {
+      discountCodeDeactivate(id: $id) {
+        userErrors { field message }
       }
     }
   `;
 
-  const variables = {
-    basicCodeDiscount: {
-      title: `Kit Bundle 20% Off - ${userId}`,
-      code: code,
-      startsAt: new Date().toISOString(),
-      endsAt: expiresAt,
-      usageLimit: 1,
-      customerSelection: {
-        all: true
-      },
-      customerGets: {
-        value: {
-          percentage: 0.2  // 20% discount (Shopify expects decimal between 0.0 and 1.0)
-        },
-        items: {
-          all: true
-        }
-      },
-      minimumRequirement: {
-        quantity: {
-          greaterThanOrEqualToQuantity: "1"
-        }
-      },
-      appliesOncePerCustomer: true
+  try {
+    const data = await shopifyFetch(
+      adminUrl(),
+      { "X-Shopify-Access-Token": String(SHOPIFY_ADMIN_ACCESS_TOKEN) },
+      { query: mutation, variables: { id: discountNodeId } },
+      { retries: 2 }
+    );
+    assertNoGraphqlErrors(data, "discountCodeDeactivate");
+  } catch (error) {
+    // Best effort — the code expires on its own within CODE_TTL_MS.
+    console.warn("[shopify] failed to deactivate discount", discountNodeId, error);
+  }
+}
+
+const PRODUCT_BY_HANDLE = `
+  query productByHandle($handle: String!) {
+    product(handle: $handle) {
+      id
+      title
+      handle
+      variants(first: 1) {
+        edges { node { id title availableForSale price { amount currencyCode } } }
+      }
     }
-  };
+  }
+`;
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "X-Shopify-Access-Token": SHOPIFY_ADMIN_ACCESS_TOKEN,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({ query: mutation, variables }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Shopify Admin API error: ${response.status} – ${text}`);
+/** Resolve a SKU/handle to its first sellable variant via the Storefront API. */
+export async function resolveVariant(
+  productSku: string
+): Promise<{ variantId: string; title: string; price: string; currencyCode: string }> {
+  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_STOREFRONT_ACCESS_TOKEN) {
+    throw new Error("Shopify Storefront API not configured");
   }
 
-  const data = await response.json();
-  
-  if (data.errors) {
+  const handle = canonicalSku(productSku);
+  const data = await shopifyFetch(
+    storefrontUrl(),
+    { "X-Shopify-Storefront-Access-Token": String(SHOPIFY_STOREFRONT_ACCESS_TOKEN) },
+    { query: PRODUCT_BY_HANDLE, variables: { handle } }
+  );
+
+  if (data?.errors?.length) {
     throw new Error(`GraphQL errors: ${data.errors.map((e: any) => e.message).join(", ")}`);
   }
 
-  const userErrors = data?.data?.discountCodeBasicCreate?.userErrors;
-  if (Array.isArray(userErrors) && userErrors.length) {
-    throw new Error(`Discount creation errors: ${userErrors.map((e: any) => e.message).join(", ")}`);
+  const product = data?.data?.product;
+  const variant = product?.variants?.edges?.[0]?.node;
+  if (!product || !variant) {
+    throw new Error(`Product "${handle}" not found in Shopify`);
   }
-
-  const discountNode = data?.data?.discountCodeBasicCreate?.codeDiscountNode;
-  if (!discountNode) {
-    throw new Error("No discount code created");
+  if (!variant.availableForSale) {
+    throw new Error(`Product "${product.title}" is out of stock`);
   }
 
   return {
-    success: true,
-    discountCode: code,
-    expiresAt: expiresAt
+    variantId: variant.id,
+    title: product.title,
+    price: variant.price?.amount ?? "0",
+    currencyCode: variant.price?.currencyCode ?? "USD",
   };
+}
+
+const CART_CREATE = `
+  mutation CartCreate($input: CartInput!) {
+    cartCreate(input: $input) {
+      cart {
+        id
+        checkoutUrl
+        cost { totalAmount { amount currencyCode } }
+        discountCodes { code applicable }
+      }
+      userErrors { field message }
+    }
+  }
+`;
+
+/**
+ * Build a checkout containing exactly the redeemed product with the redemption
+ * code pre-applied.
+ *
+ * `pointsRequired` is resolved from the server catalog. The caller is
+ * responsible for having already reserved the points (see redemption.service).
+ */
+export async function createRedemptionCheckout(params: {
+  userId: string;
+  productSku: string;
+}): Promise<{
+  checkoutUrl: string;
+  pointsUsed: number;
+  discountCode: string;
+  discountNodeId: string;
+  expiresAt: string;
+  productTitle: string;
+}> {
+  const sku = canonicalSku(params.productSku);
+  const pointsRequired = getProductPointValue(sku);
+  if (pointsRequired === 0) {
+    throw new Error(`Product "${params.productSku}" is not redeemable with points`);
+  }
+
+  const variant = await resolveVariant(sku);
+
+  const discount = await createProductRedemptionDiscount({
+    userId: params.userId,
+    productSku: sku,
+    variantId: variant.variantId,
+    productTitle: variant.title,
+  });
+
+  try {
+    const data = await shopifyFetch(
+      storefrontUrl(),
+      { "X-Shopify-Storefront-Access-Token": String(SHOPIFY_STOREFRONT_ACCESS_TOKEN) },
+      {
+        query: CART_CREATE,
+        variables: {
+          input: {
+            lines: [{ merchandiseId: variant.variantId, quantity: 1 }],
+            discountCodes: [discount.discountCode],
+          },
+        },
+      }
+    );
+
+    const payload = assertNoGraphqlErrors(data, "cartCreate");
+    const checkoutUrl = payload?.cart?.checkoutUrl;
+    if (!checkoutUrl) throw new Error("Shopify did not return a checkout URL");
+
+    const applied = payload?.cart?.discountCodes?.find(
+      (d: any) => d?.code === discount.discountCode
+    );
+    if (applied && applied.applicable === false) {
+      throw new Error("Redemption discount was rejected by Shopify");
+    }
+
+    return {
+      checkoutUrl,
+      pointsUsed: pointsRequired,
+      discountCode: discount.discountCode,
+      discountNodeId: discount.discountNodeId,
+      expiresAt: discount.expiresAt,
+      productTitle: variant.title,
+    };
+  } catch (error) {
+    // Don't leave a live free-product code behind if the cart failed to build.
+    await revokeDiscountNode(discount.discountNodeId);
+    throw error;
+  }
 }

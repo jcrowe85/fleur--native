@@ -7,9 +7,10 @@ type Profile = { user_id: string; handle?: string; display_name?: string; avatar
 
 type State = {
   profile: Profile | null;
-  // actions optional; not required by the guard
-  setProfile?: (p: Partial<Profile>) => void;
-  clear?: () => void;
+  // These are always defined by the store creator. Marking them optional forced
+  // every call site into `setProfile?.(...)` or a "possibly undefined" error.
+  setProfile: (p: Partial<Profile>) => void;
+  clear: () => void;
 };
 
 export const useProfileStore = create<State>()(
@@ -20,6 +21,11 @@ export const useProfileStore = create<State>()(
       setProfile: (p) => set({ profile: { ...(get().profile ?? {} as any), ...p } }),
       clear: () => set({ profile: null }),
     }),
-    { name: "profile", storage: createJSONStorage(() => AsyncStorage) }
+    {
+      name: "profile",
+      storage: createJSONStorage(() => AsyncStorage),
+      // Functions cannot be JSON round-tripped; persist state only.
+      partialize: (s) => ({ profile: s.profile }),
+    }
   )
 );

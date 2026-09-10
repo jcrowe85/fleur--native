@@ -234,12 +234,15 @@ export class CloudSyncPromotionService {
   }
 
   // Get promotion statistics
-  getPromotionStats(): {
+  //
+  // getAvailablePromotions() is async; the missing await meant `.length` was
+  // read off a Promise and availablePromotions was always undefined.
+  async getPromotionStats(): Promise<{
     totalPromotions: number;
     lastPromotionDate: Date | null;
     availablePromotions: number;
-  } {
-    const availablePromotions = this.getAvailablePromotions();
+  }> {
+    const availablePromotions = await this.getAvailablePromotions();
     const lastPromotionDate = Array.from(this.lastPromotionDates.values())
       .sort((a, b) => b.getTime() - a.getTime())[0] || null;
 

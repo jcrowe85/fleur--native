@@ -1,6 +1,6 @@
 // src/services/routineFromRecommendations.ts
 import { useRecommendationsStore, Recommendation } from "@/state/recommendationsStore";
-import { useRoutineStore, RoutineStep, Period } from "@/state/routineStore";
+import { useRoutineStore, RoutineStep, Period, Frequency } from "@/state/routineStore";
 
 /** quick id helper */
 function uid() {
@@ -27,6 +27,31 @@ function normalizePeriod(timeOfDay?: Recommendation["timeOfDay"]): Period | unde
   return undefined;
 }
 
+/**
+ * Map a recommendation frequency onto the routine store's Frequency union.
+ *
+ * Recommendations can say "Bi-weekly" or "Monthly", which RoutineStep does not
+ * model. Both are less-than-weekly cadences, so they land on "Weekly" with the
+ * schedule editor left to fine-tune, rather than being written through as an
+ * invalid value the editor cannot render.
+ */
+function normalizeFrequency(
+  frequency?: Recommendation["frequency"]
+): Frequency | undefined {
+  if (!frequency) return undefined;
+  switch (frequency) {
+    case "Daily":
+    case "3x/week":
+    case "Weekly":
+      return frequency;
+    case "Bi-weekly":
+    case "Monthly":
+      return "Weekly";
+    default:
+      return undefined;
+  }
+}
+
 /** Build RoutineSteps from a recommendations payload */
 export function mapRecommendationsToRoutineSteps(recs: Recommendation[]): RoutineStep[] {
   return recs.map((r) => {
@@ -38,7 +63,7 @@ export function mapRecommendationsToRoutineSteps(recs: Recommendation[]): Routin
       id: r.id || uid(),
       name: r.title || r.product || "Routine Step",
       time: r.time ?? (period === "morning" ? "8:00 AM" : period === "evening" ? "8:00 PM" : undefined),
-      frequency: r.frequency ?? (isWeekly ? "Weekly" : "Daily"),
+      frequency: normalizeFrequency(r.frequency) ?? (isWeekly ? "Weekly" : "Daily"),
       period: period ?? (isWeekly ? "weekly" : "morning"),
       enabled: r.enabled !== false, // default true
       instructions:

@@ -1,13 +1,19 @@
 // server/src/promotion.router.ts
 import express from 'express';
 import { supabase } from './services/supabase';
+import { requireAuth, requireAdmin, type AuthedRequest } from './auth.middleware';
 
 const router = express.Router();
 
-// Get active promotions for a user
-router.get('/active/:userId', async (req, res) => {
+/**
+ * Active promotions for the *calling* user.
+ *
+ * The user id now comes from the verified JWT. Taking it from the URL let
+ * anyone enumerate any account's promotion history.
+ */
+router.get('/active', requireAuth, async (req: AuthedRequest, res) => {
   try {
-    const { userId } = req.params;
+    const userId = req.userId!;
     
     // Get user's last promotion dates
     const { data: lastPromotions } = await supabase
@@ -45,7 +51,7 @@ router.get('/active/:userId', async (req, res) => {
 });
 
 // Create a new promotion template
-router.post('/template', async (req, res) => {
+router.post('/template', requireAdmin, async (req, res) => {
   try {
     const { type, title, body, actionText, priority, cooldownDays, destinationRoute, isActive } = req.body;
 
@@ -77,7 +83,7 @@ router.post('/template', async (req, res) => {
 });
 
 // Update a promotion template
-router.put('/template/:id', async (req, res) => {
+router.put('/template/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -104,7 +110,7 @@ router.put('/template/:id', async (req, res) => {
 });
 
 // Send promotion to specific users
-router.post('/send', async (req, res) => {
+router.post('/send', requireAdmin, async (req, res) => {
   try {
     const { promotionType, userIds, title, body, actionText, destinationRoute } = req.body;
 
@@ -148,7 +154,7 @@ router.post('/send', async (req, res) => {
 });
 
 // Get promotion analytics
-router.get('/analytics/:promotionType', async (req, res) => {
+router.get('/analytics/:promotionType', requireAdmin, async (req, res) => {
   try {
     const { promotionType } = req.params;
     

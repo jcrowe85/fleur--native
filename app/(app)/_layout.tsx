@@ -26,13 +26,11 @@ import RewardsPill from "@/components/UI/RewardsPill";
 import RewardsPopup from "@/components/UI/RewardsPopup";
 import { useRewardsPopup } from "@/hooks/useRewardsPopup";
 import { useCloudSyncPopup } from "../../src/hooks/useCloudSyncPopup";
-// Conditional import for notification service
-let notificationService: any = null;
-try {
-  notificationService = require("../../src/services/notificationService").notificationService;
-} catch (error) {
-  console.warn('Notification service not available');
-}
+// expo-notifications is a real dependency and is present in every build the
+// stores receive; the try/require dance existed for Expo Go and only served to
+// hide genuine import errors behind a warning.
+import { notificationService } from "../../src/services/notificationService";
+import { useCheckInStore } from "../../src/state/checkinStore";
 import { cloudSyncManager } from "../../src/services/cloudSyncManager";
 import CloudSyncPopup from "../../src/components/CloudSyncPopup";
 import { checkStorageHealth, performStorageRecovery } from "../../src/utils/storageHealth";
@@ -40,7 +38,7 @@ import { checkStorageHealth, performStorageRecovery } from "../../src/utils/stor
 
 export default function AppLayout() {
   const { bootstrap, loading, error } = useAuthStore();
-  const { visible, popupData, hidePopup, checkForBigRewards } = useRewardsPopup();
+  const { visible, popupData, hidePopup } = useRewardsPopup();
   const { 
     visible: cloudSyncVisible, 
     title: cloudSyncTitle, 
@@ -51,38 +49,33 @@ export default function AppLayout() {
 
   useEffect(() => {
     const initializeApp = async () => {
-      // Check storage health first
       const storageHealth = await checkStorageHealth();
       if (!storageHealth.isHealthy) {
         console.warn('Storage health issues detected:', storageHealth.issues);
-        console.warn('Recommendations:', storageHealth.recommendations);
-        
-                // Perform recovery if storage is severely corrupted
-                if (storageHealth.issues.some(issue => issue.includes('basic functionality'))) {
-                  await performStorageRecovery();
-                }
+        if (storageHealth.issues.some((issue) => issue.includes('basic functionality'))) {
+          await performStorageRecovery();
+        }
       }
-      
-      // First point callback will be set up by DashboardScreen
-      
-      bootstrap();
-      // Initialize notifications
-      if (notificationService) {
-        notificationService.initialize();
-      }
-      // Initialize cloud sync manager
-      cloudSyncManager.initialize();
+
+      // Record the first launch date so the daily check-in popup knows not to
+      // fire on day one.
+      useCheckInStore.getState().markFirstSeen();
+
+      await bootstrap();
+
+      // Registers Android channels and the tap handler. It deliberately does
+      // NOT ask for notification permission — that prompt now fires from the
+      // notification settings screen, where the user has just asked for
+      // reminders. Prompting cold on first launch tanks opt-in rates and draws
+      // App Review comments.
+      await notificationService.initialize();
+
+      await cloudSyncManager.initialize();
     };
-    
-    initializeApp();
+
+    initializeApp().catch((e) => console.error('[app] initialization failed:', e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Check for big rewards periodically
-  useEffect(() => {
-    const interval = setInterval(checkForBigRewards, 1000);
-    return () => clearInterval(interval);
-  }, [checkForBigRewards]);
 
   if (loading) {
     return (
@@ -244,8 +237,11 @@ function FleurTabBar({ state, navigation }: BottomTabBarProps) {
   );
 }
 
+/** Dev-only header action. Not mounted in the tab navigator by default. */
 function HeaderRight() {
   const confirmAndReset = () => {
+    if (!__DEV__) return;
+
     Alert.alert(
       "Reset local data?",
       "This will sign you out and clear local stores. (Dev tool)",

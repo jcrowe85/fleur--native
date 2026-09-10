@@ -3,7 +3,7 @@
 # Script to check user data in Supabase
 
 SUPABASE_URL="https://atnuvjxdtucwjiatnajt.supabase.co"
-SUPABASE_SERVICE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF0bnV2anhkdHVjd2ppYXRuYWp0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NzkwMjIyNCwiZXhwIjoyMDczNDc4MjI0fQ.HxX62EK0HL9a2lTIo2bAhKAcH6IOdxJHr7zuWV0NhP4"
+SUPABASE_SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:?set SUPABASE_SERVICE_ROLE_KEY in your environment}"
 
 echo "=== YOUR USER DATA LOCATION GUIDE ==="
 echo ""

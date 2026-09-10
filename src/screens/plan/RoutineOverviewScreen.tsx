@@ -33,7 +33,7 @@ function coerceRoutine(raw: any): RoutineCoerced | null {
           ? { text: p }
           : { text: String(p?.text ?? ""), icon: (p?.icon as RoutineIcon | "none" | undefined) }
       )
-      .filter((p) => p.text);
+      .filter((p: { text: string }) => p.text);
     const why = Array.isArray(raw.why) ? raw.why.map(String) : [];
     const notes = Array.isArray(raw.notes) ? raw.notes.map(String) : undefined;
     return {
@@ -51,7 +51,7 @@ function coerceRoutine(raw: any): RoutineCoerced | null {
     const pillars = Array.isArray(raw.weeklyPillars)
       ? raw.weeklyPillars
           .map((p: any) => (typeof p === "string" ? { text: p } : { text: String(p?.text ?? "") }))
-          .filter((p) => p.text)
+          .filter((p: { text: string }) => p.text)
       : [];
     const why = Array.isArray(raw.why) ? raw.why.map(String) : [];
     return { overview: { title, paragraph }, weeklyPillars: pillars, why };

@@ -7,7 +7,9 @@ import { ensureSession } from "./ensureSession"; // ✅ shared helper
 let inflight: Promise<void> | null = null;
 
 export async function ensureHandleOrPrompt(
-  openPickSheet: () => Promise<void> // your PickHandleSheet open()
+  // The sheet's open() resolves with the chosen handle payload; we only care
+  // that it settled, so accept any resolved value rather than requiring void.
+  openPickSheet: () => Promise<unknown>
 ) {
   if (inflight) return inflight;
 

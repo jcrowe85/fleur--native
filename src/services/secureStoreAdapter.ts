@@ -1,14 +1,110 @@
+// src/services/secureStoreAdapter.ts
 import * as SecureStore from "expo-secure-store";
 
+/**
+ * SecureStore-backed storage that transparently chunks large values.
+ *
+ * Android's SecureStore is backed by SharedPreferences + Keystore and refuses
+ * values larger than 2048 bytes. A Supabase session (access JWT + refresh token
+ * + user object) routinely exceeds that, so `setItemAsync` threw, the previous
+ * adapter swallowed the error, and the session was never written to disk.
+ *
+ * The visible symptom was severe: on every cold start `getSession()` returned
+ * null, `authStore.bootstrap()` treated the user as new and called
+ * `create-guest` again — minting a fresh Supabase account and stranding all of
+ * the previous account's cloud data.
+ *
+ * Values are stored as `<key>` when small, or split into `<key>.0`, `<key>.1`,
+ * … with a `<key>` manifest recording the chunk count.
+ */
+
+/** Conservative chunk size; SecureStore's Android limit is 2048 bytes. */
+const CHUNK_SIZE = 1800;
+const MANIFEST_PREFIX = "__chunked__:";
+
+function chunkKey(key: string, index: number): string {
+  return `${key}.${index}`;
+}
+
+async function clearChunks(key: string, count: number): Promise<void> {
+  await Promise.all(
+    Array.from({ length: count }, (_, i) =>
+      SecureStore.deleteItemAsync(chunkKey(key, i)).catch(() => {})
+    )
+  );
+}
+
+function parseManifest(value: string | null): number | null {
+  if (!value?.startsWith(MANIFEST_PREFIX)) return null;
+  const count = Number(value.slice(MANIFEST_PREFIX.length));
+  return Number.isInteger(count) && count > 0 ? count : null;
+}
+
 export const SecureStoreAdapter = {
-  getItem: async (key: string) => {
-    try { return (await SecureStore.getItemAsync(key)) ?? null; }
-    catch { return null; }
+  async getItem(key: string): Promise<string | null> {
+    try {
+      const head = await SecureStore.getItemAsync(key);
+      if (head === null) return null;
+
+      const chunkCount = parseManifest(head);
+      if (chunkCount === null) return head;
+
+      const parts = await Promise.all(
+        Array.from({ length: chunkCount }, (_, i) =>
+          SecureStore.getItemAsync(chunkKey(key, i))
+        )
+      );
+
+      // A missing chunk means a torn write; treat the whole value as absent
+      // rather than handing back a truncated JWT.
+      if (parts.some((part) => part === null)) {
+        console.warn(`[secureStore] incomplete chunked value for "${key}"`);
+        return null;
+      }
+
+      return parts.join("");
+    } catch (error) {
+      console.warn(`[secureStore] getItem("${key}") failed:`, error);
+      return null;
+    }
   },
-  setItem: async (key: string, value: string) => {
-    try { await SecureStore.setItemAsync(key, value); } catch {}
+
+  async setItem(key: string, value: string): Promise<void> {
+    try {
+      // Remove any chunks left over from a previous, larger value.
+      const existing = await SecureStore.getItemAsync(key).catch(() => null);
+      const previousChunks = parseManifest(existing);
+      if (previousChunks !== null) await clearChunks(key, previousChunks);
+
+      if (value.length <= CHUNK_SIZE) {
+        await SecureStore.setItemAsync(key, value);
+        return;
+      }
+
+      const chunks: string[] = [];
+      for (let i = 0; i < value.length; i += CHUNK_SIZE) {
+        chunks.push(value.slice(i, i + CHUNK_SIZE));
+      }
+
+      // Write the parts first, then the manifest, so a crash mid-write leaves
+      // the key looking absent rather than pointing at partial data.
+      for (let i = 0; i < chunks.length; i++) {
+        await SecureStore.setItemAsync(chunkKey(key, i), chunks[i]);
+      }
+      await SecureStore.setItemAsync(key, `${MANIFEST_PREFIX}${chunks.length}`);
+    } catch (error) {
+      console.warn(`[secureStore] setItem("${key}") failed:`, error);
+    }
   },
-  removeItem: async (key: string) => {
-    try { await SecureStore.deleteItemAsync(key); } catch {}
+
+  async removeItem(key: string): Promise<void> {
+    try {
+      const head = await SecureStore.getItemAsync(key).catch(() => null);
+      const chunkCount = parseManifest(head);
+      if (chunkCount !== null) await clearChunks(key, chunkCount);
+      await SecureStore.deleteItemAsync(key);
+    } catch (error) {
+      console.warn(`[secureStore] removeItem("${key}") failed:`, error);
+    }
   },
 };

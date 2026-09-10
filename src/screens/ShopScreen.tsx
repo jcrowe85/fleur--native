@@ -24,20 +24,26 @@ import { useCartStore } from "@/state/cartStore";
 import { useRewardsStore } from "@/state/rewardsStore";
 import { useAuthStore } from "@/state/authStore";
 import { ScreenScrollView } from "@/components/UI/bottom-space";
+import CheckoutSheet from "@/components/CheckoutSheet";
 
 // Import Shopify types and functions
-import { 
-  ShopifyProduct, 
-  fetchRedeemableProducts, 
+import {
+  ShopifyProduct,
+  fetchRedeemableProducts,
   fetchAllProducts,
-  createPointDiscountCode,
-  calculatePointRedemption,
-  createSeamlessCheckoutWithDiscount,
-  PointRedemption
+  createPointRedemption,
+  completePointRedemption,
+  cancelPointRedemption,
+  PointRedemption,
 } from "@/services/shopifyClient";
 
 // Import product point catalog
-import { getProductPointValue, canAffordProduct, getProductInfo } from "@/data/productPointCatalog";
+import {
+  getProductPointValue,
+  canAffordProduct,
+  getProductInfo,
+  resolveRedeemableSku,
+} from "@/data/productPointCatalog";
 
 /** Default placeholder images */
 const DEFAULT_PRODUCT_IMAGE = require("../../assets/kit/serum.png");
@@ -214,97 +220,87 @@ export default function ShopScreen() {
 
   const goToCart = () => router.push("/cart?returnTo=/shop");
 
-  // Point redemption functions
+  /**
+   * Redeem points for a product.
+   *
+   * The server authenticates the caller, resolves the point price from its own
+   * catalog, issues a single-use code scoped to this one product, and records
+   * the redemption. Points are only debited once checkout actually completes.
+   */
   const handleRedeemPoints = async (product: ShopifyProduct) => {
+    if (redeemingPoints) return;
+
+    const match = resolveRedeemableSku(product);
+    if (!match) {
+      Alert.alert("Not redeemable", "This product isn't available for point redemption.");
+      return;
+    }
+
+    if (pointsTotal < match.pointsRequired) {
+      Alert.alert(
+        "Not enough points",
+        `You need ${match.pointsRequired} points to redeem ${product.title}. You have ${pointsTotal}.`
+      );
+      return;
+    }
+
+    if (!user?.id) {
+      Alert.alert("Sign in required", "Please sign in to redeem your points.");
+      return;
+    }
+
     try {
       setRedeemingPoints(true);
-      
-      // Use the same matching logic as the UI
-      const productSku = product.handle || 
-                       product.title.toLowerCase().replace(/\s+/g, '-') ||
-                       product.title.toLowerCase().replace(/[^a-z0-9]/g, '-');
-      
-      let pointsRequired = getProductPointValue(productSku);
-      let finalSku = productSku;
-      
-      // If no exact match, try to find by title keywords
-      if (pointsRequired === 0) {
-        const title = product.title.toLowerCase();
-        if (title.includes('serum')) {
-          pointsRequired = 850;
-          finalSku = 'bloom';
-        } else if (title.includes('shampoo')) {
-          pointsRequired = 750;
-          finalSku = 'fleur-shampoo';
-        } else if (title.includes('conditioner')) {
-          pointsRequired = 780;
-          finalSku = 'fleur-conditioner';
-        } else if (title.includes('mask') || title.includes('repair')) {
-          pointsRequired = 900;
-          finalSku = 'fleur-repair-mask';
-        } else if (title.includes('heat') || title.includes('shield')) {
-          pointsRequired = 700;
-          finalSku = 'fleur-heat-shield';
-        } else if (title.includes('comb')) {
-          pointsRequired = 250;
-          finalSku = 'detangling-comb';
-        } else if (title.includes('pillowcase') || title.includes('silk')) {
-          pointsRequired = 650;
-          finalSku = 'fleur-silk-pillowcase';
-        } else if (title.includes('derma') || title.includes('stamp')) {
-          pointsRequired = 725;
-          finalSku = 'fleur-derma-stamp';
-        } else if (title.includes('biotin')) {
-          pointsRequired = 500;
-          finalSku = 'fleur-biotin';
-        } else if (title.includes('vitamin d') || title.includes('d3')) {
-          pointsRequired = 500;
-          finalSku = 'fleur-vitamin-d3';
-        } else if (title.includes('iron')) {
-          pointsRequired = 500;
-          finalSku = 'fleur-iron';
-        } else if (title.includes('kit') || title.includes('complete')) {
-          pointsRequired = 3500;
-          finalSku = 'fleur-complete-kit';
-        }
-      }
-      
-      if (pointsRequired === 0) {
-        Alert.alert("Product Not Found", "This product is not available for point redemption.");
-        return;
-      }
-      
-      if (pointsTotal < pointsRequired) {
-        Alert.alert("Insufficient Points", `You need ${pointsRequired} points to redeem this product. You have ${pointsTotal} points.`);
-        return;
-      }
-      
-      // Get user ID from Supabase auth
-      if (!user?.id) {
-        Alert.alert("Authentication Error", "Please sign in to redeem points.");
-        return;
-      }
+      const redemption = await createPointRedemption(match.sku, pointsTotal);
 
-      // Create seamless checkout with discount pre-applied
-      const checkoutResult = await createSeamlessCheckoutWithDiscount(finalSku, user.id, pointsTotal);
-      
-      // Set the checkout URL to open in the native checkout sheet
-      setCheckoutUrl(checkoutResult.checkoutUrl);
-      
-      // Set active redemption for tracking
-      setActiveRedemption({
-        pointsUsed: pointsRequired,
-        discountAmount: checkoutResult.discountAmount,
-        discountCode: "",
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours from now
-      });
-      
+      setActiveRedemption(redemption);
+      setCheckoutUrl(redemption.checkoutUrl);
     } catch (error) {
-      console.error("Error creating discount code:", error);
-      Alert.alert("Error", "Failed to create discount code. Please try again.");
+      console.error("Error creating redemption:", error);
+      Alert.alert(
+        "Redemption failed",
+        error instanceof Error ? error.message : "Please try again."
+      );
     } finally {
       setRedeemingPoints(false);
     }
+  };
+
+  /** Checkout finished — debit the points and confirm the redemption. */
+  const handleRedemptionComplete = () => {
+    const redemption = activeRedemption;
+    setCheckoutUrl(null);
+    setActiveRedemption(null);
+    if (!redemption) return;
+
+    earn(-redemption.pointsUsed, "Product redemption", {
+      productTitle: redemption.productTitle,
+      redemptionId: redemption.redemptionId,
+      completedAt: new Date().toISOString(),
+    });
+
+    completePointRedemption(redemption.redemptionId).catch(() => {});
+
+    router.replace({
+      pathname: "/(shop)/thank-you",
+      params: {
+        auto: "1",
+        pointsUsed: String(redemption.pointsUsed),
+        newBalance: String(Math.max(0, pointsTotal - redemption.pointsUsed)),
+      },
+    });
+  };
+
+  /**
+   * Checkout dismissed without completing. Release the code server-side so the
+   * user is not left holding a live free-product discount, and so they are not
+   * blocked from redeeming again.
+   */
+  const handleRedemptionDismissed = () => {
+    const redemption = activeRedemption;
+    setCheckoutUrl(null);
+    setActiveRedemption(null);
+    if (redemption) cancelPointRedemption(redemption.redemptionId).catch(() => {});
   };
 
   const formatPrice = (amount: string, currencyCode: string) => {
@@ -915,13 +911,10 @@ export default function ShopScreen() {
               {activeRedemption && (
                 <>
                   <Text style={{ color: "#22c55e", fontSize: 12, marginTop: 4 }}>
-                    • Active discount: {activeRedemption.discountCode}
+                    • Redeeming: {activeRedemption.productTitle}
                   </Text>
                   <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 12 }}>
                     • Points used: {activeRedemption.pointsUsed}
-                  </Text>
-                  <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 12 }}>
-                    • Discount amount: ${activeRedemption.discountAmount.toFixed(2)}
                   </Text>
                 </>
               )}
@@ -962,120 +955,11 @@ export default function ShopScreen() {
         <CheckoutSheet
           visible={!!checkoutUrl}
           url={checkoutUrl ?? undefined}
-          onClose={() => setCheckoutUrl(null)}
-            onComplete={(finalUrl) => {
-              setCheckoutUrl(null);
-              if (activeRedemption) {
-                // Deduct points from user's account
-                earn(-activeRedemption.pointsUsed, "Product redemption", {
-                  discountAmount: activeRedemption.discountAmount,
-                  discountCode: activeRedemption.discountCode,
-                  completedAt: new Date().toISOString()
-                });
-                
-                // Redirect to thank you page with point redemption info
-                router.replace({ 
-                  pathname: "/(shop)/thank-you", 
-                  params: { 
-                    auto: "1",
-                    pointsUsed: activeRedemption.pointsUsed.toString(),
-                    newBalance: (pointsTotal - activeRedemption.pointsUsed).toString()
-                  } 
-                });
-                setActiveRedemption(null);
-              }
-            }}
+          onClose={handleRedemptionDismissed}
+          onComplete={handleRedemptionComplete}
         />
       </SafeAreaView>
     </View>
-  );
-}
-
-// Checkout Sheet Component (copied from CartScreen)
-type CheckoutSheetProps = {
-  visible: boolean;
-  url?: string;
-  onClose: () => void;
-  onComplete?: (finalUrl: string) => void;
-};
-
-function CheckoutSheet({ visible, url, onClose, onComplete }: CheckoutSheetProps) {
-  if (!visible || !url) return null;
-
-  return (
-    <Modal
-      animationType="slide"
-      transparent
-      visible={visible}
-      onRequestClose={onClose}
-    >
-      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }}>
-        <View style={{ 
-          flex: 1, 
-          marginTop: 100, 
-          backgroundColor: "#fff", 
-          borderTopLeftRadius: 20, 
-          borderTopRightRadius: 20,
-          overflow: "hidden"
-        }}>
-          {/* Header */}
-          <View style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            paddingHorizontal: 20,
-            paddingVertical: 16,
-            borderBottomWidth: 1,
-            borderBottomColor: "#f0f0f0"
-          }}>
-            <Text style={{ fontSize: 18, fontWeight: "600", color: "#000" }}>
-              Complete Purchase
-            </Text>
-            <Pressable onPress={() => {
-              Alert.alert(
-                "Cancel Checkout?",
-                "Are you sure you want to close the checkout? Your points will not be deducted if you haven't completed the purchase.",
-                [
-                  { text: "Continue Shopping", style: "cancel" },
-                  { text: "Close", onPress: onClose }
-                ]
-              );
-            }} style={{ padding: 8 }}>
-              <Feather name="x" size={24} color="#666" />
-            </Pressable>
-          </View>
-          
-          {/* WebView */}
-          <WebView
-            source={{ uri: url }}
-            style={{ flex: 1 }}
-            onNavigationStateChange={(navState) => {
-              console.log("WebView navigation:", navState.url);
-              // Check if checkout is complete
-              if (navState.url.includes("thank-you") || 
-                  navState.url.includes("success") || 
-                  navState.url.includes("order") ||
-                  navState.url.includes("confirmation") ||
-                  navState.url.includes("checkout/success")) {
-                console.log("Checkout completed, calling onComplete");
-                onComplete?.(navState.url);
-              }
-            }}
-            onShouldStartLoadWithRequest={(request) => {
-              console.log("WebView should start load:", request.url);
-              // Allow all requests for now to avoid blocking legitimate checkout flows
-              return true;
-            }}
-            onError={(error) => {
-              console.log("WebView error:", error);
-            }}
-            onHttpError={(error) => {
-              console.log("WebView HTTP error:", error);
-            }}
-          />
-        </View>
-      </View>
-    </Modal>
   );
 }
 

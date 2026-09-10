@@ -14,7 +14,7 @@ echo ""
 
 curl -X POST \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0" \
+  -H "Authorization: Bearer ${SUPABASE_ANON_KEY:?set SUPABASE_ANON_KEY in your environment}" \
   -d "{
     \"email\": \"$EMAIL\",
     \"code\": \"$CODE\",

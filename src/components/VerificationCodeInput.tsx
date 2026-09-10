@@ -27,9 +27,7 @@ export default function VerificationCodeInput({
 
   // Focus first input on mount
   useEffect(() => {
-    if (inputRefs.current[0]) {
-      inputRefs.current[0].focus();
-    }
+    inputRefs.current[0]?.focus();
   }, []);
 
   const handleCodeChange = (value: string, index: number) => {
@@ -73,9 +71,7 @@ export default function VerificationCodeInput({
 
     // Auto-focus next input if digit entered
     if (digit && index < 5) {
-      if (inputRefs.current[index + 1]) {
-        inputRefs.current[index + 1].focus();
-      }
+      inputRefs.current[index + 1]?.focus();
     }
 
     // Check if complete
@@ -87,18 +83,14 @@ export default function VerificationCodeInput({
   const handleKeyPress = (key: string, index: number) => {
     if (key === 'Backspace' && !code[index] && index > 0) {
       // Move to previous input if current is empty
-      if (inputRefs.current[index - 1]) {
-        inputRefs.current[index - 1].focus();
-      }
+      inputRefs.current[index - 1]?.focus();
     }
   };
 
   const clearCode = () => {
     setCode(['', '', '', '', '', '']);
     onCodeChange('');
-    if (inputRefs.current[0]) {
-      inputRefs.current[0].focus();
-    }
+    inputRefs.current[0]?.focus();
   };
 
   return (
@@ -107,7 +99,9 @@ export default function VerificationCodeInput({
         {code.map((digit, index) => (
           <TextInput
             key={index}
-            ref={(ref) => (inputRefs.current[index] = ref)}
+            ref={(ref) => {
+              inputRefs.current[index] = ref;
+            }}
             style={[
               styles.input,
               error && styles.inputError,
@@ -121,9 +115,6 @@ export default function VerificationCodeInput({
             selectTextOnFocus
             editable={!disabled}
             textAlign="center"
-            fontSize={24}
-            fontWeight="600"
-            color="white"
           />
         ))}
       </View>

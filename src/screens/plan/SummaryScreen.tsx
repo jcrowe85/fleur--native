@@ -47,7 +47,7 @@ function coerceSummary(raw: any): SummaryCoerced | null {
     const drivers = Array.isArray(raw?.drivers)
       ? raw.drivers
           .map((d: any) => ({ icon: asIcon(d?.icon, "star"), label: String(d?.label ?? "").trim() }))
-          .filter((d) => d.label.length)
+          .filter((d: { label: string }) => d.label.length)
       : [];
 
     const quickWins = Array.isArray(raw?.quickWins)

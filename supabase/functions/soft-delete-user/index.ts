@@ -51,34 +51,35 @@ serve(async (req) => {
         handle: null,
         avatar_url: null,
       })
-      .eq('id', userId)
+      .eq('user_id', userId)
 
     if (profileError) {
       console.error('Profile update error:', profileError)
       // Don't throw - continue with other deletions
     }
 
-    // 2. Anonymize community posts
+    // 2. Anonymize community posts.
+    //    Columns are `body` / `user_id`; the previous code wrote `content` /
+    //    `author_id`, which do not exist on this table, so nothing was ever
+    //    anonymised.
     const { error: postsError } = await supabaseAdmin
       .from('posts')
       .update({
-        content: '[Content deleted by user]',
-        author_id: null,
+        body: '[Content deleted by user]',
+        media_url: null,
+        media_urls: null,
       })
-      .eq('author_id', userId)
+      .eq('user_id', userId)
 
     if (postsError) {
       console.error('Posts update error:', postsError)
     }
 
-    // 3. Anonymize comments
+    // 3. Anonymize comments (same column-name fix as posts).
     const { error: commentsError } = await supabaseAdmin
       .from('comments')
-      .update({
-        content: '[Comment deleted by user]',
-        author_id: null,
-      })
-      .eq('author_id', userId)
+      .update({ body: '[Comment deleted by user]' })
+      .eq('user_id', userId)
 
     if (commentsError) {
       console.error('Comments update error:', commentsError)
@@ -94,7 +95,17 @@ serve(async (req) => {
       console.error('Support messages delete error:', supportError)
     }
 
-    // 5. Log the deletion for business purposes
+    // 5. Remove the cloud backup of their app data.
+    const { error: syncError } = await supabaseAdmin
+      .from('user_sync_data')
+      .delete()
+      .eq('user_id', userId)
+
+    if (syncError) {
+      console.error('Sync data delete error:', syncError)
+    }
+
+    // 6. Log the deletion for business purposes
     const { error: logError } = await supabaseAdmin
       .from('user_deletions')
       .insert({
@@ -109,7 +120,7 @@ serve(async (req) => {
       // Don't throw - this is just logging
     }
 
-    // 6. Delete from auth.users (this will prevent login)
+    // 7. Delete from auth.users (this will prevent login)
     const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(userId)
 
     if (authError) {
@@ -132,7 +143,7 @@ serve(async (req) => {
     console.error('Soft delete error:', error)
     return new Response(JSON.stringify({ 
       success: false, 
-      error: error.message 
+      error: error instanceof Error ? error.message : String(error) 
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

@@ -1,5 +1,5 @@
 // src/hooks/useRewardsPopup.ts
-import { useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRewardsStore } from "@/state/rewardsStore";
 
 type PopupData = {
@@ -8,9 +8,33 @@ type PopupData = {
   description?: string;
 };
 
+/** Reward reasons that deserve a celebratory popup. */
+const CELEBRATED_REASONS = new Set([
+  "seven_day_streak_bonus",
+  "post_engagement_likes",
+  "post_engagement_comments",
+  // "refer_friend" has its own FriendReferredPopup.
+]);
+
+/**
+ * Shows a popup when a noteworthy reward lands.
+ *
+ * This used to expose a `checkForBigRewards()` that the app layout called on a
+ * 1-second `setInterval`. Two problems: it woke the JS thread every second for
+ * the entire life of the app, and it re-fired for the *same* ledger entry every
+ * tick — so once a streak bonus landed, dismissing the popup just brought it
+ * straight back, forever, until another reward displaced it.
+ *
+ * Now it subscribes to the store and fires once per new ledger entry.
+ */
 export function useRewardsPopup() {
   const [popupData, setPopupData] = useState<PopupData | null>(null);
   const [visible, setVisible] = useState(false);
+
+  /** Ledger id of the most recent entry we have already reacted to. */
+  const lastSeenIdRef = useRef<string | null>(
+    useRewardsStore.getState().ledger[0]?.id ?? null
+  );
 
   const showPopup = useCallback((data: PopupData) => {
     setPopupData(data);
@@ -19,41 +43,28 @@ export function useRewardsPopup() {
 
   const hidePopup = useCallback(() => {
     setVisible(false);
-    // Clear data after animation completes
-    setTimeout(() => {
-      setPopupData(null);
-    }, 300);
+    // Clear the payload once the exit animation has finished.
+    setTimeout(() => setPopupData(null), 300);
   }, []);
 
-  // Monitor rewards store for big rewards
-  const ledger = useRewardsStore((s) => s.ledger);
-  
-  // Check for big rewards that should trigger popup
-  const checkForBigRewards = useCallback(() => {
-    if (ledger.length === 0) return;
-    
-    const latestEntry = ledger[0];
-    const shouldShowPopup = [
-      "seven_day_streak_bonus",
-      "post_engagement_likes", 
-      "post_engagement_comments",
-      // "refer_friend" - handled by custom FriendReferredPopup
-    ].includes(latestEntry.reason);
+  useEffect(() => {
+    const unsubscribe = useRewardsStore.subscribe((state) => {
+      const latest = state.ledger[0];
+      if (!latest || latest.id === lastSeenIdRef.current) return;
 
-    if (shouldShowPopup && latestEntry.delta > 0) {
-      showPopup({
-        points: latestEntry.delta,
-        reason: latestEntry.reason,
-        description: latestEntry.meta?.description,
-      });
-    }
-  }, [ledger, showPopup]);
+      lastSeenIdRef.current = latest.id;
 
-  return {
-    visible,
-    popupData,
-    showPopup,
-    hidePopup,
-    checkForBigRewards,
-  };
+      if (latest.delta > 0 && CELEBRATED_REASONS.has(latest.reason)) {
+        showPopup({
+          points: latest.delta,
+          reason: latest.reason,
+          description: latest.meta?.description,
+        });
+      }
+    });
+
+    return unsubscribe;
+  }, [showPopup]);
+
+  return { visible, popupData, showPopup, hidePopup };
 }

@@ -2,6 +2,7 @@
 import { create } from "zustand";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/services/supabase";
+import { FUNCTIONS_URL, SUPABASE_ANON_KEY } from "@/config/env";
 
 type AuthState = {
   loading: boolean;
@@ -14,46 +15,125 @@ type AuthState = {
   setUser: (user: { id: string; email: string; isCloudSynced: boolean }) => void;
 };
 
-let subscribed = false;
+/** Guest accounts use this domain; a real (cloud-synced) user never does. */
+export const GUEST_EMAIL_DOMAIN = "@guest.local";
 
-/** Build the functions base URL.
- * Set EXPO_PUBLIC_FUNCTIONS_URL in your .env for reliability on real devices:
- *   EXPO_PUBLIC_FUNCTIONS_URL=https://<ref>.functions.supabase.co
- * If not set, we'll derive it from EXPO_PUBLIC_SUPABASE_URL.
- */
-function getFunctionsBase(): string {
-  const explicit = process.env.EXPO_PUBLIC_FUNCTIONS_URL;
-  if (explicit) return explicit.replace(/\/+$/, "");
-  const url = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
-  const m = url.match(/^https:\/\/([a-z0-9-]+)\.supabase\.co$/i);
-  return m ? `https://${m[1]}.functions.supabase.co` : "";
+export function isGuestEmail(email?: string | null): boolean {
+  return !!email && email.endsWith(GUEST_EMAIL_DOMAIN);
 }
 
-/** Call the deployed create-guest function (no JWT required). */
+let authSubscription: { unsubscribe: () => void } | null = null;
+
+/** Guards against two bootstrap() calls racing to create two guest accounts. */
+let bootstrapInFlight: Promise<void> | null = null;
+
+/** Create a guest account via the hosted Edge Function (no JWT required). */
 async function createGuestViaFetch(): Promise<{ email: string; password: string }> {
-  const base = getFunctionsBase();
-  
-  if (!base) throw new Error("Functions URL not configured");
-  
-  const url = `${base}/create-guest`;
-  
-  const res = await fetch(url, {
+  if (!FUNCTIONS_URL) throw new Error("Supabase Functions URL is not configured");
+
+  const res = await fetch(`${FUNCTIONS_URL}/create-guest`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "Authorization": `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
     },
     body: JSON.stringify({}),
   });
-  
+
   if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    console.error("[auth] create-guest failed:", res.status, txt);
-    throw new Error(`create-guest failed: ${res.status} ${txt}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`create-guest failed: ${res.status} ${text}`);
   }
-  
-  const result = await res.json();
-  return result;
+
+  return res.json();
+}
+
+async function runBootstrap(set: (partial: Partial<AuthState>) => void): Promise<void> {
+  try {
+    set({ loading: true, error: null });
+
+    const { data: sessRes, error: sessErr } = await supabase.auth.getSession();
+
+    if (sessErr) {
+      // A transport failure here is NOT "no account". Creating a guest would
+      // orphan the real account, so surface a retryable error instead.
+      throw new Error(sessErr.message);
+    }
+
+    if (sessRes?.session) {
+      set({
+        session: sessRes.session,
+        user: sessRes.session.user,
+        isCloudSynced: !isGuestEmail(sessRes.session.user.email),
+        loading: false,
+        error: null,
+      });
+    } else {
+      const creds = await createGuestViaFetch().catch(async (e) => {
+        console.warn("[auth] create-guest fetch failed, retrying via invoke:", e?.message);
+        const { data, error } = await supabase.functions.invoke("create-guest", { body: {} });
+        if (error) throw new Error(error.message ?? "create-guest failed");
+        return data as { email: string; password: string };
+      });
+
+      const { data: signed, error: signErr } = await supabase.auth.signInWithPassword({
+        email: creds.email,
+        password: creds.password,
+      });
+
+      if (signErr || !signed?.session || !signed?.user) {
+        throw new Error(signErr?.message ?? "sign-in failed");
+      }
+
+      set({
+        session: signed.session,
+        user: signed.user,
+        isCloudSynced: false,
+        loading: false,
+        error: null,
+      });
+    }
+
+    subscribeToAuthChanges(set);
+  } catch (e: any) {
+    console.error("[auth] bootstrap error:", e);
+    set({ error: e?.message ?? "Could not sign in", loading: false });
+  }
+}
+
+/**
+ * Track token refreshes and sign-outs.
+ *
+ * Registered once. Cloud restore deliberately runs only on an actual SIGNED_IN
+ * event: the previous version also ran on INITIAL_SESSION, so every cold start
+ * of a synced account pulled the whole cloud payload down and overwrote local
+ * state that had not been uploaded yet.
+ */
+function subscribeToAuthChanges(set: (partial: Partial<AuthState>) => void): void {
+  if (authSubscription) return;
+
+  const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
+    set({
+      session: session ?? null,
+      user: session?.user ?? null,
+      isCloudSynced: !!session?.user && !isGuestEmail(session.user.email),
+    });
+
+    if (event !== "SIGNED_IN") return;
+    if (!session?.user?.email || isGuestEmail(session.user.email)) return;
+
+    try {
+      const { cloudSyncService } = await import("@/services/cloudSyncService");
+      const result = await cloudSyncService.syncFromCloud();
+      if (!result.success && result.error) {
+        console.warn("[auth] cloud restore skipped:", result.error);
+      }
+    } catch (error) {
+      console.error("[auth] cloud restore failed:", error);
+    }
+  });
+
+  authSubscription = data.subscription;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -64,110 +144,54 @@ export const useAuthStore = create<AuthState>((set) => ({
   isCloudSynced: false,
 
   bootstrap: async () => {
-    try {
-      // 1) Use existing session if present
-      const { data: sessRes } = await supabase.auth.getSession();
-      if (sessRes?.session) {
-        set({ session: sessRes.session, user: sessRes.session.user, loading: false, error: null });
-      } else {
-        // 2) No session → create a guest via hosted Edge Function, then sign in
-        let creds: { email: string; password: string };
+    // Two mounts racing here used to create two guest accounts, the second of
+    // which won — silently discarding the first account's data.
+    if (bootstrapInFlight) return bootstrapInFlight;
 
-        // Prefer direct fetch to the functions domain (more reliable over tunnel on iOS)
-        creds = await createGuestViaFetch().catch(async (e) => {
-          // Fallback: try supabase.functions.invoke (same endpoint under the hood)
-          console.warn("[auth] create-guest via fetch failed, falling back to functions.invoke:", e?.message);
-          const { data, error } = await supabase.functions.invoke("create-guest", { body: {} });
-          if (error) throw new Error(error.message ?? "create-guest (invoke) failed");
-          return data as typeof creds;
-        });
+    bootstrapInFlight = runBootstrap(set).finally(() => {
+      bootstrapInFlight = null;
+    });
 
-        const { email, password } = creds;
-
-        const { data: signed, error: signErr } =
-          await supabase.auth.signInWithPassword({ email, password });
-
-        if (signErr || !signed?.session || !signed?.user) {
-          throw new Error(signErr?.message ?? "sign-in failed");
-        }
-
-        set({ session: signed.session, user: signed.user, loading: false, error: null });
-      }
-
-      // 3) Keep store in sync with any token refresh or sign-out (register once)
-      if (!subscribed) {
-        supabase.auth.onAuthStateChange(async (_event, session) => {
-          set({ session: session ?? null, user: session?.user ?? null });
-          
-          // If user signed in with real email (not guest), restore their cloud data
-          if (session?.user?.email && !session.user.email.includes('@guest.local')) {
-            console.log('🔄 User signed in with real email, restoring cloud data...');
-            try {
-              const { cloudSyncService } = await import('@/services/cloudSyncService');
-              const result = await cloudSyncService.syncFromCloud();
-              if (result.success) {
-                console.log('✅ Cloud data restored successfully');
-                set({ isCloudSynced: true });
-              } else {
-                console.warn('⚠️ Cloud data restoration failed:', result.error);
-              }
-            } catch (error) {
-              console.error('❌ Error during cloud data restoration:', error);
-            }
-          }
-        });
-        subscribed = true;
-      }
-    } catch (e: any) {
-      console.error("Auth bootstrap error:", e);
-      set({ error: e?.message ?? "Auth bootstrap error", loading: false });
-    }
+    return bootstrapInFlight;
   },
 
   signOut: async () => {
-    // Perform final sync before signing out to prevent data loss
+    // Push local state up before dropping the session, so nothing is lost.
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user && user.email && !user.email.includes('@guest.local')) {
-        console.log('🔄 Performing final sync before sign out...');
-        const { cloudSyncService } = await import('@/services/cloudSyncService');
-        const { supabase } = await import('@/services/supabase');
-        
-        // Force sync regardless of frequency settings
-        const syncData = await cloudSyncService.collectLocalData(user.id, user.email);
-        await supabase
-          .from('user_sync_data')
-          .upsert(syncData, { onConflict: 'user_id' });
-        
-        console.log('✅ Final sync completed before sign out');
+      if (user?.email && !isGuestEmail(user.email)) {
+        const { cloudSyncService } = await import("@/services/cloudSyncService");
+        await cloudSyncService.pushLocalData(user.id, user.email);
       }
     } catch (error) {
-      console.warn('⚠️ Final sync failed before sign out:', error);
-      // Continue with sign out even if sync fails
+      console.warn("[auth] final sync before sign out failed:", error);
+      // Sign out regardless — a stuck session is worse than a missed sync.
     }
-    
+
     await supabase.auth.signOut();
     set({ session: null, user: null, isCloudSynced: false });
-    
-    // Clear plan store both in memory and from persistent storage
-    const { usePlanStore } = await import('@/state/planStore');
+
+    const { usePlanStore } = await import("@/state/planStore");
     usePlanStore.getState().clearPlan();
-    // Also clear from persistent storage to prevent rehydration
     await usePlanStore.persist?.clearStorage?.();
   },
 
-  setUser: (user: { id: string; email: string; isCloudSynced: boolean }) => {
-    set({ 
-      user: { 
-        id: user.id, 
-        email: user.email, 
-        created_at: new Date().toISOString(),
-        app_metadata: {},
-        user_metadata: {},
-        aud: 'authenticated',
-        role: 'authenticated'
-      } as User,
-      isCloudSynced: user.isCloudSynced 
-    });
+  setUser: (user) => {
+    set((state) => ({
+      // Preserve the real Supabase user object where we have one; this helper
+      // only updates identity fields after an email link.
+      user: state.user
+        ? ({ ...state.user, id: user.id, email: user.email } as User)
+        : ({
+            id: user.id,
+            email: user.email,
+            created_at: new Date().toISOString(),
+            app_metadata: {},
+            user_metadata: {},
+            aud: "authenticated",
+            role: "authenticated",
+          } as User),
+      isCloudSynced: user.isCloudSynced,
+    }));
   },
 }));

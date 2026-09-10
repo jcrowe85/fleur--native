@@ -19,6 +19,7 @@ import {
   Platform,
   ScrollView,
   Alert,
+  AppState,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -65,6 +66,9 @@ function AnimatedDot({ delay }: { delay: number }) {
   return <Animated.View style={[styles.typingDot, animatedStyle]} />;
 }
 
+/** How often to poll for new support replies while the screen is foregrounded. */
+const POLL_INTERVAL_MS = 8000;
+
 export default function SupportChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
@@ -80,14 +84,34 @@ export default function SupportChatScreen() {
       setHasLoadedMessages(true);
     }
     checkForSupportTyping();
-    
-    // Check for new replies every 2 seconds, typing every 2 seconds
-    const replyInterval = setInterval(checkForNewReplies, 2000);
-    const typingInterval = setInterval(checkForSupportTyping, 2000);
-    
+
+    // Poll for replies while the screen is open.
+    //
+    // Two separate 2-second timers meant 60 Supabase round-trips a minute for
+    // every user sitting on this screen — noticeable battery drain and a lot of
+    // needless database load for a support chat. One 8-second poll, paused when
+    // the app is backgrounded (where timers are unreliable anyway), is plenty
+    // for this interaction.
+    const poll = () => {
+      checkForNewReplies();
+      checkForSupportTyping();
+    };
+
+    let interval: NodeJS.Timeout | null = setInterval(poll, POLL_INTERVAL_MS);
+
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next === "active") {
+        if (!interval) interval = setInterval(poll, POLL_INTERVAL_MS);
+        poll();
+      } else if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+    });
+
     return () => {
-      clearInterval(replyInterval);
-      clearInterval(typingInterval);
+      if (interval) clearInterval(interval);
+      subscription.remove();
     };
   }, [hasLoadedMessages]);
 

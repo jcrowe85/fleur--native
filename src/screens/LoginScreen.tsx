@@ -395,15 +395,6 @@ const styles = StyleSheet.create({
   eyeButton: {
     padding: 4,
   },
-  forgotPassword: {
-    alignSelf: 'flex-end',
-    marginTop: 6,
-  },
-  forgotPasswordText: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.65)',
-    textDecorationLine: 'underline',
-  },
   benefits: {
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 12,

@@ -1,328 +1,191 @@
 import express from "express";
-import { createDiscountCode, createCheckoutWithDiscount, createKitDiscountCode } from "./shopify.service";
+import { requireAuth, type AuthedRequest } from "./auth.middleware";
+import { createKitDiscountCode } from "./shopify.service";
+import { redeemableSkus } from "./points.catalog";
+import {
+  issueRedemption,
+  markRedemptionCompleted,
+  cancelRedemption,
+  RedemptionError,
+} from "./redemption.service";
 
 const router = express.Router();
 
-// Create discount code endpoint
-router.post("/discount-code", async (req, res) => {
+function fail(res: express.Response, error: unknown, fallback: string) {
+  if (error instanceof RedemptionError) {
+    return res.status(error.status).json({ error: error.message });
+  }
+  console.error(fallback, error);
+  // Internal messages can carry Shopify/API detail — don't leak them to clients.
+  return res.status(500).json({ error: fallback });
+}
+
+/**
+ * Issue a point-redemption checkout.
+ *
+ * The user id comes from the verified JWT and the point cost from the server
+ * catalog. Previously this route accepted `code`, `amount` and `userId` straight
+ * from the body with no authentication at all, so anyone on the internet could
+ * mint arbitrary discount codes against the store.
+ */
+router.post("/redeem", requireAuth, async (req: AuthedRequest, res) => {
   try {
-    const { code, amount, userId, productSku } = req.body;
-    
-    if (!code || !amount || !userId || !productSku) {
-      return res.status(400).json({ 
-        error: "Missing required fields: code, amount, userId, productSku" 
-      });
+    const { productSku, availablePoints } = req.body ?? {};
+    if (typeof productSku !== "string" || !productSku.trim()) {
+      return res.status(400).json({ error: "productSku is required" });
     }
 
-    const result = await createDiscountCode(code, amount, userId, productSku);
+    const result = await issueRedemption({
+      userId: req.userId!,
+      productSku: productSku.trim(),
+      clientReportedPoints:
+        typeof availablePoints === "number" ? availablePoints : undefined,
+    });
+
     res.json(result);
   } catch (error) {
-    console.error("Error creating discount code:", error);
-    res.status(500).json({ 
-      error: "Failed to create discount code",
-      details: error instanceof Error ? error.message : String(error)
-    });
+    fail(res, error, "Failed to create redemption");
   }
 });
 
-// Create kit discount code endpoint
-router.post("/kit-discount", async (req, res) => {
+/** Mark a previously issued redemption as consumed. */
+router.post("/redeem/:id/complete", requireAuth, async (req: AuthedRequest, res) => {
   try {
-    const { userId, cartItems } = req.body;
-    
-    if (!userId || !cartItems) {
-      return res.status(400).json({ 
-        error: "Missing required fields: userId, cartItems" 
-      });
-    }
-
-    const result = await createKitDiscountCode(userId, cartItems);
-    res.json(result);
+    await markRedemptionCompleted(req.userId!, req.params.id);
+    res.json({ ok: true });
   } catch (error) {
-    console.error("Error creating kit discount code:", error);
-    res.status(500).json({ 
-      error: "Failed to create kit discount code",
-      details: error instanceof Error ? error.message : String(error)
-    });
+    fail(res, error, "Failed to complete redemption");
   }
 });
 
-// Create checkout with discount endpoint
-router.post("/checkout", async (req, res) => {
+/** Release an unused redemption (checkout abandoned) and kill its code. */
+router.post("/redeem/:id/cancel", requireAuth, async (req: AuthedRequest, res) => {
   try {
-    const { productSku, userId, userPoints } = req.body;
-    
-    if (!productSku || !userId || !userPoints) {
-      return res.status(400).json({ 
-        error: "Missing required fields: productSku, userId, userPoints" 
-      });
-    }
-
-    const result = await createCheckoutWithDiscount(productSku, userId, userPoints);
-    res.json(result);
+    await cancelRedemption(req.userId!, req.params.id);
+    res.json({ ok: true });
   } catch (error) {
-    console.error("Error creating checkout:", error);
-    res.status(500).json({ 
-      error: "Failed to create checkout",
-      details: error instanceof Error ? error.message : String(error)
-    });
+    fail(res, error, "Failed to cancel redemption");
   }
 });
 
-// Get products endpoint - fetches from Shopify Storefront API
-// Optional ?tag= query param filters by tag (e.g. ?tag=redeemable-with-points for rewards).
-// Omitting the param returns all products, which is what the recommendations screen needs.
+/** Point prices, so the client never drifts from the server catalog. */
+router.get("/point-catalog", (_req, res) => {
+  res.json({ products: redeemableSkus() });
+});
+
+router.post("/kit-discount", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const { cartItems } = req.body ?? {};
+    if (!Array.isArray(cartItems) || cartItems.length === 0) {
+      return res.status(400).json({ error: "cartItems is required" });
+    }
+
+    const result = await createKitDiscountCode(req.userId!, cartItems);
+    res.json(result);
+  } catch (error) {
+    fail(res, error, "Failed to create kit discount code");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Product catalog
+// ---------------------------------------------------------------------------
+
+const PRODUCTS_QUERY = `
+  query getProducts($first: Int!, $query: String!) {
+    products(first: $first, query: $query) {
+      edges {
+        node {
+          id
+          handle
+          title
+          description
+          tags
+          priceRange { minVariantPrice { amount currencyCode } }
+          images(first: 1) { edges { node { url altText } } }
+          variants(first: 10) {
+            edges {
+              node {
+                id
+                title
+                price { amount currencyCode }
+                availableForSale
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+type CachedProducts = { at: number; products: unknown[] };
+const productCache = new Map<string, CachedProducts>();
+const PRODUCT_CACHE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Products for the shop and recommendations screens.
+ * `?tag=` filters by Shopify tag (e.g. redeemable-with-points).
+ *
+ * Public on purpose — this is the same data the storefront serves — but cached
+ * so it cannot be used to hammer the Shopify API.
+ */
 router.get("/products", async (req, res) => {
+  const STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
+  const STOREFRONT_TOKEN = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
+  const tagFilter = typeof req.query.tag === "string" ? req.query.tag.trim() : "";
+  const cacheKey = tagFilter || "__all__";
+
+  const cached = productCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < PRODUCT_CACHE_TTL_MS) {
+    res.set("x-products-cache", "hit");
+    return res.json({ products: cached.products });
+  }
+
+  if (!STORE_DOMAIN || !STOREFRONT_TOKEN) {
+    // Previously this fell back to a hardcoded list containing PLACEHOLDER_*
+    // variant IDs, which produced checkouts that failed at the Shopify end with
+    // no clear cause. Failing loudly is better than shipping fake inventory.
+    console.error("[products] Shopify Storefront credentials are not configured");
+    return res.status(503).json({ error: "Product catalog is temporarily unavailable" });
+  }
+
   try {
-    const STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
-    const STOREFRONT_TOKEN = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
-    const tagFilter = typeof req.query.tag === "string" ? req.query.tag.trim() : null;
-    const shopifyQueryStr = tagFilter ? `tag:${tagFilter}` : "";
-
-    // Try to fetch from real Shopify API first
-    if (STORE_DOMAIN && STOREFRONT_TOKEN) {
-      try {
-        console.log(`Fetching products from Shopify${tagFilter ? ` (tag:${tagFilter})` : " (all)"}...`);
-        const domain = STORE_DOMAIN.replace(/^https?:\/\//, "").replace(/\/$/, "");
-        const url = `https://${domain}/api/2023-10/graphql.json`;
-
-        const query = `
-          query getProducts($first: Int!, $query: String!) {
-            products(first: $first, query: $query) {
-              edges {
-                node {
-                  id
-                  handle
-                  title
-                  description
-                  tags
-                  priceRange {
-                    minVariantPrice {
-                      amount
-                      currencyCode
-                    }
-                  }
-                  images(first: 1) {
-                    edges {
-                      node {
-                        url
-                        altText
-                      }
-                    }
-                  }
-                  variants(first: 10) {
-                    edges {
-                      node {
-                        id
-                        title
-                        price {
-                          amount
-                          currencyCode
-                        }
-                        availableForSale
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        `;
-
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Shopify-Storefront-Access-Token': STOREFRONT_TOKEN,
-          },
-          body: JSON.stringify({
-            query,
-            variables: { first: 50, query: shopifyQueryStr }
-          })
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data.data && data.data.products) {
-            const products = data.data.products.edges.map((edge: any) => edge.node);
-            console.log(`Successfully fetched ${products.length} products from Shopify`);
-            return res.json({ products });
-          }
-        }
-
-        console.warn("Shopify API call failed, falling back to hardcoded products");
-      } catch (error) {
-        console.warn("Error calling Shopify API:", error);
-      }
-    }
-    
-    if (!STORE_DOMAIN || !STOREFRONT_TOKEN) {
-      console.warn("Missing Shopify credentials, returning fallback products");
-      // Fallback to hardcoded list if credentials missing
-      const fallbackProducts = [
-        { 
-          handle: "bloom-hair-scalp-serum-longform",
-          title: "Hair Growth Serum", 
-          description: "Peptide-based serum for density and shedding",
-          priceRange: { minVariantPrice: { amount: "48.00", currencyCode: "USD" } },
-          images: { edges: [{ node: { url: "https://via.placeholder.com/300x300/4A5568/FFFFFF?text=Bloom+Serum" } }] },
-          variants: { edges: [{ node: { id: "gid://shopify/ProductVariant/44826097221811", title: "Default Title", price: { amount: "48.00", currencyCode: "USD" }, availableForSale: true } }] }
-        },
-        { 
-          handle: "fleur-derma-stamp", 
-          title: "Derma Stamp", 
-          description: "Micro-needling tool for scalp stimulation",
-          priceRange: { minVariantPrice: { amount: "30.00", currencyCode: "USD" } },
-          images: { edges: [{ node: { url: "https://via.placeholder.com/300x300/4A5568/FFFFFF?text=Derma+Stamp" } }] },
-          variants: { edges: [{ node: { id: "gid://shopify/ProductVariant/44138710597811", title: "Default Title", price: { amount: "30.00", currencyCode: "USD" }, availableForSale: true } }] }
-        },
-        { 
-          handle: "fleur-shampoo", 
-          title: "Gentle Shampoo", 
-          description: "Low-stripping cleanser",
-          priceRange: { minVariantPrice: { amount: "18.00", currencyCode: "USD" } },
-          images: { edges: [{ node: { url: "https://via.placeholder.com/300x300/4A5568/FFFFFF?text=Gentle+Shampoo" } }] },
-          variants: { edges: [] }
-        },
-        { 
-          handle: "fleur-conditioner", 
-          title: "Lightweight Conditioner", 
-          description: "Detangling, mid-to-ends",
-          priceRange: { minVariantPrice: { amount: "18.00", currencyCode: "USD" } },
-          images: { edges: [{ node: { url: "https://via.placeholder.com/300x300/4A5568/FFFFFF?text=Conditioner" } }] },
-          variants: { edges: [] }
-        },
-        { 
-          handle: "fleur-repair-mask", 
-          title: "Bond Repair Mask", 
-          description: "Weekly treatment for damage",
-          priceRange: { minVariantPrice: { amount: "28.00", currencyCode: "USD" } },
-          images: { edges: [{ node: { url: "https://via.placeholder.com/300x300/4A5568/FFFFFF?text=Repair+Mask" } }] },
-          variants: { edges: [{ node: { id: "gid://shopify/ProductVariant/PLACEHOLDER_MASK", title: "Default Title", price: { amount: "28.00", currencyCode: "USD" }, availableForSale: true } }] }
-        },
-        { 
-          handle: "fleur-heat-shield", 
-          title: "Heat Shield Spray", 
-          description: "Heat protection",
-          priceRange: { minVariantPrice: { amount: "22.00", currencyCode: "USD" } },
-          images: { edges: [{ node: { url: "https://via.placeholder.com/300x300/4A5568/FFFFFF?text=Heat+Shield" } }] },
-          variants: { edges: [{ node: { id: "gid://shopify/ProductVariant/PLACEHOLDER_HEAT_SHIELD", title: "Default Title", price: { amount: "22.00", currencyCode: "USD" }, availableForSale: true } }] }
-        },
-        { 
-          handle: "fleur-silk-pillowcase", 
-          title: "Silk Pillowcase", 
-          description: "Friction reduction",
-          priceRange: { minVariantPrice: { amount: "35.00", currencyCode: "USD" } },
-          images: { edges: [{ node: { url: "https://via.placeholder.com/300x300/4A5568/FFFFFF?text=Silk+Pillowcase" } }] },
-          variants: { edges: [{ node: { id: "gid://shopify/ProductVariant/PLACEHOLDER_PILLOWCASE", title: "Default Title", price: { amount: "35.00", currencyCode: "USD" }, availableForSale: true } }] }
-        },
-        { 
-          handle: "detangling-comb", 
-          title: "Detangling Comb", 
-          description: "Gentle detangling",
-          priceRange: { minVariantPrice: { amount: "15.00", currencyCode: "USD" } },
-          images: { edges: [{ node: { url: "https://via.placeholder.com/300x300/4A5568/FFFFFF?text=Detangling+Comb" } }] },
-          variants: { edges: [{ node: { id: "gid://shopify/ProductVariant/PLACEHOLDER_COMB", title: "Default Title", price: { amount: "15.00", currencyCode: "USD" }, availableForSale: true } }] }
-        },
-        { 
-          handle: "fleur-biotin", 
-          title: "Biotin Supplement", 
-          description: "Hair growth support",
-          priceRange: { minVariantPrice: { amount: "25.00", currencyCode: "USD" } },
-          images: { edges: [{ node: { url: "https://via.placeholder.com/300x300/4A5568/FFFFFF?text=Biotin" } }] },
-          variants: { edges: [{ node: { id: "gid://shopify/ProductVariant/PLACEHOLDER_BIOTIN", title: "Default Title", price: { amount: "25.00", currencyCode: "USD" }, availableForSale: true } }] }
-        },
-        { 
-          handle: "fleur-vitamin-d3", 
-          title: "Vitamin D3 Supplement", 
-          description: "Hair health",
-          priceRange: { minVariantPrice: { amount: "20.00", currencyCode: "USD" } },
-          images: { edges: [{ node: { url: "https://via.placeholder.com/300x300/4A5568/FFFFFF?text=Vitamin+D3" } }] },
-          variants: { edges: [{ node: { id: "gid://shopify/ProductVariant/PLACEHOLDER_VITAMIN_D3", title: "Default Title", price: { amount: "20.00", currencyCode: "USD" }, availableForSale: true } }] }
-        },
-        { 
-          handle: "fleur-iron", 
-          title: "Iron Supplement", 
-          description: "Hair growth support",
-          priceRange: { minVariantPrice: { amount: "18.00", currencyCode: "USD" } },
-          images: { edges: [{ node: { url: "https://via.placeholder.com/300x300/4A5568/FFFFFF?text=Iron" } }] },
-          variants: { edges: [{ node: { id: "gid://shopify/ProductVariant/PLACEHOLDER_IRON", title: "Default Title", price: { amount: "18.00", currencyCode: "USD" }, availableForSale: true } }] }
-        },
-        { 
-          handle: "fleur-complete-kit", 
-          title: "Complete Hair Kit", 
-          description: "Full routine bundle",
-          priceRange: { minVariantPrice: { amount: "120.00", currencyCode: "USD" } },
-          images: { edges: [{ node: { url: "https://via.placeholder.com/300x300/4A5568/FFFFFF?text=Complete+Kit" } }] },
-          variants: { edges: [{ node: { id: "gid://shopify/ProductVariant/PLACEHOLDER_KIT", title: "Default Title", price: { amount: "120.00", currencyCode: "USD" }, availableForSale: true } }] }
-        },
-      ];
-      return res.json({ products: fallbackProducts });
-    }
-
-    // Fetch from Shopify Storefront API
-    const query = `
-      query getProducts($query: String!) {
-        products(first: 50, query: $query) {
-          edges {
-            node {
-              id
-              title
-              handle
-              description
-              priceRange {
-                minVariantPrice {
-                  amount
-                  currencyCode
-                }
-              }
-              images(first: 1) {
-                edges {
-                  node {
-                    url
-                    altText
-                  }
-                }
-              }
-              tags
-            }
-          }
-        }
-      }
-    `;
-
-    const response = await fetch(`https://${STORE_DOMAIN}/api/2023-10/graphql.json`, {
-      method: 'POST',
+    const domain = STORE_DOMAIN.replace(/^https?:\/\//, "").replace(/\/$/, "");
+    const response = await fetch(`https://${domain}/api/2024-07/graphql.json`, {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Storefront-Access-Token': STOREFRONT_TOKEN,
+        "Content-Type": "application/json",
+        "X-Shopify-Storefront-Access-Token": STOREFRONT_TOKEN,
       },
-      body: JSON.stringify({ query, variables: { query: shopifyQueryStr } }),
+      body: JSON.stringify({
+        query: PRODUCTS_QUERY,
+        variables: { first: 50, query: tagFilter ? `tag:${tagFilter}` : "" },
+      }),
     });
 
     if (!response.ok) {
-      throw new Error(`Shopify API error: ${response.status}`);
+      throw new Error(`Shopify responded ${response.status}`);
     }
 
-    const data = await response.json();
-    const products = data.data?.products?.edges?.map((edge: any) => ({
-      id: edge.node.id,
-      title: edge.node.title,
-      handle: edge.node.handle,
-      description: edge.node.description,
-      priceRange: edge.node.priceRange,
-      images: edge.node.images,
-      tags: edge.node.tags,
-    })) || [];
+    const data: any = await response.json();
+    if (data?.errors?.length) {
+      throw new Error(data.errors.map((e: any) => e.message).join(", "));
+    }
 
-    console.log(`✅ Fetched ${products.length} products from Shopify`);
+    const products = (data?.data?.products?.edges ?? []).map((edge: any) => edge.node);
+    productCache.set(cacheKey, { at: Date.now(), products });
+
+    res.set("x-products-cache", "miss");
     res.json({ products });
   } catch (error) {
-    console.error("Error fetching products from Shopify:", error);
-    res.status(500).json({ 
-      error: "Failed to fetch products from Shopify",
-      details: error instanceof Error ? error.message : String(error)
-    });
+    console.error("[products] failed to fetch from Shopify:", error);
+    // Serve stale rather than break the shop tab.
+    if (cached) {
+      res.set("x-products-cache", "stale");
+      return res.json({ products: cached.products });
+    }
+    res.status(502).json({ error: "Could not load products" });
   }
 });
 

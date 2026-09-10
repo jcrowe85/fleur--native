@@ -1,6 +1,7 @@
 // src/state/checkinStore.ts
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import dayjs from "dayjs";
 
 export type ScalpCondition = "dry" | "balanced" | "oily";
@@ -19,6 +20,7 @@ export type DailyCheckIn = {
 type CheckInState = {
   checkIns: DailyCheckIn[];
   lastPopupShownDate: string | null; // YYYY-MM-DD format
+  firstSeenDate: string | null;      // YYYY-MM-DD the user first opened the app
   
   // Actions
   addCheckIn: (data: Omit<DailyCheckIn, "id" | "date" | "timestamp">) => void;
@@ -33,6 +35,7 @@ type CheckInState = {
   // Popup logic
   shouldShowDailyPopup: () => boolean;
   markPopupShown: () => void;
+  markFirstSeen: () => void;
   
   // Admin
   resetAll: () => void;
@@ -48,6 +51,7 @@ export const useCheckInStore = create<CheckInState>()(
     (set, get) => ({
       checkIns: [],
       lastPopupShownDate: null,
+      firstSeenDate: null,
 
       addCheckIn: (data) => {
         const today = dayjs().format("YYYY-MM-DD");
@@ -159,9 +163,13 @@ export const useCheckInStore = create<CheckInState>()(
           return false;
         }
         
-        // Don't show on first login - too many popups happening (signup bonus, first point, etc.)
-        // Check if this is the user's first time by looking at check-in history
-        if (state.checkIns.length === 0) {
+        // Hold the popup back on the user's very first day — signup bonus and
+        // first-point popups already fire then.
+        //
+        // This used to gate on `checkIns.length === 0`, which was circular: the
+        // popup is the only way to record a check-in, so a user with no history
+        // could never be shown it and therefore never got any history.
+        if (!state.firstSeenDate || state.firstSeenDate === today) {
           return false;
         }
         
@@ -184,7 +192,13 @@ export const useCheckInStore = create<CheckInState>()(
         set({ lastPopupShownDate: today });
       },
 
-      resetAll: () => set({ checkIns: [], lastPopupShownDate: null }),
+      markFirstSeen: () => {
+        if (get().firstSeenDate) return;
+        set({ firstSeenDate: dayjs().format("YYYY-MM-DD") });
+      },
+
+      resetAll: () =>
+        set({ checkIns: [], lastPopupShownDate: null, firstSeenDate: null }),
       
       // Debug helper - clear today's check-in only
       clearTodaysCheckIn: () => {
@@ -197,6 +211,19 @@ export const useCheckInStore = create<CheckInState>()(
         });
       },
     }),
-    { name: "checkin:v1" }
+    {
+      name: "checkin:v1",
+      // Without an explicit storage, zustand's persist middleware defaults to
+      // localStorage. That does not exist in React Native, so check-ins were
+      // silently dropped on every restart: hasCheckedInToday() always returned
+      // false, the daily popup never appeared, and users could re-earn the
+      // check-in point on each cold start.
+      storage: createJSONStorage(() => AsyncStorage),
+      partialize: (state) => ({
+        checkIns: state.checkIns,
+        lastPopupShownDate: state.lastPopupShownDate,
+        firstSeenDate: state.firstSeenDate,
+      }),
+    }
   )
 );

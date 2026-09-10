@@ -5,7 +5,7 @@ import { usePickHandleSheet } from "./pickHandleSheet";
 import { ensureHandleOrPrompt } from "./ensureHandle";
 import { ensureSession } from "./ensureSession";
 import { onFirstPost } from "@/services/rewards";
-import type { PostItem } from "./types";
+import type { PostItem, PostCategory } from "./types";
 
 const PAGE_SIZE = 10;
 
@@ -21,7 +21,7 @@ export function usePostsService() {
   const create = useCallback(
     async (input: {
       body: string;
-      category: "hair_journeys" | "tips_tricks" | "before_after" | "questions";
+      category: PostCategory;
       mediaUrl?: string | null;       // legacy, optional
       mediaUrls?: string[] | null;    // NEW: multiple
     }) => {

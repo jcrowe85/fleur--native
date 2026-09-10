@@ -3,7 +3,7 @@
 # Test the link-email Edge Function
 
 SUPABASE_URL="https://atnuvjxdtucwjiatnajt.supabase.co"
-SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF0bnV2anhkdHVjd2ppYXRuYWp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5MDIyMjQsImV4cCI6MjA3MzQ3ODIyNH0.xFYlMCP_N-SGtR8UypQtxActX8tzmBts1nIXwAl3UaI"
+SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:?set SUPABASE_ANON_KEY in your environment}"
 
 echo "=== Step 1: Create guest user ==="
 GUEST_RESPONSE=$(curl -s -X POST "${SUPABASE_URL}/functions/v1/create-guest" \

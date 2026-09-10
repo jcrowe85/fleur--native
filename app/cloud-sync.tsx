@@ -1,5 +1,5 @@
 // app/cloud-sync.tsx
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -21,6 +21,9 @@ import { ScreenScrollView } from '@/components/UI/bottom-space';
 import { useAuthStore } from '@/state/authStore';
 import VerificationCodeInput from '@/components/VerificationCodeInput';
 
+/** Must match RESEND_COOLDOWN_SECONDS in the send-verification-code function. */
+const RESEND_COOLDOWN_SECONDS = 60;
+
 export default function CloudSyncScreen() {
   const { signOut } = useAuthStore();
   const [email, setEmail] = useState('');
@@ -35,6 +38,7 @@ export default function CloudSyncScreen() {
   const [verificationCode, setVerificationCode] = useState('');
   const [verificationError, setVerificationError] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
+  const cooldownTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
 
   const handleEmailSubmit = async () => {
@@ -147,17 +151,34 @@ export default function CloudSyncScreen() {
     }
   };
 
+  /**
+   * Tick the resend cooldown down to zero.
+   *
+   * The interval id is held in a ref so unmounting mid-countdown clears it —
+   * previously it lived in a local and kept firing setState on an unmounted
+   * component until it happened to reach zero.
+   */
   const startResendCooldown = () => {
-    const interval = setInterval(() => {
+    if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+
+    setResendCooldown(RESEND_COOLDOWN_SECONDS);
+    cooldownTimerRef.current = setInterval(() => {
       setResendCooldown((prev) => {
         if (prev <= 1) {
-          clearInterval(interval);
+          if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+          cooldownTimerRef.current = null;
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
   };
+
+  useEffect(() => {
+    return () => {
+      if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+    };
+  }, []);
 
   const handleSyncSuccess = async () => {
     // Show success message with clear explanation

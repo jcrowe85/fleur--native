@@ -7,6 +7,8 @@ import {
   ImageBackground,
   Pressable,
   Switch,
+  Alert,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -26,26 +28,52 @@ export default function NotificationSettingsScreen() {
   } = useNotificationStore();
   
   const [isLoading, setIsLoading] = useState(false);
+  const [permissionGranted, setPermissionGranted] = useState(false);
 
   useEffect(() => {
-    // Initialize notification service when component mounts
-    initializeNotifications();
+    notificationService
+      .hasPermission()
+      .then(setPermissionGranted)
+      .catch(() => setPermissionGranted(false));
   }, []);
 
-  const initializeNotifications = async () => {
-    try {
-      await notificationService.initialize();
-      setHasRequestedPermissions(true);
-    } catch (error) {
-      console.error('Failed to initialize notifications:', error);
-    }
-  };
-
+  /**
+   * Turning a notification type on is the moment to ask the OS for permission —
+   * the user has just told us they want to hear from us. Asking at app launch
+   * instead (which is what the old code did, via initialize()) is what tanks
+   * opt-in rates.
+   */
   const handlePreferenceChange = async (key: keyof typeof preferences, value: boolean) => {
     setIsLoading(true);
     try {
+      if (value && !permissionGranted) {
+        const granted = await notificationService.requestPermission();
+        setPermissionGranted(granted);
+        setHasRequestedPermissions(true);
+
+        if (!granted) {
+          Alert.alert(
+            'Notifications are off',
+            'Turn on notifications for Fleur in your device settings to get reminders.',
+            [
+              { text: 'Not now', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            ]
+          );
+          return;
+        }
+      }
+
       updatePreferences({ [key]: value });
       await notificationService.updatePreferences({ [key]: value });
+
+      // Reschedule so a change to routine reminders takes effect immediately.
+      if (key === 'routineNotifications') {
+        const { useRoutineStore } = await import('@/state/routineStore');
+        await notificationService.scheduleRoutineNotifications(
+          useRoutineStore.getState().steps
+        );
+      }
     } catch (error) {
       console.error('Failed to update notification preferences:', error);
     } finally {

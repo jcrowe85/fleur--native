@@ -73,6 +73,27 @@ function uid() {
   return Math.random().toString(36).slice(2, 8) + "-" + Date.now().toString(36);
 }
 
+/**
+ * Minutes since midnight for a "8:00 AM" / "20:30" string.
+ * Unparseable or missing times sort last.
+ */
+export function minutesOfDay(time?: string): number {
+  if (!time) return Number.MAX_SAFE_INTEGER;
+
+  const match = time.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return Number.MAX_SAFE_INTEGER;
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const meridiem = match[3]?.toUpperCase();
+
+  if (meridiem === "PM" && hour !== 12) hour += 12;
+  if (meridiem === "AM" && hour === 12) hour = 0;
+  if (hour > 23 || minute > 59) return Number.MAX_SAFE_INTEGER;
+
+  return hour * 60 + minute;
+}
+
 // default days helper
 function defaultDaysForFrequency(freq?: Frequency): number[] | undefined {
   if (!freq || freq === "Daily") return [0,1,2,3,4,5,6];
@@ -306,19 +327,14 @@ export const useRoutineStore = create<RoutineState>()(
       },
 
       stepsByPeriod: (p) => {
-        const src = get().steps;
-        const filtered = src
+        return get()
+          .steps
           .filter((s) => s.enabled)
-          .filter((s) => (s.period ? s.period === p : inferPeriod(s) === p));
-        
-        // Sort by time (earliest first)
-        const sorted = filtered.sort((a, b) => {
-          const timeA = a.time || "23:59";
-          const timeB = b.time || "23:59";
-          return timeA.localeCompare(timeB);
-        });
-        
-        return sorted;
+          .filter((s) => (s.period ? s.period === p : inferPeriod(s) === p))
+          // Sort chronologically. Comparing the raw "8:00 AM" strings with
+          // localeCompare is a lexicographic sort, so "10:00 AM" sorted before
+          // "8:00 AM" and morning routines displayed out of order.
+          .sort((a, b) => minutesOfDay(a.time) - minutesOfDay(b.time));
       },
 
       setSteps: (steps) => set({ steps }),

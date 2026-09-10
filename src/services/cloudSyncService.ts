@@ -1,4 +1,6 @@
 // src/services/cloudSyncService.ts
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { supabase } from './supabase';
 import { usePlanStore } from '@/state/planStore';
 import { useRoutineStore } from '@/state/routineStore';
@@ -7,6 +9,7 @@ import { useCartStore } from '@/state/cartStore';
 import { usePurchaseStore } from '@/state/purchaseStore';
 import { useNotificationStore } from '@/state/notificationStore';
 import { useProfileStore } from '@/state/profileStore';
+import { isGuestEmail } from '@/state/authStore';
 
 export type SyncStatus = 'not_synced' | 'syncing' | 'synced' | 'error';
 export type SyncFrequency = 'immediate' | 'daily' | 'weekly' | 'manual';
@@ -62,7 +65,7 @@ export class CloudSyncService {
 
       // Check if user is already logged in with a real email (not guest)
       const { data: { user: currentUser } } = await supabase.auth.getUser();
-      if (currentUser && currentUser.email && !currentUser.email.includes('@guest.local')) {
+      if (currentUser?.email && !isGuestEmail(currentUser.email)) {
         console.log('⚠️ User already logged in with real email, skipping syncToCloud');
         return { success: false, error: 'User is already logged in with a real account. Please sign out first.' };
       }
@@ -103,88 +106,66 @@ export class CloudSyncService {
         return { success: false, error: 'No user session found. Please restart the app and try again.' };
       }
 
-      console.log('🔄 Current user:', guestUser.email, '(guest:', guestUser.email?.includes('@guest.local'), ')');
+      console.log('Current user:', guestUser.email, '(guest:', isGuestEmail(guestUser.email), ')');
 
-      // First, try to sign in with the provided email/password
-      // This will handle the case where the email already exists
-      console.log('🔐 Attempting to sign in with provided credentials...');
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: sanitizedEmail,
-        password: sanitizedPassword,
-      });
+      // Try to sign in with the supplied credentials first. Success means the
+      // email already has an account; failure with "Invalid login credentials"
+      // means we should attach the email to the current guest instead.
+      const { data: signInData, error: signInError } =
+        await supabase.auth.signInWithPassword({
+          email: sanitizedEmail,
+          password: sanitizedPassword,
+        });
 
-      let user = signInData?.user;
+      let user = signInData?.user ?? null;
 
       if (signInError) {
-        // If sign in fails, it could be because:
-        // 1. Email doesn't exist (we can update guest user)
-        // 2. Wrong password (user exists but wrong password)
-        // 3. Email exists but not confirmed
-        
-        console.log('⚠️ Sign in failed:', signInError.message);
-        
-        if (signInError.message.includes('Invalid login credentials')) {
-          // Email doesn't exist or wrong password
-          // Try to update the guest user's email
-          console.log('📧 Email not found or wrong password, updating guest user email...');
-          
-          // Use the link-email edge function instead of direct updateUser
-          const { data: updateData, error: updateError } = await supabase.functions.invoke('link-email', {
-            body: {
-              email: sanitizedEmail,
-              password: sanitizedPassword,
-            },
+        if (!signInError.message.includes("Invalid login credentials")) {
+          this.syncStatus = "error";
+          return { success: false, error: this.getUserFriendlyError(signInError.message) };
+        }
+
+        // Promote the guest account by attaching this email + password.
+        const { data: updateData, error: updateError } =
+          await supabase.functions.invoke("link-email", {
+            body: { email: sanitizedEmail, password: sanitizedPassword },
           });
 
-          if (updateError) {
-            this.syncStatus = 'error';
-            console.error('❌ Failed to update user email:', updateError);
-            return { success: false, error: updateError.message || 'Failed to update user email. Please try again.' };
-          }
-
-          // Check if the edge function returned success
-          if (!updateData?.success) {
-            this.syncStatus = 'error';
-            return { success: false, error: updateData?.error || 'Failed to update user account. Please try again.' };
-          }
-
-          // Get the updated user from the response
-          const updatedUser = updateData.user;
-          if (!updatedUser) {
-            this.syncStatus = 'error';
-            return { success: false, error: 'Failed to update user account. Please try again.' };
-          }
-
-          // Update the local user object
-          user = {
-            id: updatedUser.id,
-            email: updatedUser.email,
-            // Add other required user properties
-          } as any;
-
-          console.log('✅ Guest user email updated successfully:', user.email);
-        } else {
-          // Other sign in errors
-          this.syncStatus = 'error';
-          const userFriendlyError = this.getUserFriendlyError(signInError.message);
-          return { success: false, error: userFriendlyError };
+        if (updateError) {
+          this.syncStatus = "error";
+          return {
+            success: false,
+            error: updateError.message || "Could not link that email. Please try again.",
+          };
         }
+
+        if (!updateData?.success || !updateData?.user) {
+          this.syncStatus = "error";
+          return {
+            success: false,
+            error: updateData?.error || "Could not link that email. Please try again.",
+          };
+        }
+
+        // Re-read the session so `user` is a real Supabase user, not a stub.
+        const { data: refreshed } = await supabase.auth.getUser();
+        user = refreshed.user ?? ({ id: updateData.user.id, email: updateData.user.email } as any);
       } else {
-        // Sign in successful - user already exists
-        console.log('✅ Successfully signed in with existing account:', user.email);
-        
-        // Sign out the guest user and sign in the real user
-        await supabase.auth.signOut();
-        
-        // The sign in above should have already set the session, but let's verify
-        const { data: { user: currentUser } } = await supabase.auth.getUser();
-        if (currentUser && currentUser.email === sanitizedEmail) {
-          user = currentUser;
-          console.log('✅ Switched to existing user account');
-        } else {
-          this.syncStatus = 'error';
-          return { success: false, error: 'Failed to switch to existing account. Please try again.' };
+        // Signing in above already replaced the guest session with the real
+        // one. The previous implementation called supabase.auth.signOut() at
+        // this point "to sign out the guest user", which destroyed the session
+        // it had just established — getUser() then returned null and this path
+        // always reported "Failed to switch to existing account", making it
+        // impossible to sign back in on a second device.
+        if (!user) {
+          this.syncStatus = "error";
+          return { success: false, error: "Could not complete sign in. Please try again." };
         }
+      }
+
+      if (!user?.id) {
+        this.syncStatus = "error";
+        return { success: false, error: "Could not complete sign in. Please try again." };
       }
 
       // Collect all local data
@@ -228,21 +209,21 @@ export class CloudSyncService {
         return { success: false, error: 'No authenticated user' };
       }
 
-      // Fetch cloud data
+      // maybeSingle: a user with no backup yet is a normal state, not an error.
+      // `.single()` returned PGRST116 here and the caller logged it as a failure.
       const { data: cloudData, error } = await supabase
         .from('user_sync_data')
         .select('*')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
       if (error) {
-        console.error('❌ Error fetching cloud data:', error);
+        console.error('Error fetching cloud data:', error);
         return { success: false, error: error.message };
       }
 
       if (!cloudData) {
-        console.error('❌ No cloud data found for user:', user.id);
-        return { success: false, error: 'No cloud data found' };
+        return { success: false, error: 'No cloud backup found for this account' };
       }
 
       console.log('🔍 Raw cloud data from database:', {
@@ -251,11 +232,14 @@ export class CloudSyncService {
         routineDataString: JSON.stringify(cloudData.routine_data).substring(0, 200) + '...'
       });
 
-      // Restore local data
+      // Restore local data.
+      //
+      // We deliberately do NOT clear local storage afterwards. The previous
+      // implementation called clearLocalStorageAfterRestore() right here, which
+      // deleted the persisted copies of the state it had just written — so the
+      // restored routine, points and plan survived only until the next app
+      // launch, at which point the user was back to an empty account.
       await this.restoreLocalData(cloudData);
-
-      // Clear local storage to prevent Zustand from rehydrating with stale data
-      await this.clearLocalStorageAfterRestore();
 
       this.syncStatus = 'synced';
       this.lastSyncAttempt = new Date();
@@ -266,23 +250,34 @@ export class CloudSyncService {
     }
   }
 
+  /** Upload the current local state, regardless of sync frequency settings. */
+  async pushLocalData(userId: string, email: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const syncData = await this.collectLocalData(userId, email);
+      const { error } = await supabase
+        .from('user_sync_data')
+        .upsert(syncData, { onConflict: 'user_id' });
+
+      if (error) return { success: false, error: error.message };
+
+      this.lastSyncAttempt = new Date();
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
   async performBackgroundSync(): Promise<void> {
     if (!this.shouldSync()) return;
 
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user?.email) return;
 
-    try {
-      const syncData = await this.collectLocalData(user.id, user.email!);
-      
-      await supabase
-        .from('user_sync_data')
-        .upsert(syncData, { onConflict: 'user_id' });
-
-      this.lastSyncAttempt = new Date();
-    } catch (error) {
-      console.error('Background sync failed:', error);
-    }
+    const result = await this.pushLocalData(user.id, user.email);
+    if (!result.success) console.warn('Background sync failed:', result.error);
   }
 
   async collectLocalData(userId: string, email: string): Promise<CloudSyncData> {
@@ -329,8 +324,8 @@ export class CloudSyncService {
       last_synced: new Date().toISOString(),
       sync_frequency: this.syncFrequency,
       device_info: {
-        platform: 'mobile', // You can get actual platform info
-        version: '1.0.0', // You can get actual app version
+        platform: Platform.OS,
+        version: Constants.expoConfig?.version ?? 'unknown',
         last_active: new Date().toISOString(),
       },
     };
@@ -362,13 +357,17 @@ export class CloudSyncService {
         hasBuiltFromPlan: cloudData.routine_data.hasBuiltFromPlan
       });
       
+      // Only overwrite fields the backup actually carries. Spreading undefined
+      // into the store used to null out `steps`, and every `steps.length` read
+      // downstream then threw.
+      const routine = cloudData.routine_data;
       useRoutineStore.setState({
-        steps: cloudData.routine_data.steps,
-        completedByDate: cloudData.routine_data.completedByDate,
-        hasSeenScheduleIntro: cloudData.routine_data.hasSeenScheduleIntro,
-        hasBeenCustomized: cloudData.routine_data.hasBeenCustomized,
-        hasBuiltFromPlan: cloudData.routine_data.hasBuiltFromPlan,
-        lastSavedFromScheduling: cloudData.routine_data.lastSavedFromScheduling,
+        ...(Array.isArray(routine.steps) ? { steps: routine.steps } : {}),
+        ...(routine.completedByDate ? { completedByDate: routine.completedByDate } : {}),
+        hasSeenScheduleIntro: !!routine.hasSeenScheduleIntro,
+        hasBeenCustomized: !!routine.hasBeenCustomized,
+        hasBuiltFromPlan: !!routine.hasBuiltFromPlan,
+        lastSavedFromScheduling: routine.lastSavedFromScheduling ?? null,
       });
       
       // Verify the data was actually set
@@ -402,7 +401,7 @@ export class CloudSyncService {
     }
 
     // Restore cart data
-    if (cloudData.cart_data) {
+    if (Array.isArray(cloudData.cart_data?.items)) {
       useCartStore.setState({
         items: cloudData.cart_data.items,
       });
@@ -410,7 +409,7 @@ export class CloudSyncService {
     }
 
     // Restore purchase data
-    if (cloudData.purchase_data) {
+    if (Array.isArray(cloudData.purchase_data?.purchases)) {
       usePurchaseStore.setState({
         purchases: cloudData.purchase_data.purchases,
       });
@@ -423,24 +422,6 @@ export class CloudSyncService {
         preferences: cloudData.notification_preferences,
       });
       console.log('✅ Notification preferences restored');
-    }
-  }
-
-  private async clearLocalStorageAfterRestore(): Promise<void> {
-    try {
-      console.log('🧹 Clearing local storage after cloud restoration to prevent rehydration conflicts');
-      
-      // Use the store's built-in clearStorage methods instead of direct AsyncStorage access
-      await Promise.all([
-        usePlanStore.persist?.clearStorage?.(),
-        useRoutineStore.persist?.clearStorage?.(),
-        useRewardsStore.persist?.clearStorage?.(),
-        useProfileStore.persist?.clearStorage?.(),
-      ]);
-      
-      console.log('✅ Local storage cleared after cloud restoration');
-    } catch (error) {
-      console.error('❌ Error clearing local storage after restore:', error);
     }
   }
 

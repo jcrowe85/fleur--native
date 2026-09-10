@@ -1,3 +1,11 @@
+/** Post categories. Must stay in sync with CATEGORY_CODE in CommunityScreen. */
+export type PostCategory =
+  | "hair_journeys"
+  | "tips_tricks"
+  | "before_after"
+  | "questions"
+  | "reviews";
+
 export type Author = {
   display_name: string | null;
   handle: string | null;
@@ -8,7 +16,7 @@ export type PostItem = {
   id: string;
   user_id: string;
   body: string;
-  category?: "hair_journeys" | "tips_tricks" | "before_after" | "questions";
+  category?: PostCategory;
   media_url?: string | null;   // legacy single
   media_urls?: string[];       // NEW multiple
   created_at: string;

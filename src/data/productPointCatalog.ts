@@ -61,6 +61,13 @@ export const PRODUCT_POINT_MAPPING: Record<string, ProductPointMapping> = {
     category: "treat",
     description: "Micro-needling tool for enhanced product absorption"
   },
+  "silk-pillow": {
+    sku: "silk-pillow",
+    name: "Silk Pillow",
+    pointsRequired: 650,
+    category: "protect",
+    description: "Reduces overnight friction and breakage"
+  },
   
   // Supplements - using new Shopify handles
   "vegan-biotin": {
@@ -160,30 +167,108 @@ export const PRODUCT_POINT_MAPPING: Record<string, ProductPointMapping> = {
 
 // Helper functions
 export function getProductPointValue(sku: string): number {
-  return PRODUCT_POINT_MAPPING[sku]?.pointsRequired || 0;
+  const direct = PRODUCT_POINT_MAPPING[sku]?.pointsRequired;
+  if (direct) return direct;
+  const aliased = SKU_ALIASES[sku];
+  return aliased ? PRODUCT_POINT_MAPPING[aliased]?.pointsRequired ?? 0 : 0;
 }
 
-// Map Shopify handles to point catalog SKUs for point redemption
+/**
+ * Legacy SKU aliases.
+ *
+ * These used to point at keys that do not exist in PRODUCT_POINT_MAPPING
+ * ("fleur-derma-stamp" vs the actual "Fleur-derma-stamp", and
+ * "fleur-silk-pillowcase" which was never in the table at all), which made the
+ * derma stamp and silk pillow permanently un-redeemable — getProductPointValue
+ * returned 0 and the UI reported "not available for point redemption".
+ *
+ * Aliases now resolve to canonical handles that are guaranteed to exist.
+ */
+const SKU_ALIASES: Record<string, string> = {
+  "fleur-1": "bloom",
+  "bloom-hair-scalp-serum-longform": "bloom",
+  "fleur-serum": "bloom",
+  "fleur-shampoo": "shampoo",
+  "fleur-conditioner": "conditioner",
+  "fleur-hair-mask": "hair-mask",
+  "fleur-repair-mask": "hair-mask",
+  "fleur-heat-shield": "heat-shield",
+  "fleur-detangling-comb": "detangling-comb",
+  "fleur-derma-stamp": "micro-roller",
+  "Fleur-derma-stamp": "micro-roller",
+  "fleur-silk-pillowcase": "silk-pillow",
+  "fleur-biotin": "vegan-biotin",
+  "fleur-vitamin-d3": "vitamin-d3",
+  "fleur-iron": "iron",
+};
+
+/** Resolve any handle or legacy SKU to the canonical catalog key. */
+export function canonicalSku(sku: string): string {
+  if (!sku) return "";
+  if (sku in PRODUCT_POINT_MAPPING) return sku;
+  return SKU_ALIASES[sku] ?? sku;
+}
+
+/** Back-compat name kept for existing call sites. */
 export function mapShopifyHandleToPointSku(shopifyHandle: string): string {
-  const handleToSkuMapping: Record<string, string> = {
-    "bloom": "fleur-1",
-    "micro-roller": "fleur-derma-stamp",
-    "shampoo": "fleur-shampoo",
-    "conditioner": "fleur-conditioner", 
-    "hair-mask": "fleur-hair-mask",
-    "heat-shield": "fleur-heat-shield",
-    "detangling-comb": "fleur-detangling-comb",
-    "vegan-biotin": "fleur-biotin",
-    "vitamin-d3": "fleur-vitamin-d3",
-    "iron": "fleur-iron",
-    "silk-pillow": "fleur-silk-pillowcase",
-  };
-  
-  return handleToSkuMapping[shopifyHandle] || shopifyHandle;
+  return canonicalSku(shopifyHandle);
+}
+
+/**
+ * Best-effort resolution of a Shopify product to a redeemable SKU.
+ *
+ * Tries the handle first, then a slug of the title, then a keyword match. The
+ * two redemption screens each carried their own copy of this ladder with point
+ * values that had drifted apart (heat shield was 700 in one and 1200 in the
+ * other); it lives here now so there is a single answer.
+ *
+ * The returned point value is for display only — the server re-resolves the
+ * price from its own catalog when the redemption is actually issued.
+ */
+const TITLE_KEYWORDS: Array<[RegExp, string]> = [
+  [/serum|bloom/, "bloom"],
+  [/shampoo/, "shampoo"],
+  [/conditioner/, "conditioner"],
+  [/mask|repair/, "hair-mask"],
+  [/heat|shield|thermal/, "heat-shield"],
+  [/comb|detangl/, "detangling-comb"],
+  [/pillow|silk/, "silk-pillow"],
+  [/derma|stamp|roller/, "micro-roller"],
+  [/biotin/, "vegan-biotin"],
+  [/vitamin ?d/, "vitamin-d3"],
+  [/iron/, "iron"],
+];
+
+export function resolveRedeemableSku(product: {
+  handle?: string | null;
+  title?: string | null;
+}): { sku: string; pointsRequired: number } | null {
+  const candidates: string[] = [];
+
+  if (product.handle) candidates.push(product.handle);
+  if (product.title) {
+    candidates.push(product.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""));
+  }
+
+  for (const candidate of candidates) {
+    const sku = canonicalSku(candidate);
+    const points = getProductPointValue(sku);
+    if (points > 0) return { sku, pointsRequired: points };
+  }
+
+  const title = (product.title ?? "").toLowerCase();
+  for (const [pattern, sku] of TITLE_KEYWORDS) {
+    if (pattern.test(title)) {
+      const points = getProductPointValue(sku);
+      if (points > 0) return { sku, pointsRequired: points };
+    }
+  }
+
+  return null;
 }
 
 export function getProductInfo(sku: string): ProductPointMapping | null {
-  return PRODUCT_POINT_MAPPING[sku] || null;
+  return PRODUCT_POINT_MAPPING[canonicalSku(sku)] ?? null;
 }
 
 export function getAllProducts(): ProductPointMapping[] {
@@ -197,7 +282,7 @@ export function getProductsByCategory(category: string): ProductPointMapping[] {
 // Calculate if user can afford a product
 export function canAffordProduct(sku: string, userPoints: number): boolean {
   const pointsRequired = getProductPointValue(sku);
-  return userPoints >= pointsRequired;
+  return pointsRequired > 0 && userPoints >= pointsRequired;
 }
 
 // Calculate remaining points after purchase

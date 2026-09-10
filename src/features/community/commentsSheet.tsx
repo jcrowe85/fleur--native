@@ -546,7 +546,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.08)",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    backdropFilter: "blur(20px)",
+    // backdropFilter is a CSS property with no React Native equivalent; it was
+    // silently ignored at runtime. Use <BlurView> if a real blur is wanted.
     shadowColor: "#000",
     shadowOffset: {
       width: 0,

@@ -37,7 +37,17 @@ export default function RewardsPill({ compact }: Props) {
     }).start();
   };
 
+  /**
+   * Long-press wipes every store and the Supabase session.
+   *
+   * This is a development affordance, but RewardsPill renders in the header of
+   * eight production screens — so in a release build any customer who held the
+   * points pill for half a second was one tap away from irrecoverably deleting
+   * their routine, streak, points and purchase history. Gated to __DEV__.
+   */
   const handleLongPress = () => {
+    if (!__DEV__) return;
+
     Alert.alert(
       "🧪 Dev Reset - Reset ALL Data",
       "This will completely reset the app including plan build protection. Perfect for testing the full onboarding flow. Are you sure?",
@@ -108,7 +118,7 @@ export default function RewardsPill({ compact }: Props) {
     <Animated.View style={{ transform: [{ scale: pillScale }] }}>
       <Pressable
         onPress={() => router.push("/(app)/rewards")}
-        onLongPress={handleLongPress}
+        onLongPress={__DEV__ ? handleLongPress : undefined}
         onPressIn={onPressIn}
         onPressOut={onPressOut}
         hitSlop={10}

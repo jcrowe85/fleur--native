@@ -3,6 +3,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/services/supabase";
 import type { PostItem } from "./types";
 import { usePostsService } from "./posts.service";
+import { fetchBlockedUserIds } from "./moderation.service";
 
 export function useFeed() {
   const { listPage } = usePostsService();
@@ -14,11 +15,34 @@ export function useFeed() {
   const [error, setError] = useState<string | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
 
+  /**
+   * Authors this user has blocked.
+   *
+   * Filtering client-side keeps pagination simple and takes effect immediately
+   * when someone blocks from the post menu, without waiting for a refetch.
+   */
+  const blockedRef = useRef<Set<string>>(new Set());
+
+  const dropBlocked = useCallback(
+    (list: PostItem[]) => list.filter((p) => !blockedRef.current.has(p.user_id)),
+    []
+  );
+
+  /** Hide an author's posts right away and remember the block. */
+  const hideAuthor = useCallback((userId: string) => {
+    blockedRef.current.add(userId);
+    setItems((prev) => prev.filter((p) => p.user_id !== userId));
+  }, []);
+
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const { items: first, hasMore } = await listPage(0);
-      setItems(first);
+      const [blocked, { items: first, hasMore }] = await Promise.all([
+        fetchBlockedUserIds(),
+        listPage(0),
+      ]);
+      blockedRef.current = new Set(blocked);
+      setItems(dropBlocked(first));
       setPage(1);
       setHasMore(hasMore);
       setError(null);
@@ -27,14 +51,14 @@ export function useFeed() {
     } finally {
       setRefreshing(false);
     }
-  }, [listPage]);
+  }, [listPage, dropBlocked]);
 
   const loadMore = useCallback(async () => {
     if (loading || !hasMore) return;
     setLoading(true);
     try {
       const { items: more, hasMore: moreLeft } = await listPage(page);
-      setItems((prev) => [...prev, ...more]);
+      setItems((prev) => [...prev, ...dropBlocked(more)]);
       setPage((p) => p + 1);
       setHasMore(moreLeft);
     } catch (e: any) {
@@ -42,7 +66,7 @@ export function useFeed() {
     } finally {
       setLoading(false);
     }
-  }, [loading, hasMore, page, listPage]);
+  }, [loading, hasMore, page, listPage, dropBlocked]);
 
   useEffect(() => {
     // run once on mount
@@ -94,5 +118,5 @@ export function useFeed() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // 👈 run once
 
-  return { items, hasMore, loadMore, refresh, refreshing, loading, error, setItems };
+  return { items, hasMore, loadMore, refresh, refreshing, loading, error, setItems, hideAuthor };
 }

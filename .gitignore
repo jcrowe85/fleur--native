@@ -41,3 +41,9 @@ yarn-error.*
 .env.*
 **/.env
 **/.env.*
+
+# Native projects are generated from app.config.ts by `npx expo prebuild`
+# (or automatically by EAS Build). Keeping a checked-in copy meant app.config.ts
+# changes silently had no effect on the built app.
+/android
+/ios

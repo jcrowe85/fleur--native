@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ===== Remote Supabase config (defaults to your provided values) =====
 SUPABASE_URL="${SUPABASE_URL:-https://atnuvjxdtucwjiatnajt.supabase.co}"
-SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF0bnV2anhkdHVjd2N3amlhdG5hanQiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc1NzkwMjIyNCwiZXhwIjoyMDczNDc4MjI0fQ.xFYlMCP_N-SGtR8UypQtxActX8tzmBts1nIXwAl3UaI}"
+SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:?set SUPABASE_ANON_KEY in your environment}"
 FUNC_NAME="${FUNC_NAME:-send-verification-code}"
 
 # ===== Test inputs =====

@@ -21,6 +21,7 @@ import { Feather } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 
 import { useFeed } from "@/features/community/useFeed";
+import type { PostCategory } from "@/features/community/types";
 import { PostCard } from "@/features/community/PostCard";
 import { usePostsService } from "@/features/community/posts.service";
 import { useLocalSearchParams } from "expo-router";
@@ -46,7 +47,7 @@ const CATEGORY_LABELS = ["Hair Journeys", "Tips & Tricks", "Before & After", "Qu
 type CategoryLabel = (typeof CATEGORY_LABELS)[number];
 
 /** DB codes expected by posts.category CHECK constraint */
-type CategoryCode = "hair_journeys" | "tips_tricks" | "before_after" | "questions" | "reviews";
+type CategoryCode = PostCategory;
 const CATEGORY_CODE: Record<CategoryLabel, CategoryCode> = {
   "Hair Journeys": "hair_journeys",
   "Tips & Tricks": "tips_tricks",
@@ -79,7 +80,7 @@ function getInitials(full?: string) {
 }
 
 export default function CommunityScreen() {
-  const { items, hasMore, loadMore, refresh, loading, error, setItems } = useFeed();
+  const { items, hasMore, loadMore, refresh, loading, error, setItems, hideAuthor } = useFeed();
   const { create } = usePostsService();
 
   const handlePostDeleted = (deletedPostId: string) => {
@@ -285,7 +286,13 @@ export default function CommunityScreen() {
           ListHeaderComponent={ListHeader}
           contentContainerStyle={styles.feedContent}
           bottomExtra={16}
-          renderItem={({ item }) => <PostCard post={item} onPostDeleted={() => handlePostDeleted(item.id)} />}
+          renderItem={({ item }) => (
+            <PostCard
+              post={item}
+              onPostDeleted={() => handlePostDeleted(item.id)}
+              onAuthorBlocked={hideAuthor}
+            />
+          )}
           onEndReachedThreshold={0.4}
           onEndReached={() => hasMore && loadMore()}
           ListFooterComponent={loading ? <Text style={styles.footer}>Loading…</Text> : null}

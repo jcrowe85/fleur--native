@@ -1,7 +1,8 @@
 // src/state/notificationStore.ts
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { NotificationPreferences } from '@/services/notificationService';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { NotificationPreferences } from '@/services/notificationService';
 
 type NotificationState = {
   preferences: NotificationPreferences;
@@ -61,6 +62,10 @@ export const useNotificationStore = create<NotificationState>()(
     }),
     {
       name: 'notification-preferences',
+      // See checkinStore: persist() without a storage adapter silently no-ops
+      // in React Native, so the user's notification opt-outs were lost on every
+      // launch and reverted to the defaults.
+      storage: createJSONStorage(() => AsyncStorage),
     }
   )
 );

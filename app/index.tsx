@@ -5,33 +5,45 @@ import { Redirect } from "expo-router";
 import { usePlanStore } from "@/state/planStore";
 import WelcomeScreen from "../src/screens/WelcomeScreen";
 
-// Keep splash until we decide
-let splashScreenReady = false;
-let splashScreenHidden = false;
-SplashScreen.preventAutoHideAsync()
-  .then(() => {
-    splashScreenReady = true;
-  })
-  .catch(() => {});
+/**
+ * Hold the splash until we know whether this is a returning user.
+ *
+ * The previous version tracked readiness in two module-level booleans and only
+ * hid the splash from an effect keyed on [hydrated, timeoutFired]. If
+ * preventAutoHideAsync() resolved *after* both of those had already settled —
+ * which is the common case on a warm start — the effect never re-ran and the
+ * splash stayed up forever. Keeping the promise itself and awaiting it removes
+ * the ordering dependency entirely.
+ */
+const splashReady = SplashScreen.preventAutoHideAsync().catch(() => {});
+
+let splashHidden = false;
+async function hideSplash() {
+  if (splashHidden) return;
+  splashHidden = true;
+  await splashReady;
+  await SplashScreen.hideAsync().catch(() => {});
+}
+
+/** How long to wait for rehydration before showing UI anyway. */
+const HYDRATION_TIMEOUT_MS = 2500;
 
 function useStoreHydrated(): boolean {
-  // Prefer zustand's own hydration flags; fall back to false
-  const hasHydratedFn = usePlanStore.persist?.hasHydrated;
-  const onFinishHydration = usePlanStore.persist?.onFinishHydration;
-
-  const [hydrated, setHydrated] = useState<boolean>(() => {
-    try {
-      return hasHydratedFn ? hasHydratedFn() : false;
-    } catch {
-      return false;
-    }
-  });
+  const [hydrated, setHydrated] = useState<boolean>(
+    () => usePlanStore.persist?.hasHydrated?.() ?? false
+  );
 
   useEffect(() => {
-    if (!onFinishHydration) return;
-    const unsub = onFinishHydration(() => setHydrated(true));
+    if (hydrated) return;
+
+    const unsub = usePlanStore.persist?.onFinishHydration?.(() => setHydrated(true));
+
+    // Re-check synchronously: hydration can finish between the initial state
+    // read and this subscription being attached.
+    if (usePlanStore.persist?.hasHydrated?.()) setHydrated(true);
+
     return unsub;
-  }, [onFinishHydration]);
+  }, [hydrated]);
 
   return hydrated;
 }
@@ -39,28 +51,23 @@ function useStoreHydrated(): boolean {
 export default function IndexGate() {
   const plan = usePlanStore((s) => s.plan);
   const hydrated = useStoreHydrated();
+  const [timedOut, setTimedOut] = useState(false);
 
-  // Watchdog: even if hydration callback never fires, show UI after 2.5s
-  const [timeoutFired, setTimeoutFired] = useState(false);
   useEffect(() => {
-    const t = setTimeout(() => setTimeoutFired(true), 2500);
+    const t = setTimeout(() => setTimedOut(true), HYDRATION_TIMEOUT_MS);
     return () => clearTimeout(t);
   }, []);
 
-  // Hide splash as soon as we can show *something*
+  const ready = hydrated || timedOut;
+
   useEffect(() => {
-    if ((hydrated || timeoutFired) && splashScreenReady && !splashScreenHidden) {
-      splashScreenHidden = true;
-      SplashScreen.hideAsync().catch(() => {});
-    }
-  }, [hydrated, timeoutFired]);
+    if (ready) void hideSplash();
+  }, [ready]);
 
-  // Keep splash visible until either hydrated OR watchdog fires
-  if (!hydrated && !timeoutFired) return null;
+  if (!ready) return null;
 
-  // If a plan exists (returning user), go straight to dashboard
+  // Returning user with a saved plan goes straight to the dashboard.
   if (plan) return <Redirect href="/(app)/dashboard" />;
 
-  // First-time user — show Welcome
   return <WelcomeScreen />;
 }

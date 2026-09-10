@@ -70,12 +70,19 @@ export default function RoutineAnalyticsScreen() {
     const totalProducts = (purchases || []).length;
     const averageOrderValue = totalProducts > 0 ? totalSpent / totalProducts : 0;
 
-    // Calculate points analytics
-    const totalPointsEarned = (events || []).reduce((sum, event) => 
-      event.reason === 'earn' ? sum + event.points : sum, 0
+    // Points analytics.
+    //
+    // Ledger entries carry a signed `delta`, not a `points` field, and no entry
+    // ever has reason 'earn' or 'redeem' — reasons are things like
+    // 'daily_check_in'. Both totals were therefore always 0 (or NaN once the
+    // undefined `points` was added). Sum by the sign of `delta` instead.
+    const totalPointsEarned = (events || []).reduce(
+      (sum, event) => (event.delta > 0 ? sum + event.delta : sum),
+      0
     );
-    const totalPointsRedeemed = (events || []).reduce((sum, event) => 
-      event.reason === 'redeem' ? sum + event.points : sum, 0
+    const totalPointsRedeemed = (events || []).reduce(
+      (sum, event) => (event.delta < 0 ? sum + Math.abs(event.delta) : sum),
+      0
     );
 
     return {
@@ -279,7 +286,7 @@ export default function RoutineAnalyticsScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Insights & Tips</Text>
             <View style={styles.insightsCard}>
-              <Feather name="lightbulb" size={20} color="#fff" />
+              <Feather name="zap" size={20} color="#fff" />
               <View style={styles.insightsContent}>
                 <Text style={styles.insightsTitle}>Keep Going!</Text>
                 <Text style={styles.insightsText}>
@@ -295,7 +302,7 @@ export default function RoutineAnalyticsScreen() {
 
             {analytics.currentStreak > 0 && (
               <View style={styles.insightsCard}>
-                <Feather name="flame" size={20} color="#fff" />
+                <Feather name="trending-up" size={20} color="#fff" />
                 <View style={styles.insightsContent}>
                   <Text style={styles.insightsTitle}>Streak Alert!</Text>
                   <Text style={styles.insightsText}>

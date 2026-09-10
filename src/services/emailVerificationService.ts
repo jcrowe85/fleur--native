@@ -1,16 +1,49 @@
 // src/services/emailVerificationService.ts
 import { supabase } from './supabase';
 
-export interface VerificationCode {
-  code: string;
-  email: string;
-  expiresAt: Date;
-  attempts: number;
+/**
+ * Email verification, driven entirely by the `send-verification-code` Edge
+ * Function.
+ *
+ * The previous implementation generated the code in the app, kept it in an
+ * in-memory Map, and passed it to the function to be mailed. That meant the
+ * "verification" checked a value the client itself had chosen (no security
+ * value at all), the function was an unauthenticated open relay on our sending
+ * domain, and the code was lost whenever the OS reclaimed the JS context — so
+ * a user who checked their mail app could come back unable to verify.
+ */
+
+type Result = { success: boolean; error?: string };
+
+async function callVerificationFunction(
+  body: Record<string, unknown>
+): Promise<Result & { data?: any }> {
+  const { data, error } = await supabase.functions.invoke('send-verification-code', {
+    body,
+  });
+
+  if (error) {
+    // FunctionsHttpError carries the function's JSON body on `context`.
+    let message = 'Something went wrong. Please try again.';
+    try {
+      const payload = await (error as any).context?.json?.();
+      if (typeof payload?.error === 'string') message = payload.error;
+    } catch {
+      // Keep the generic message.
+    }
+    return { success: false, error: message };
+  }
+
+  if (data?.error) return { success: false, error: data.error };
+  return { success: true, data };
 }
 
 class EmailVerificationService {
   private static instance: EmailVerificationService;
-  private codes = new Map<string, VerificationCode>();
+
+  /** Local echo of the server cooldown, so the UI can disable "Resend". */
+  private lastSentAt = new Map<string, number>();
+  private static readonly COOLDOWN_MS = 60_000;
 
   static getInstance(): EmailVerificationService {
     if (!EmailVerificationService.instance) {
@@ -19,162 +52,41 @@ class EmailVerificationService {
     return EmailVerificationService.instance;
   }
 
-  /**
-   * Generate a 6-digit verification code
-   */
-  private generateCode(): string {
-    return Math.floor(100000 + Math.random() * 900000).toString();
+  async sendVerificationCode(email: string): Promise<Result> {
+    const normalized = email.trim().toLowerCase();
+
+    const result = await callVerificationFunction({ action: 'send', email: normalized });
+    if (result.success) this.lastSentAt.set(normalized, Date.now());
+
+    return { success: result.success, error: result.error };
   }
 
-  /**
-   * Send verification code via email
-   */
-  async sendVerificationCode(email: string): Promise<{ success: boolean; error?: string }> {
-    try {
-      // Clean up expired codes
-      this.cleanupExpiredCodes();
+  async verifyCode(email: string, enteredCode: string): Promise<Result> {
+    const normalized = email.trim().toLowerCase();
 
-      // Check if email already has a recent code
-      const existingCode = this.codes.get(email);
-      if (existingCode && existingCode.expiresAt > new Date()) {
-        return { 
-          success: false, 
-          error: 'Verification code already sent. Please check your email or wait before requesting a new code.' 
-        };
-      }
+    const result = await callVerificationFunction({
+      action: 'verify',
+      email: normalized,
+      code: enteredCode.trim(),
+    });
 
-      // Generate new code
-      const code = this.generateCode();
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-      // Store code
-      this.codes.set(email, {
-        code,
-        email,
-        expiresAt,
-        attempts: 0
-      });
-
-      // Send email via Supabase Edge Function (now uses Resend)
-      const { data, error } = await supabase.functions.invoke('send-verification-code', {
-        body: {
-          email,
-          code,
-          expiresAt: expiresAt.toISOString()
-        }
-      });
-
-      if (error) {
-        console.error('Failed to send verification code:', error);
-        this.codes.delete(email); // Remove stored code if email failed
-        return { 
-          success: false, 
-          error: 'Failed to send verification code. Please try again.' 
-        };
-      }
-
-      console.log('✅ Verification code sent to:', email);
-      
-      return { success: true };
-    } catch (error) {
-      console.error('Error sending verification code:', error);
-      return { 
-        success: false, 
-        error: 'An unexpected error occurred. Please try again.' 
-      };
-    }
+    if (result.success) this.lastSentAt.delete(normalized);
+    return { success: result.success, error: result.error };
   }
 
-  /**
-   * Verify the entered code
-   */
-  async verifyCode(email: string, enteredCode: string): Promise<{ success: boolean; error?: string }> {
-    try {
-      const storedCode = this.codes.get(email);
-      
-      if (!storedCode) {
-        return { 
-          success: false, 
-          error: 'No verification code found. Please request a new code.' 
-        };
-      }
-
-      // Check if code is expired
-      if (storedCode.expiresAt <= new Date()) {
-        this.codes.delete(email);
-        return { 
-          success: false, 
-          error: 'Verification code has expired. Please request a new code.' 
-        };
-      }
-
-      // Check attempt limit
-      if (storedCode.attempts >= 3) {
-        this.codes.delete(email);
-        return { 
-          success: false, 
-          error: 'Too many failed attempts. Please request a new code.' 
-        };
-      }
-
-      // Verify code
-      if (storedCode.code !== enteredCode) {
-        storedCode.attempts++;
-        return { 
-          success: false, 
-          error: `Invalid verification code. ${3 - storedCode.attempts} attempts remaining.` 
-        };
-      }
-
-      // Code is valid - remove it
-      this.codes.delete(email);
-      console.log('✅ Verification code verified for:', email);
-      return { success: true };
-    } catch (error) {
-      console.error('Error verifying code:', error);
-      return { 
-        success: false, 
-        error: 'An unexpected error occurred. Please try again.' 
-      };
-    }
+  /** Milliseconds until this address may request another code. */
+  getResendCooldownRemaining(email: string): number {
+    const sentAt = this.lastSentAt.get(email.trim().toLowerCase());
+    if (!sentAt) return 0;
+    return Math.max(0, EmailVerificationService.COOLDOWN_MS - (Date.now() - sentAt));
   }
 
-  /**
-   * Check if email has a pending verification code
-   */
   hasPendingCode(email: string): boolean {
-    const code = this.codes.get(email);
-    return code ? code.expiresAt > new Date() : false;
+    return this.lastSentAt.has(email.trim().toLowerCase());
   }
 
-  /**
-   * Get remaining time for a verification code
-   */
-  getRemainingTime(email: string): number {
-    const code = this.codes.get(email);
-    if (!code || code.expiresAt <= new Date()) {
-      return 0;
-    }
-    return Math.max(0, code.expiresAt.getTime() - Date.now());
-  }
-
-  /**
-   * Clean up expired codes
-   */
-  private cleanupExpiredCodes(): void {
-    const now = new Date();
-    for (const [email, code] of this.codes.entries()) {
-      if (code.expiresAt <= now) {
-        this.codes.delete(email);
-      }
-    }
-  }
-
-  /**
-   * Clear all codes (for testing)
-   */
   clearAllCodes(): void {
-    this.codes.clear();
+    this.lastSentAt.clear();
   }
 }
 

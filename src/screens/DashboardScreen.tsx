@@ -281,8 +281,9 @@ export default function DashboardScreen() {
   const fadeAnim = useRef(new Animated.Value(1)).current;
   
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    
+    let timeoutId: NodeJS.Timeout | undefined;
+    let intervalId: NodeJS.Timeout | undefined;
+
     const cycleText = () => {
       // Fade out
       Animated.timing(fadeAnim, {
@@ -302,19 +303,21 @@ export default function DashboardScreen() {
       });
     };
     
-    // Start the cycle after initial delay
+    // Start the cycle after an initial delay.
+    //
+    // The interval used to be created inside this callback with its cleanup
+    // returned from the setTimeout callback — where nothing ever calls it. The
+    // outer cleanup only cleared the timeout, so the 4-second interval survived
+    // unmount and a fresh one stacked on top with every remount of the
+    // dashboard.
     timeoutId = setTimeout(() => {
       cycleText();
-      
-      // Set up interval for subsequent cycles
-      const interval = setInterval(cycleText, 4000);
-      
-      // Cleanup function
-      return () => clearInterval(interval);
+      intervalId = setInterval(cycleText, 4000);
     }, 2000);
-    
+
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
     };
   }, []);
   

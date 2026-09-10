@@ -19,10 +19,20 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useRewardsStore } from "@/state/rewardsStore";
 import { useAuthStore } from "@/state/authStore";
 import { useCartStore } from "@/state/cartStore";
-import { getProductPointValue, canAffordProduct } from "@/data/productPointCatalog";
-import { createSeamlessCheckoutWithDiscount } from "@/services/shopifyClient";
-import { fetchRedeemableProducts } from "@/services/shopifyClient";
+import {
+  getProductPointValue,
+  canAffordProduct,
+  resolveRedeemableSku,
+} from "@/data/productPointCatalog";
+import {
+  fetchRedeemableProducts,
+  createPointRedemption,
+  completePointRedemption,
+  cancelPointRedemption,
+  type PointRedemption,
+} from "@/services/shopifyClient";
 import { ScreenScrollView } from "@/components/UI/bottom-space";
+import CheckoutSheet from "@/components/CheckoutSheet";
 
 const { width } = Dimensions.get("window");
 
@@ -59,11 +69,14 @@ export default function ProductDetailScreen() {
   const { productId, returnTo } = useLocalSearchParams<{ productId: string; returnTo?: string }>();
   const { pointsTotal } = useRewardsStore();
   const { user } = useAuthStore();
-  const { addItem, removeItem, items } = useCartStore();
+  const { add, remove, items } = useCartStore();
   
   const [product, setProduct] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [redeemingPoints, setRedeemingPoints] = useState(false);
+  const [activeRedemption, setActiveRedemption] = useState<PointRedemption | null>(null);
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
+  const earn = useRewardsStore((s) => s.earn);
 
   useEffect(() => {
     if (productId) {
@@ -102,106 +115,104 @@ export default function ProductDetailScreen() {
   };
 
   const toggleItemInCart = (product: any) => {
-    const productSku = product.handle || 
-                     product.title.toLowerCase().replace(/\s+/g, '-') ||
-                     product.title.toLowerCase().replace(/[^a-z0-9]/g, '-');
-    
-    const isInCart = items.some(item => item.sku === productSku);
-    if (isInCart) {
-      removeItem(productSku);
-    } else {
-      addItem({
-        sku: productSku,
-        name: product.title,
-        price: parseFloat(product.priceRange.minVariantPrice.amount),
-        quantity: 1,
-        image: product.images?.edges?.[0]?.node?.url || null
-      });
+    const productSku =
+      product.handle ||
+      product.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+    if (items.some((item) => item.sku === productSku)) {
+      remove(productSku);
+      return;
     }
+
+    // useCartStore exposes add/remove and its CartItem is
+    // { sku, name, qty, priceCents, imageUrl, variantId }. This used to call
+    // addItem/removeItem with a price/quantity/image shape that does not exist
+    // on the store, so "Add to cart" threw on every tap.
+    add({
+      sku: productSku,
+      name: product.title,
+      priceCents: Math.round(
+        parseFloat(product.priceRange?.minVariantPrice?.amount ?? "0") * 100
+      ),
+      imageUrl: product.images?.edges?.[0]?.node?.url ?? undefined,
+      variantId: product.variants?.edges?.[0]?.node?.id ?? undefined,
+    });
   };
 
+  /**
+   * Redeem points for this product.
+   *
+   * Previously this opened the Shopify checkout with Linking.openURL, which
+   * leaves the app entirely — there was no way to observe completion, so the
+   * user's points were never debited even though a live discount code had been
+   * issued. Checkout now runs in an in-app sheet so completion is observable.
+   */
   const handleRedeemPoints = async (product: any) => {
-    if (!user) {
-      Alert.alert("Authentication Required", "Please log in to redeem points.");
+    if (redeemingPoints) return;
+
+    if (!user?.id) {
+      Alert.alert("Sign in required", "Please sign in to redeem your points.");
+      return;
+    }
+
+    const match = resolveRedeemableSku(product);
+    if (!match) {
+      Alert.alert("Not redeemable", "This product isn't available for point redemption.");
+      return;
+    }
+
+    if (pointsTotal < match.pointsRequired) {
+      Alert.alert(
+        "Not enough points",
+        `You need ${match.pointsRequired} points to redeem ${product.title}. You have ${pointsTotal}.`
+      );
       return;
     }
 
     try {
       setRedeemingPoints(true);
-      
-      // Get product SKU and points required
-      const productSku = product.handle || 
-                       product.title.toLowerCase().replace(/\s+/g, '-') ||
-                       product.title.toLowerCase().replace(/[^a-z0-9]/g, '-');
-      
-      let pointsRequired = getProductPointValue(productSku);
-      let finalSku = productSku;
-      
-      // If no exact match, try to find by title keywords
-      if (pointsRequired === 0) {
-        const title = product.title.toLowerCase();
-        if (title.includes('serum')) {
-          pointsRequired = 850;
-          finalSku = 'bloom';
-        } else if (title.includes('shampoo')) {
-          pointsRequired = 750;
-          finalSku = 'fleur-shampoo';
-        } else if (title.includes('conditioner')) {
-          pointsRequired = 780;
-          finalSku = 'fleur-conditioner';
-        } else if (title.includes('mask') || title.includes('repair')) {
-          pointsRequired = 900;
-          finalSku = 'fleur-repair-mask';
-        } else if (title.includes('heat') || title.includes('shield')) {
-          pointsRequired = 700;
-          finalSku = 'fleur-heat-shield';
-        } else if (title.includes('comb')) {
-          pointsRequired = 250;
-          finalSku = 'detangling-comb';
-        } else if (title.includes('pillowcase') || title.includes('silk')) {
-          pointsRequired = 650;
-          finalSku = 'fleur-silk-pillowcase';
-        } else if (title.includes('derma') || title.includes('stamp')) {
-          pointsRequired = 725;
-          finalSku = 'fleur-derma-stamp';
-        } else if (title.includes('biotin')) {
-          pointsRequired = 500;
-          finalSku = 'fleur-biotin';
-        } else if (title.includes('vitamin d') || title.includes('d3')) {
-          pointsRequired = 500;
-          finalSku = 'fleur-vitamin-d3';
-        } else if (title.includes('iron')) {
-          pointsRequired = 500;
-          finalSku = 'fleur-iron';
-        } else if (title.includes('kit') || title.includes('complete')) {
-          pointsRequired = 3500;
-          finalSku = 'fleur-complete-kit';
-        }
-      }
-      
-      if (pointsRequired === 0) {
-        Alert.alert("Product Not Found", "This product is not available for point redemption.");
-        return;
-      }
-
-      if (pointsTotal < pointsRequired) {
-        Alert.alert("Insufficient Points", `You need ${pointsRequired} points to redeem this product. You have ${pointsTotal} points.`);
-        return;
-      }
-
-      // Create seamless checkout with discount pre-applied
-      const checkoutResult = await createSeamlessCheckoutWithDiscount(finalSku, user.id, pointsTotal);
-      
-      // Open checkout URL
-      const { Linking } = require("react-native");
-      await Linking.openURL(checkoutResult.checkoutUrl);
-      
+      const redemption = await createPointRedemption(match.sku, pointsTotal);
+      setActiveRedemption(redemption);
+      setCheckoutUrl(redemption.checkoutUrl);
     } catch (error) {
-      console.error("Error creating discount code:", error);
-      Alert.alert("Error", "Failed to create discount code. Please try again.");
+      console.error("Error creating redemption:", error);
+      Alert.alert(
+        "Redemption failed",
+        error instanceof Error ? error.message : "Please try again."
+      );
     } finally {
       setRedeemingPoints(false);
     }
+  };
+
+  const handleRedemptionComplete = () => {
+    const redemption = activeRedemption;
+    setCheckoutUrl(null);
+    setActiveRedemption(null);
+    if (!redemption) return;
+
+    earn(-redemption.pointsUsed, "Product redemption", {
+      productTitle: redemption.productTitle,
+      redemptionId: redemption.redemptionId,
+      completedAt: new Date().toISOString(),
+    });
+    completePointRedemption(redemption.redemptionId).catch(() => {});
+
+    router.replace({
+      pathname: "/(shop)/thank-you",
+      params: {
+        auto: "1",
+        pointsUsed: String(redemption.pointsUsed),
+        newBalance: String(Math.max(0, pointsTotal - redemption.pointsUsed)),
+      },
+    });
+  };
+
+  const handleRedemptionDismissed = () => {
+    const redemption = activeRedemption;
+    setCheckoutUrl(null);
+    setActiveRedemption(null);
+    if (redemption) cancelPointRedemption(redemption.redemptionId).catch(() => {});
   };
 
   if (loading) {
@@ -383,6 +394,13 @@ export default function ProductDetailScreen() {
           </View>
           </View>
         </ScreenScrollView>
+
+        <CheckoutSheet
+          visible={!!checkoutUrl}
+          url={checkoutUrl ?? undefined}
+          onClose={handleRedemptionDismissed}
+          onComplete={handleRedemptionComplete}
+        />
       </SafeAreaView>
     </View>
   );
@@ -549,6 +567,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.2)",
-    backdropFilter: "blur(10px)",
+    // backdropFilter is a CSS property with no React Native equivalent; it was
+    // silently ignored at runtime. Use <BlurView> if a real blur is wanted.
   },
 });

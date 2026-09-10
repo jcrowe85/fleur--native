@@ -19,8 +19,14 @@ interface SupportMessage {
   created_at?: string;
 }
 
-// Slack webhook URL - replace with your new Slack App webhook URL
-const SLACK_WEBHOOK_URL = process.env.EXPO_PUBLIC_SLACK_WEBHOOK_URL || "YOUR_NEW_APP_WEBHOOK_URL_HERE";
+// NOTE: the Slack webhook URL is deliberately NOT in this file any more.
+//
+// It used to be read from EXPO_PUBLIC_SLACK_WEBHOOK_URL, which bakes it into
+// the published JS bundle — anyone who unzips the IPA/APK can extract it and
+// post arbitrary messages into your Slack workspace. Support messages now go to
+// the `slack-webhook` Edge Function, which holds the URL server-side.
+//
+// ACTION REQUIRED: rotate the old webhook URL in Slack, since it has shipped.
 
 // Get existing thread timestamp for a user
 async function getExistingThread(userId: string): Promise<string | undefined> {
@@ -47,74 +53,35 @@ async function getExistingThread(userId: string): Promise<string | undefined> {
 
 export async function sendMessageToSlack(message: SlackMessage): Promise<boolean> {
   try {
-    if (!SLACK_WEBHOOK_URL || SLACK_WEBHOOK_URL === "YOUR_NEW_APP_WEBHOOK_URL_HERE") {
-      console.warn("Slack webhook URL not configured - skipping Slack message");
-      return true; // Return true to not break the flow
-    }
-
     // Get user info from Supabase
     const { data: { user } } = await supabase.auth.getUser();
-    const userId = user?.id || "anonymous";
-    const userEmail = user?.email || "unknown@example.com";
+
+    if (!user?.id) {
+      console.warn("No authenticated user; cannot send support message");
+      return false;
+    }
+
+    const userId = user.id;
+    const userEmail = user.email || "unknown@example.com";
 
     // Check if we have an existing thread for this user
     const existingThread = await getExistingThread(userId);
     const threadTs = existingThread;
     
-    // Format message for Slack with thread support
-    const slackPayload = {
-      text: `New support message from ${userEmail}:`,
-      ...(threadTs && { thread_ts: threadTs }), // Add thread_ts if we have one
-      attachments: [
-        {
-          color: "good",
-          fields: [
-            {
-              title: "User ID",
-              value: userId,
-              short: true,
-            },
-            {
-              title: "Email", 
-              value: userEmail,
-              short: true,
-            },
-            {
-              title: "Message",
-              value: message.text,
-              short: false,
-            },
-            {
-              title: "Thread ID",
-              value: threadTs,
-              short: true,
-            },
-            {
-              title: "Timestamp",
-              value: message.timestamp.toISOString(),
-              short: true,
-            },
-          ],
-        },
-      ],
-    };
-
-    console.log("Sending to Slack webhook:", SLACK_WEBHOOK_URL);
-    console.log("Webhook URL starts with:", SLACK_WEBHOOK_URL?.substring(0, 50) + "...");
-    console.log("Slack payload:", JSON.stringify(slackPayload, null, 2));
-
-    const response = await fetch(SLACK_WEBHOOK_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    // Relay through the Edge Function, which holds the webhook URL and derives
+    // the identity from the caller's JWT.
+    const { error } = await supabase.functions.invoke("slack-webhook", {
+      body: {
+        text: message.text,
+        userEmail,
+        threadTs,
+        timestamp: message.timestamp.toISOString(),
       },
-      body: JSON.stringify(slackPayload),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Slack webhook error response:", errorText);
-      throw new Error(`Slack webhook failed: ${response.status} - ${errorText}`);
+    if (error) {
+      console.error("Support relay failed:", error.message);
+      return false;
     }
 
     // Store the message with thread information

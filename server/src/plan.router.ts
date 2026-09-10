@@ -3,13 +3,66 @@ import express from "express";
 import fetch from "node-fetch";
 import crypto from "crypto";
 import { fleurPlanSchema } from "./schema.plan";
+import { requireAuth, type AuthedRequest } from "./auth.middleware";
 
 const router = express.Router();
 
 /** Bump this any time schema/prompt shape or post-processing changes */
 const SCHEMA_VERSION = "v24";
 
+/**
+ * Bounded LRU. The previous unbounded Map grew for the lifetime of the process:
+ * every distinct onboarding answer combination pinned a full plan object in
+ * memory forever, which is a slow leak on a long-running dyno.
+ */
+const CACHE_MAX_ENTRIES = 500;
 const cache = new Map<string, unknown>();
+
+function cacheGet(key: string): unknown | undefined {
+  if (!cache.has(key)) return undefined;
+  const value = cache.get(key);
+  // Re-insert to mark as most recently used.
+  cache.delete(key);
+  cache.set(key, value);
+  return value;
+}
+
+function cacheSet(key: string, value: unknown): void {
+  if (cache.has(key)) cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
+
+/**
+ * Per-user throttle. /build calls a paid LLM, so an unauthenticated or
+ * unthrottled endpoint is a direct billing liability.
+ */
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const RATE_LIMIT_MAX = 10;
+const buildCounts = new Map<string, { count: number; resetAt: number }>();
+
+function rateLimited(userId: string): boolean {
+  const now = Date.now();
+  const entry = buildCounts.get(userId);
+
+  if (!entry || now > entry.resetAt) {
+    buildCounts.set(userId, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    // Opportunistic sweep so the map cannot grow without bound.
+    if (buildCounts.size > 5000) {
+      for (const [key, val] of buildCounts) {
+        if (now > val.resetAt) buildCounts.delete(key);
+      }
+    }
+    return false;
+  }
+
+  entry.count += 1;
+  return entry.count > RATE_LIMIT_MAX;
+}
 
 /** Minimal shape of Responses API payload we care about */
 interface ProviderResponse {
@@ -24,19 +77,30 @@ interface ProviderResponse {
   }>;
 }
 
-router.post("/build", async (req, res) => {
+router.post("/build", requireAuth, async (req: AuthedRequest, res) => {
   const { persona, hairType, washFreq, goals, constraints, __detail } = req.body || {};
   if (!persona || !hairType || !washFreq || !Array.isArray(goals)) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
+  if (!process.env.OPENAI_API_KEY) {
+    console.error("[plan] OPENAI_API_KEY is not configured");
+    return res.status(503).json({ error: "Plan builder is temporarily unavailable" });
+  }
+
   // include schema version so old cached objects aren't reused
   const key = hash({ SCHEMA_VERSION, persona, hairType, washFreq, goals, constraints, __detail });
-  if (cache.has(key)) {
-    const cached = cache.get(key);
+  const cached = cacheGet(key);
+  if (cached !== undefined) {
     res.set("x-plan-cache", "hit");
     res.set("x-plan-schema", SCHEMA_VERSION);
     return res.json(cached);
+  }
+
+  if (rateLimited(req.userId!)) {
+    return res
+      .status(429)
+      .json({ error: "Too many plan requests. Please try again later." });
   }
 
   // Use hardcoded products with actual Shopify SKUs and handles
@@ -330,7 +394,7 @@ router.post("/build", async (req, res) => {
     plan = ensurePriorityRecs(plan as any, flags);
     plan = sanitizeRoutinePillars(plan as any, flags);
 
-    cache.set(key, plan);
+    cacheSet(key, plan);
 
     res.set("x-plan-cache", "miss");
     res.set("x-plan-schema", SCHEMA_VERSION);

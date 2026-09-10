@@ -34,6 +34,13 @@ type Contact = {
 
 // APP_LINK is now generated dynamically with referral codes
 
+/** Drop undefined/blank entries from an optional list of contact strings. */
+function compactStrings(values?: (string | undefined)[]): string[] | undefined {
+  if (!values) return undefined;
+  const cleaned = values.filter((v): v is string => !!v && v.trim().length > 0);
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
 export default function InviteFriendsScreen() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
@@ -172,8 +179,8 @@ export default function InviteFriendsScreen() {
         .map((contact) => ({
           id: contact.id || Math.random().toString(),
           name: contact.name || "Unknown",
-          phoneNumbers: contact.phoneNumbers?.map((p) => p.number),
-          emails: contact.emails?.map((e) => e.email),
+          phoneNumbers: compactStrings(contact.phoneNumbers?.map((p) => p.number)),
+          emails: compactStrings(contact.emails?.map((e) => e.email)),
           selected: false,
         }));
 
@@ -246,8 +253,8 @@ export default function InviteFriendsScreen() {
         const newContact: Contact = {
           id: result.id || Math.random().toString(),
           name: contactName,
-          phoneNumbers: result.phoneNumbers?.map((p) => p.number),
-          emails: result.emails?.map((e) => e.email),
+          phoneNumbers: compactStrings(result.phoneNumbers?.map((p) => p.number)),
+          emails: compactStrings(result.emails?.map((e) => e.email)),
           selected: false,
         };
 
@@ -868,7 +875,7 @@ export default function InviteFriendsScreen() {
           setLastReferredFriend(null);
           setPopupPointsEarned(0);
         }}
-        friendName={lastReferredFriend}
+        friendName={lastReferredFriend ?? undefined}
         pointsEarned={popupPointsEarned}
         totalReferrals={referralCount}
       />
@@ -1188,10 +1195,6 @@ const styles = StyleSheet.create({
   checkboxSelected: {
     backgroundColor: "#fff",
     borderColor: "#fff",
-  },
-  checkboxInvited: {
-    backgroundColor: "transparent",
-    borderColor: "transparent",
   },
   contactItemInvited: {
     backgroundColor: "rgba(255,255,255,0.05)",

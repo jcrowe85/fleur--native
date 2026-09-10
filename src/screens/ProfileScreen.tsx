@@ -26,9 +26,12 @@ import RewardsPill from "@/components/UI/RewardsPill";
 import { CustomButton } from "@/components/UI/CustomButton";
 import { supabase } from "@/services/supabase";
 import { cloudSyncService } from "@/services/cloudSyncService";
+import { isGuestEmail } from "@/state/authStore";
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuthStore();
+  /** Guest accounts have nothing to sign back in to, so they see delete only. */
+  const isCloudSyncedAccount = !isGuestEmail(user?.email);
   const { points } = useRewardsStore();
   const { setProfile: setProfileStore } = useProfileStore();
   const [loading, setLoading] = useState(false);
@@ -264,6 +267,7 @@ export default function ProfileScreen() {
       }
 
       // Also update database
+      if (!user?.id) return;
       const { error: dbError } = await supabase
         .from('profiles')
         .upsert({
@@ -296,7 +300,7 @@ export default function ProfileScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Save",
-          onPress: async (displayName) => {
+          onPress: async (displayName?: string) => {
             if (displayName?.trim()) {
               setLoading(true);
               try {
@@ -341,69 +345,80 @@ export default function ProfileScreen() {
   };
 
 
-  const handleSignOut = async () => {
-    const hasRealEmail = user?.email && !user.email.includes('@guest.local');
-    
-    if (hasRealEmail) {
-      // User has real email - normal sign out
-      Alert.alert(
-        "Sign Out",
-        "Are you sure you want to sign out?",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Sign Out",
-            style: "destructive",
-            onPress: async () => {
-              setLoading(true);
-              try {
-                await signOut();
-                // Small delay to ensure plan store is cleared before navigation
-                setTimeout(() => {
-                  router.replace("/");
-                }, 100);
-              } catch (error) {
-                console.error('Sign out error:', error);
-                Alert.alert("Error", "Could not sign out. Please try again.");
-              } finally {
-                setLoading(false);
-              }
-            }
+  /**
+   * Sign out.
+   *
+   * Signing out of a guest account is meaningless — the account exists only on
+   * this device — so the guest path offers deletion instead (see below).
+   */
+  const handleSignOut = () => {
+    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign Out",
+        style: "destructive",
+        onPress: async () => {
+          setLoading(true);
+          try {
+            await signOut();
+            router.replace("/");
+          } catch (error) {
+            console.error("Sign out error:", error);
+            Alert.alert("Error", "Could not sign out. Please try again.");
+          } finally {
+            setLoading(false);
           }
-        ]
-      );
-    } else {
-      // Guest user - delete account with data loss warning
-      Alert.alert(
-        "Delete Account",
-        "This will permanently delete your account and all your data including:\n\n• Routine progress and streaks\n• Points and rewards\n• Purchase history\n• All settings\n\nThis cannot be undone. Are you sure?",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Delete Account",
-            style: "destructive",
-            onPress: async () => {
-              setLoading(true);
-              try {
-                // Sign out and clear all local data
-                await signOut();
-                // Clear all local storage/state
-                // Note: You might want to add more cleanup here
-                // Small delay to ensure plan store is cleared before navigation
-                setTimeout(() => {
-                  router.replace("/");
-                }, 100);
-              } catch (error) {
-                console.error('Delete account error:', error);
-                Alert.alert("Error", "Could not delete account. Please try again.");
-              } finally {
-                setLoading(false);
-              }
+        },
+      },
+    ]);
+  };
+
+  /**
+   * Delete the account for real.
+   *
+   * The old implementation showed a "permanently delete your account and all
+   * your data" confirmation and then only called signOut() — nothing was ever
+   * deleted server-side. It was also offered to guests only, while App Store
+   * Guideline 5.1.1(v) requires it for every account type.
+   */
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      "Delete Account",
+      "This permanently deletes your account and all your data:\n\n" +
+        "• Routine progress and streaks\n" +
+        "• Points and rewards\n" +
+        "• Purchase history\n" +
+        "• Community posts and comments\n\n" +
+        "This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete Account",
+          style: "destructive",
+          onPress: async () => {
+            setLoading(true);
+            try {
+              const { deleteAccount, clearAllLocalData } = await import(
+                "@/services/accountDeletion"
+              );
+              await deleteAccount();
+              await clearAllLocalData();
+              router.replace("/");
+            } catch (error) {
+              console.error("Delete account error:", error);
+              Alert.alert(
+                "Could not delete account",
+                error instanceof Error
+                  ? error.message
+                  : "Please try again, or contact support if the problem persists."
+              );
+            } finally {
+              setLoading(false);
             }
-          }
-        ]
-      );
-    }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -520,9 +535,9 @@ export default function ProfileScreen() {
             {/* Email */}
             <View style={styles.fieldContainer}>
               <Text style={styles.fieldLabel}>Email</Text>
-              {user?.email && !user.email.includes('@guest.local') ? (
+              {isCloudSyncedAccount ? (
                 <View style={styles.fieldButton}>
-                  <Text style={styles.fieldValue}>{user.email}</Text>
+                  <Text style={styles.fieldValue}>{user?.email}</Text>
                   <Text style={styles.emailNote}>✓ Cloud sync enabled</Text>
                 </View>
               ) : (
@@ -605,22 +620,27 @@ export default function ProfileScreen() {
 
           {/* Sign Out / Delete Account */}
           <View style={styles.section}>
-            <CustomButton
-              onPress={handleSignOut}
-              variant="ghost"
-              disabled={loading}
-            >
+            {isCloudSyncedAccount && (
+              <CustomButton onPress={handleSignOut} variant="ghost" disabled={loading}>
+                {loading ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <View style={styles.signOutButtonContent}>
+                    <Feather name="log-out" size={20} color="white" />
+                    <Text style={styles.signOutText}>Sign Out</Text>
+                  </View>
+                )}
+              </CustomButton>
+            )}
+
+            <CustomButton onPress={handleDeleteAccount} variant="ghost" disabled={loading}>
               {loading ? (
                 <ActivityIndicator size="small" color="white" />
               ) : (
                 <View style={styles.signOutButtonContent}>
-                  <Feather 
-                    name={user?.email && !user.email.includes('@guest.local') ? "log-out" : "trash-2"} 
-                    size={20} 
-                    color="white" 
-                  />
-                  <Text style={styles.signOutText}>
-                    {user?.email && !user.email.includes('@guest.local') ? "Sign Out" : "Delete Account"}
+                  <Feather name="trash-2" size={20} color="#ff6b6b" />
+                  <Text style={[styles.signOutText, { color: "#ff6b6b" }]}>
+                    Delete Account
                   </Text>
                 </View>
               )}

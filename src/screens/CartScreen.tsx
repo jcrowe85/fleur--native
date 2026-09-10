@@ -22,6 +22,7 @@ import { useCartStore } from "@/state/cartStore";
 import { usePlanStore } from "@/state/planStore";
 import { usePurchaseStore } from "@/state/purchaseStore";
 import { createCheckout, createKitDiscountCode } from "@/services/shopifyClient";
+import CheckoutSheet from "@/components/CheckoutSheet";
 import { useAuthStore } from "@/state/authStore";
 
 /* ========= Optional: kit SKUs for upsell ========= */
@@ -32,99 +33,9 @@ const KIT_SKUS = [
   "conditioner",           // conditioner
 ];
 
-/* ========= Checkout Sheet (inline) ========= */
-
-type CheckoutSheetProps = {
-  visible: boolean;
-  url?: string;
-  onClose: () => void;
-  onComplete?: (finalUrl: string) => void;
-};
-
-function CheckoutSheet({
-  visible,
-  url,
-  onClose,
-  onComplete,
-}: CheckoutSheetProps) {
-  if (!visible || !url) return null;
-
-  return (
-    <Modal
-      animationType="slide"
-      transparent
-      visible={visible}
-      onRequestClose={onClose}
-    >
-      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }}>
-        <View style={{ 
-          flex: 1, 
-          marginTop: 100, 
-          backgroundColor: "#fff", 
-          borderTopLeftRadius: 20, 
-          borderTopRightRadius: 20,
-          overflow: "hidden"
-        }}>
-          {/* Header */}
-          <View style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            paddingHorizontal: 20,
-            paddingVertical: 16,
-            borderBottomWidth: 1,
-            borderBottomColor: "#f0f0f0"
-          }}>
-            <Text style={{ fontSize: 18, fontWeight: "600", color: "#000" }}>
-              Complete Purchase
-            </Text>
-            <Pressable onPress={() => {
-              Alert.alert(
-                "Cancel Checkout?",
-                "Are you sure you want to close the checkout? Your order will be lost if you haven't completed the purchase.",
-                [
-                  { text: "Continue Shopping", style: "cancel" },
-                  { text: "Close", onPress: onClose }
-                ]
-              );
-            }} style={{ padding: 8 }}>
-              <Feather name="x" size={24} color="#666" />
-            </Pressable>
-          </View>
-          
-          {/* WebView */}
-          <WebView
-            source={{ uri: url }}
-            style={{ flex: 1 }}
-            onNavigationStateChange={(navState) => {
-              console.log("WebView navigation:", navState.url);
-              // Check if checkout is complete
-              if (navState.url.includes("thank-you") || 
-                  navState.url.includes("success") || 
-                  navState.url.includes("order") ||
-                  navState.url.includes("confirmation") ||
-                  navState.url.includes("checkout/success")) {
-                console.log("Checkout completed, calling onComplete");
-                onComplete?.(navState.url);
-              }
-            }}
-            onShouldStartLoadWithRequest={(request) => {
-              console.log("WebView should start load:", request.url);
-              // Allow all requests for now to avoid blocking legitimate checkout flows
-              return true;
-            }}
-            onError={(error) => {
-              console.log("WebView error:", error);
-            }}
-            onHttpError={(error) => {
-              console.log("WebView HTTP error:", error);
-            }}
-          />
-        </View>
-      </View>
-    </Modal>
-  );
-}
+/** Image retry policy for the product image component. */
+const MAX_IMAGE_RETRIES = 3;
+const IMAGE_RETRY_BASE_MS = 1500;
 
 /* ========== Screen ========== */
 export default function CartScreen() {
@@ -245,7 +156,7 @@ export default function CartScreen() {
           console.log("🛒 Cart items for discount:", cartItems);
           console.log("📦 Line items for checkout:", lineItems);
           
-          const discountResult = await createKitDiscountCode(currentUser.id, cartItems);
+          const discountResult = await createKitDiscountCode(cartItems);
           console.log("✅ Kit discount created:", discountResult);
           
           // Create checkout with discount code
@@ -562,19 +473,16 @@ function ProductImage({ uri }: { uri?: string }) {
     setCurrentUri(uri);
   }, [uri]);
 
-  // Retry mechanism - keep trying every 2 seconds until it loads
+  // See RecommendationsScreen: bounded retries with backoff rather than an
+  // unbounded 2-second poll against a URL that may simply be gone.
   React.useEffect(() => {
-    if (!currentUri || imageLoaded) return;
-    
-    const retryInterval = setInterval(() => {
-      setRetryCount(prev => {
-        console.log(`Retrying image load for ${currentUri}, attempt ${prev + 1}`);
-        return prev + 1;
-      });
-    }, 2000);
+    if (!currentUri || imageLoaded || retryCount >= MAX_IMAGE_RETRIES) return;
 
-    return () => clearInterval(retryInterval);
-  }, [currentUri, imageLoaded]);
+    const delay = IMAGE_RETRY_BASE_MS * 2 ** retryCount;
+    const timer = setTimeout(() => setRetryCount((prev) => prev + 1), delay);
+
+    return () => clearTimeout(timer);
+  }, [currentUri, imageLoaded, retryCount]);
 
   const handleImageLoad = () => {
     console.log(`✅ Image loaded successfully: ${currentUri}`);
