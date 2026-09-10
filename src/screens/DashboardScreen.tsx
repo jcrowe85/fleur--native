@@ -28,6 +28,7 @@ import { ScreenScrollView } from "@/components/UI/bottom-space"; // ✅ unified 
 
 // ⭐ Small Rewards Pill (compact variant supported)
 import RewardsPill from "@/components/UI/RewardsPill";
+import DevResetGesture from "@/dev/DevResetGesture";
 import DailyCheckInPopup from "@/components/DailyCheckInPopup";
 import FirstPointPopup from "@/components/FirstPointPopup";
 import SignupBonusPopup from "@/components/SignupBonusPopup";
@@ -592,10 +593,14 @@ export default function DashboardScreen() {
         {/* Header */}
         <View style={styles.headerWrap}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16 }}>
-            <View style={{ flex: 1, alignItems: "center" }}>
-              <Text style={styles.headerTitle}>Your Hair Journey</Text>
-              <Text style={styles.headerSub}>Your routine, progress, and rewards in one place.</Text>
-            </View>
+            {/* The title doubles as the hidden dev reset: hold 3s to wipe local
+                data and restart onboarding. Compiles away outside __DEV__. */}
+            <DevResetGesture label="Dashboard title" style={{ flex: 1 }}>
+              <View style={{ alignItems: "center" }}>
+                <Text style={styles.headerTitle}>Your Hair Journey</Text>
+                <Text style={styles.headerSub}>Your routine, progress, and rewards in one place.</Text>
+              </View>
+            </DevResetGesture>
           </View>
 
           {/* Sits in headerWrap's padding, NOT pulled above the title row.

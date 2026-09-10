@@ -1,6 +1,6 @@
 // src/dev/DevResetGesture.tsx
 import React, { useCallback, useRef, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View, type ViewStyle, type StyleProp } from "react-native";
 import { resetAllDataForDev } from "./resetLocalData";
 
 /** How long the hold must be sustained before the reset prompt appears. */
@@ -10,6 +10,12 @@ type Props = {
   children: React.ReactNode;
   /** Shown in the confirm dialog so you know which control you hit. */
   label?: string;
+  /**
+   * Applied to the wrapping Pressable. Needed wherever the wrapped element
+   * relied on a layout prop from its parent — wrapping a `flex: 1` child
+   * without passing flex through collapses it.
+   */
+  style?: StyleProp<ViewStyle>;
 };
 
 /**
@@ -25,12 +31,16 @@ type Props = {
  * eight signed-in screens — meaning you had to finish onboarding to reach the
  * control that resets onboarding.)
  */
-export default function DevResetGesture({ children, label = "app" }: Props) {
+export default function DevResetGesture({ children, label = "app", style }: Props) {
   if (!__DEV__) return <>{children}</>;
-  return <DevResetGestureInner label={label}>{children}</DevResetGestureInner>;
+  return (
+    <DevResetGestureInner label={label} style={style}>
+      {children}
+    </DevResetGestureInner>
+  );
 }
 
-function DevResetGestureInner({ children, label }: Required<Props>) {
+function DevResetGestureInner({ children, label, style }: Props & { label: string }) {
   const [holding, setHolding] = useState(false);
   const busy = useRef(false);
 
@@ -73,6 +83,7 @@ function DevResetGestureInner({ children, label }: Required<Props>) {
       onPressOut={() => setHolding(false)}
       // Let normal taps through to whatever is underneath.
       android_disableSound
+      style={style}
     >
       {children}
       {holding && (
