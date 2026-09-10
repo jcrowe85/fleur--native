@@ -258,6 +258,57 @@ export async function revokeDiscountNode(discountNodeId: string): Promise<void> 
   }
 }
 
+/** Fields the app needs for every product it renders. */
+const PRODUCT_FIELDS = `
+  id
+  handle
+  title
+  description
+  tags
+  priceRange { minVariantPrice { amount currencyCode } }
+  images(first: 1) { edges { node { url altText } } }
+  variants(first: 10) {
+    edges { node { id title price { amount currencyCode } availableForSale } }
+  }
+`;
+
+/**
+ * Fetch specific products by handle.
+ *
+ * Shopify excludes UNLISTED products from `products(first:)` listing queries but
+ * still returns them from `product(handle:)`. Every product tagged
+ * redeemable-with-points on this store is UNLISTED, so a listing-based fetch
+ * returned none of them and the rewards catalog came back empty. Aliasing one
+ * lookup per handle into a single request sidesteps that and avoids the
+ * listing's 50-item ceiling.
+ */
+export async function fetchProductsByHandles(handles: string[]): Promise<any[]> {
+  const unique = Array.from(new Set(handles.map(canonicalSku).filter(Boolean)));
+  if (unique.length === 0) return [];
+
+  // GraphQL aliases must be valid names, so map each handle to a safe alias.
+  const aliases = unique.map((h, i) => ({ alias: `p${i}`, handle: h }));
+  const query = `query ProductsByHandle {
+    ${aliases.map(({ alias, handle }) =>
+      `${alias}: product(handle: ${JSON.stringify(handle)}) { ${PRODUCT_FIELDS} }`
+    ).join("\n    ")}
+  }`;
+
+  const data = await shopifyFetch(
+    storefrontUrl(),
+    { "X-Shopify-Storefront-Access-Token": String(SHOPIFY_STOREFRONT_ACCESS_TOKEN) },
+    { query }
+  );
+
+  if (data?.errors?.length) {
+    throw new Error(data.errors.map((e: any) => e.message).join(", "));
+  }
+
+  return aliases
+    .map(({ alias }) => data?.data?.[alias])
+    .filter((p: any) => p && p.handle);
+}
+
 const PRODUCT_BY_HANDLE = `
   query productByHandle($handle: String!) {
     product(handle: $handle) {

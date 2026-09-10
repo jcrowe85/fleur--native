@@ -1,6 +1,6 @@
 import express from "express";
 import { requireAuth, type AuthedRequest } from "./auth.middleware";
-import { createKitDiscountCode } from "./shopify.service";
+import { createKitDiscountCode, fetchProductsByHandles } from "./shopify.service";
 import { redeemableSkus } from "./points.catalog";
 import {
   issueRedemption,
@@ -134,7 +134,8 @@ router.get("/products", async (req, res) => {
   const STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
   const STOREFRONT_TOKEN = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
   const tagFilter = typeof req.query.tag === "string" ? req.query.tag.trim() : "";
-  const cacheKey = tagFilter || "__all__";
+  const handleParam = typeof req.query.handles === "string" ? req.query.handles.trim() : "";
+  const cacheKey = handleParam ? `h:${handleParam}` : tagFilter || "__all__";
 
   const cached = productCache.get(cacheKey);
   if (cached && Date.now() - cached.at < PRODUCT_CACHE_TTL_MS) {
@@ -151,36 +152,36 @@ router.get("/products", async (req, res) => {
   }
 
   try {
-    const domain = STORE_DOMAIN.replace(/^https?:\/\//, "").replace(/\/$/, "");
-    const response = await fetch(`https://${domain}/api/2024-07/graphql.json`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Storefront-Access-Token": STOREFRONT_TOKEN,
-      },
-      body: JSON.stringify({
-        query: PRODUCTS_QUERY,
-        variables: { first: 50, query: tagFilter ? `tag:${tagFilter}` : "" },
-      }),
-    });
+    let products: any[];
 
-    if (!response.ok) {
-      throw new Error(`Shopify responded ${response.status}`);
+    if (handleParam) {
+      // Explicit handles — used when the caller already knows what it needs.
+      products = await fetchProductsByHandles(handleParam.split(",").map((h) => h.trim()));
+    } else if (tagFilter) {
+      // Redeemable catalog.
+      //
+      // This used to be a `query: "tag:..."` listing, which returned nothing:
+      // every product tagged redeemable-with-points on this store is UNLISTED,
+      // and Shopify omits unlisted products from listing queries. The server's
+      // own point catalog is the authority on what is redeemable anyway, so
+      // resolve those handles directly and let the tag be advisory.
+      products = await fetchProductsByHandles(redeemableSkus().map((p) => p.sku));
+    } else {
+      // General browse: the listing, plus any catalog products the listing
+      // cannot see, so callers matching on handle always find them.
+      const [listed, catalog] = await Promise.all([
+        fetchProductListing(""),
+        fetchProductsByHandles(redeemableSkus().map((p) => p.sku)),
+      ]);
+      const seen = new Set(listed.map((p: any) => p.handle));
+      products = [...listed, ...catalog.filter((p: any) => !seen.has(p.handle))];
     }
 
-    const data: any = await response.json();
-    if (data?.errors?.length) {
-      throw new Error(data.errors.map((e: any) => e.message).join(", "));
-    }
-
-    const products = (data?.data?.products?.edges ?? []).map((edge: any) => edge.node);
     productCache.set(cacheKey, { at: Date.now(), products });
-
     res.set("x-products-cache", "miss");
     res.json({ products });
   } catch (error) {
     console.error("[products] failed to fetch from Shopify:", error);
-    // Serve stale rather than break the shop tab.
     if (cached) {
       res.set("x-products-cache", "stale");
       return res.json({ products: cached.products });
@@ -188,5 +189,32 @@ router.get("/products", async (req, res) => {
     res.status(502).json({ error: "Could not load products" });
   }
 });
+
+/** Plain listing query — only returns products Shopify shows in listings. */
+async function fetchProductListing(tagFilter: string): Promise<any[]> {
+  const domain = String(process.env.SHOPIFY_STORE_DOMAIN)
+    .replace(/^https?:\/\//, "")
+    .replace(/\/$/, "");
+
+  const response = await fetch(`https://${domain}/api/2024-07/graphql.json`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Storefront-Access-Token": String(process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN),
+    },
+    body: JSON.stringify({
+      query: PRODUCTS_QUERY,
+      variables: { first: 50, query: tagFilter ? `tag:${tagFilter}` : "" },
+    }),
+  });
+
+  if (!response.ok) throw new Error(`Shopify responded ${response.status}`);
+
+  const data: any = await response.json();
+  if (data?.errors?.length) {
+    throw new Error(data.errors.map((e: any) => e.message).join(", "));
+  }
+  return (data?.data?.products?.edges ?? []).map((edge: any) => edge.node);
+}
 
 export default router;

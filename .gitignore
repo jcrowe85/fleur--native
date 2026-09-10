@@ -47,3 +47,9 @@ yarn-error.*
 # changes silently had no effect on the built app.
 /android
 /ios
+
+# Editor swap/backup files (a .env swap can hold secrets)
+*.swp
+*.swo
+*~
+.*.swp
