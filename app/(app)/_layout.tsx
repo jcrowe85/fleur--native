@@ -9,7 +9,6 @@ import {
   View,
   StyleSheet,
   Alert,
-  ActivityIndicator,
   Text,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,6 +22,7 @@ import { useAuthStore } from "../../src/state/authStore";
 import { useRoutineStore } from "../../src/state/routineStore";
 import { useRewardsStore } from "../../src/state/rewardsStore";
 import RewardsPill from "@/components/UI/RewardsPill";
+import BrandedLoader from "@/components/UI/BrandedLoader";
 import RewardsPopup from "@/components/UI/RewardsPopup";
 import { useRewardsPopup } from "@/hooks/useRewardsPopup";
 import { useCloudSyncPopup } from "../../src/hooks/useCloudSyncPopup";
@@ -78,31 +78,15 @@ export default function AppLayout() {
   }, []);
 
   if (loading) {
-    return (
-      <View style={styles.centerWrap}>
-        <View style={styles.cardShadow}>
-          <BlurView intensity={90} tint="dark" style={styles.centerCard}>
-            <View style={StyleSheet.absoluteFillObject as any} />
-            <ActivityIndicator />
-            <Text style={styles.centerText}>Preparing your space…</Text>
-          </BlurView>
-        </View>
-      </View>
-    );
+    return <BrandedLoader message="Preparing your space" />;
   }
 
   if (error) {
     return (
-      <View style={styles.centerWrap}>
-        <View style={styles.cardShadow}>
-          <BlurView intensity={90} tint="dark" style={styles.centerCard}>
-            <Text style={styles.errorText}>Couldn’t connect. Please try again.</Text>
-            <Pressable onPress={bootstrap} style={styles.retryBtn}>
-              <Text style={styles.retryText}>Retry</Text>
-            </Pressable>
-          </BlurView>
-        </View>
-      </View>
+      <BrandedLoader
+        error="Check your connection and try again."
+        onRetry={bootstrap}
+      />
     );
   }
 
@@ -286,55 +270,6 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 999,
     backgroundColor: "rgba(255,255,255,0.12)",
-  },
-
-  // ----- glass loader / error -----
-  centerWrap: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-    backgroundColor: "rgba(0,0,0,0.6)",
-  },
-  cardShadow: {
-    width: "86%",
-    maxWidth: 420,
-    borderRadius: 16,
-    shadowColor: "#000",
-    shadowOpacity: 0.28,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 14,
-  },
-  centerCard: {
-    borderRadius: 16,
-    paddingHorizontal: 18,
-    paddingVertical: 18,
-    alignItems: "center",
-    overflow: "hidden",
-  },
-  centerText: {
-    marginTop: 10,
-    color: "rgba(255,255,255,0.9)",
-    fontWeight: "600",
-  },
-  errorText: {
-    color: "rgba(255,255,255,0.95)",
-    fontWeight: "700",
-    marginBottom: 10,
-    textAlign: "center",
-  },
-  retryBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.35)",
-    backgroundColor: "rgba(255,255,255,0.08)",
-  },
-  retryText: {
-    color: "#fff",
-    fontWeight: "600",
   },
 
   // ----- tab bar -----

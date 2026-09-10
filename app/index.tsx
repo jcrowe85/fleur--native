@@ -1,29 +1,9 @@
 // app/index.tsx
 import React, { useEffect, useState } from "react";
-import * as SplashScreen from "expo-splash-screen";
 import { Redirect } from "expo-router";
 import { usePlanStore } from "@/state/planStore";
 import WelcomeScreen from "../src/screens/WelcomeScreen";
-
-/**
- * Hold the splash until we know whether this is a returning user.
- *
- * The previous version tracked readiness in two module-level booleans and only
- * hid the splash from an effect keyed on [hydrated, timeoutFired]. If
- * preventAutoHideAsync() resolved *after* both of those had already settled —
- * which is the common case on a warm start — the effect never re-ran and the
- * splash stayed up forever. Keeping the promise itself and awaiting it removes
- * the ordering dependency entirely.
- */
-const splashReady = SplashScreen.preventAutoHideAsync().catch(() => {});
-
-let splashHidden = false;
-async function hideSplash() {
-  if (splashHidden) return;
-  splashHidden = true;
-  await splashReady;
-  await SplashScreen.hideAsync().catch(() => {});
-}
+import BrandedLoader from "@/components/UI/BrandedLoader";
 
 /** How long to wait for rehydration before showing UI anyway. */
 const HYDRATION_TIMEOUT_MS = 2500;
@@ -48,6 +28,14 @@ function useStoreHydrated(): boolean {
   return hydrated;
 }
 
+/**
+ * Decides where a launch lands: dashboard for a returning user, welcome
+ * otherwise.
+ *
+ * Splash hiding lives in the root layout, not here — this component only mounts
+ * for "/", so owning the splash meant any other entry point (a notification
+ * deep link into /routine, say) left it up over a rendered app.
+ */
 export default function IndexGate() {
   const plan = usePlanStore((s) => s.plan);
   const hydrated = useStoreHydrated();
@@ -58,15 +46,10 @@ export default function IndexGate() {
     return () => clearTimeout(t);
   }, []);
 
-  const ready = hydrated || timedOut;
+  // Show the branded loader rather than null, so the gap between the splash
+  // hiding and the first screen is never a blank frame.
+  if (!hydrated && !timedOut) return <BrandedLoader message="Preparing your space" />;
 
-  useEffect(() => {
-    if (ready) void hideSplash();
-  }, [ready]);
-
-  if (!ready) return null;
-
-  // Returning user with a saved plan goes straight to the dashboard.
   if (plan) return <Redirect href="/(app)/dashboard" />;
 
   return <WelcomeScreen />;
