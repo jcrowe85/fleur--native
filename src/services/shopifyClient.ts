@@ -376,13 +376,21 @@ export async function fetchAllProducts(): Promise<ShopifyProduct[]> {
  * Resolving against the live catalog at checkout time means the map is only a
  * fallback for products this lookup cannot reach.
  */
-const variantIdCache = new Map<string, string>();
+export type LiveVariant = {
+  variantId: string;
+  /** Price of the variant the app actually sells, in cents. */
+  priceCents: number;
+  availableForSale: boolean;
+};
 
-export async function resolveLiveVariantIds(
+const variantCache = new Map<string, LiveVariant>();
+
+/** Live variant id + price per SKU, straight from Shopify. */
+export async function resolveLiveVariants(
   skus: string[]
-): Promise<Record<string, string>> {
+): Promise<Record<string, LiveVariant>> {
   const wanted = Array.from(new Set(skus.filter(Boolean)));
-  const missing = wanted.filter((s) => !variantIdCache.has(s));
+  const missing = wanted.filter((s) => !variantCache.has(s));
 
   if (missing.length && STORE_DOMAIN && STOREFRONT_TOKEN) {
     const domain = String(STORE_DOMAIN).replace(/^https?:\/\//, "").replace(/\/$/, "");
@@ -390,7 +398,7 @@ export async function resolveLiveVariantIds(
       ${missing
         .map(
           (h, i) =>
-            `v${i}: product(handle: ${JSON.stringify(h)}) { handle variants(first: 1) { edges { node { id } } } }`
+            `v${i}: product(handle: ${JSON.stringify(h)}) { handle variants(first: 1) { edges { node { id availableForSale price { amount } } } } }`
         )
         .join("\n      ")}
     }`;
@@ -409,7 +417,12 @@ export async function resolveLiveVariantIds(
         const data = await res.json();
         missing.forEach((h, i) => {
           const node = data?.data?.[`v${i}`]?.variants?.edges?.[0]?.node;
-          if (node?.id) variantIdCache.set(h, node.id);
+          if (!node?.id) return;
+          variantCache.set(h, {
+            variantId: node.id,
+            priceCents: Math.round(parseFloat(node.price?.amount ?? "0") * 100),
+            availableForSale: !!node.availableForSale,
+          });
         });
       }
     } catch (error) {
@@ -418,12 +431,20 @@ export async function resolveLiveVariantIds(
     }
   }
 
-  const out: Record<string, string> = {};
+  const out: Record<string, LiveVariant> = {};
   for (const sku of wanted) {
-    const id = variantIdCache.get(sku);
-    if (id) out[sku] = id;
+    const v = variantCache.get(sku);
+    if (v) out[sku] = v;
   }
   return out;
+}
+
+/** Back-compat: ids only. */
+export async function resolveLiveVariantIds(
+  skus: string[]
+): Promise<Record<string, string>> {
+  const live = await resolveLiveVariants(skus);
+  return Object.fromEntries(Object.entries(live).map(([k, v]) => [k, v.variantId]));
 }
 
 export interface PointRedemption {

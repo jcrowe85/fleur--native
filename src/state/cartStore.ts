@@ -21,6 +21,9 @@ type CartState = {
   clear: () => void;
   addSkusQuick: (skus: string[]) => void;
 
+  /** Replace stored price/variant for each line with Shopify's current values. */
+  applyLiveVariants: (live: Record<string, { variantId: string; priceCents: number }>) => void;
+
   /** Helpers for Shopify Cart/Checkout APIs */
   buildVariantLines: () => { variantId: string; quantity: number }[];
   buildCartLines: () => { merchandiseId: string; quantity: number }[];
@@ -65,10 +68,19 @@ const SKU_TO_VARIANT: Record<string, string> = {
   "fleur-complete-kit": "",
 };
 
+/**
+ * Fallback display prices, in cents.
+ *
+ * These are only a fallback — CartScreen refreshes them from Shopify before
+ * showing a total, because a hardcoded price that drifts from the store means
+ * the customer is shown one number and charged another. That had already
+ * happened: the serum sat at 4800 here, which is the *1-month subscription
+ * discounted* price, while the one-time variant the app actually sells costs
+ * $68. Customers saw $48 and were charged $68 at Shopify checkout.
+ */
 const SKU_PRICE_CENTS: Record<string, number> = {
-  // Real prices from Shopify API - using Shopify handles as primary keys
-  "bloom": 4800,
-  "bloom-hair-scalp-serum-longform": 4800,
+  "bloom": 6800,
+  "bloom-hair-scalp-serum-longform": 6800,
   "micro-roller": 3000,
   "detangling-comb": 4200,
   "vegan-biotin": 1500,
@@ -81,7 +93,7 @@ const SKU_PRICE_CENTS: Record<string, number> = {
   "silk-pillow": 3500,
 
   // Legacy mappings (keep for backward compatibility)
-  "fleur-serum": 4800, // Same as bloom
+  "fleur-serum": 6800, // Same as bloom
   "fleur-derma-stamp": 3000, // Same as micro-roller
   "fleur-shampoo": 2600, // Same as shampoo
   "fleur-conditioner": 2600, // Same as conditioner
@@ -271,6 +283,19 @@ export const useCartStore = create<CartState>((set, get) => ({
     })),
 
   clear: () => set({ items: [] }),
+
+  applyLiveVariants: (live) =>
+    set((s) => ({
+      items: s.items.map((i) => {
+        const fresh = live[i.sku];
+        if (!fresh) return i;
+        return {
+          ...i,
+          variantId: fresh.variantId,
+          priceCents: fresh.priceCents > 0 ? fresh.priceCents : i.priceCents,
+        };
+      }),
+    })),
 
   /** Fast add for bundles/kits – now uses addBySku to guarantee prices */
   addSkusQuick: (skus) => {

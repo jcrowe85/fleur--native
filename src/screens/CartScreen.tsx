@@ -21,7 +21,7 @@ import { WebView } from "react-native-webview";
 import { useCartStore } from "@/state/cartStore";
 import { usePlanStore } from "@/state/planStore";
 import { usePurchaseStore } from "@/state/purchaseStore";
-import { createCheckout, createKitDiscountCode, resolveLiveVariantIds } from "@/services/shopifyClient";
+import { createCheckout, createKitDiscountCode, resolveLiveVariants } from "@/services/shopifyClient";
 import CheckoutSheet from "@/components/CheckoutSheet";
 import { useAuthStore } from "@/state/authStore";
 
@@ -46,6 +46,27 @@ export default function CartScreen() {
   const [busy, setBusy] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
+
+  // Pull current prices and variant ids from Shopify whenever the bag opens.
+  // The values baked into cartStore drift from the store, and a cart that shows
+  // one price while Shopify charges another is worse than a slow cart.
+  React.useEffect(() => {
+    const skus = useCartStore.getState().items.map((i) => i.sku);
+    if (skus.length === 0) return;
+
+    let cancelled = false;
+    resolveLiveVariants(skus)
+      .then((live) => {
+        if (!cancelled && Object.keys(live).length) {
+          useCartStore.getState().applyLiveVariants(live);
+        }
+      })
+      .catch((e) => console.warn("Could not refresh cart pricing:", e));
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Helper function to navigate back to the correct screen
   const goBack = () => {
@@ -147,9 +168,10 @@ export default function CartScreen() {
       // The IDs baked into cartStore go stale when a product is recreated, and
       // one bad line rejects the entire cart.
       try {
-        const live = await resolveLiveVariantIds(items.map((i) => i.sku));
+        const live = await resolveLiveVariants(items.map((i) => i.sku));
+        useCartStore.getState().applyLiveVariants(live);
         lineItems = lineItems.map((line, idx) => {
-          const fresh = live[items[idx]?.sku];
+          const fresh = live[items[idx]?.sku]?.variantId;
           return fresh && fresh !== line.variantId ? { ...line, variantId: fresh } : line;
         });
       } catch (e) {
