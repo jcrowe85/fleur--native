@@ -21,7 +21,7 @@ import { WebView } from "react-native-webview";
 import { useCartStore } from "@/state/cartStore";
 import { usePlanStore } from "@/state/planStore";
 import { usePurchaseStore } from "@/state/purchaseStore";
-import { createCheckout, createKitDiscountCode } from "@/services/shopifyClient";
+import { createCheckout, createKitDiscountCode, resolveLiveVariantIds } from "@/services/shopifyClient";
 import CheckoutSheet from "@/components/CheckoutSheet";
 import { useAuthStore } from "@/state/authStore";
 
@@ -125,7 +125,7 @@ export default function CartScreen() {
         'fleur-serum', 'fleur-repair-mask'
       ];
       
-      const lineItems = items
+      let lineItems = items
         .filter((it) => {
           // Only allow valid SKUs that we know work in Shopify
           if (!VALID_SKUS.includes(it.sku)) return false;
@@ -141,6 +141,19 @@ export default function CartScreen() {
         );
         setBusy(false);
         return;
+      }
+
+      // Re-point every line at the variant Shopify currently has for that SKU.
+      // The IDs baked into cartStore go stale when a product is recreated, and
+      // one bad line rejects the entire cart.
+      try {
+        const live = await resolveLiveVariantIds(items.map((i) => i.sku));
+        lineItems = lineItems.map((line, idx) => {
+          const fresh = live[items[idx]?.sku];
+          return fresh && fresh !== line.variantId ? { ...line, variantId: fresh } : line;
+        });
+      } catch (e) {
+        console.warn("Could not refresh variant ids, using stored ones:", e);
       }
 
       let webUrl: string;

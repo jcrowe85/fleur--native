@@ -363,6 +363,69 @@ export async function fetchAllProducts(): Promise<ShopifyProduct[]> {
 // whatever called it.
 // ---------------------------------------------------------------------------
 
+
+/**
+ * Resolve SKUs/handles to their current Shopify variant IDs.
+ *
+ * cartStore hardcodes a SKU -> variantId map, and those IDs drift whenever a
+ * product is recreated in Shopify. One had already gone stale — the hair growth
+ * serum — and because Shopify rejects the whole cart when any line references a
+ * missing variant ("The merchandise with id ... does not exist"), every
+ * checkout containing the flagship product failed outright.
+ *
+ * Resolving against the live catalog at checkout time means the map is only a
+ * fallback for products this lookup cannot reach.
+ */
+const variantIdCache = new Map<string, string>();
+
+export async function resolveLiveVariantIds(
+  skus: string[]
+): Promise<Record<string, string>> {
+  const wanted = Array.from(new Set(skus.filter(Boolean)));
+  const missing = wanted.filter((s) => !variantIdCache.has(s));
+
+  if (missing.length && STORE_DOMAIN && STOREFRONT_TOKEN) {
+    const domain = String(STORE_DOMAIN).replace(/^https?:\/\//, "").replace(/\/$/, "");
+    const query = `query VariantIds {
+      ${missing
+        .map(
+          (h, i) =>
+            `v${i}: product(handle: ${JSON.stringify(h)}) { handle variants(first: 1) { edges { node { id } } } }`
+        )
+        .join("\n      ")}
+    }`;
+
+    try {
+      const res = await fetch(`https://${domain}/api/2024-07/graphql.json`, {
+        method: "POST",
+        headers: {
+          "X-Shopify-Storefront-Access-Token": String(STOREFRONT_TOKEN),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        missing.forEach((h, i) => {
+          const node = data?.data?.[`v${i}`]?.variants?.edges?.[0]?.node;
+          if (node?.id) variantIdCache.set(h, node.id);
+        });
+      }
+    } catch (error) {
+      // Non-fatal: callers fall back to the SKU map.
+      console.warn("[shopify] variant id resolution failed:", error);
+    }
+  }
+
+  const out: Record<string, string> = {};
+  for (const sku of wanted) {
+    const id = variantIdCache.get(sku);
+    if (id) out[sku] = id;
+  }
+  return out;
+}
+
 export interface PointRedemption {
   redemptionId: string;
   pointsUsed: number;

@@ -31,8 +31,8 @@ type CartState = {
  * ─────────────────────────────────────────────────────────────── */
 const SKU_TO_VARIANT: Record<string, string> = {
   // ✅ Real Shopify variant IDs from API - using Shopify handles as primary keys
-  "bloom": "gid://shopify/ProductVariant/44138306273459",
-  "bloom-hair-scalp-serum-longform": "gid://shopify/ProductVariant/44138306273459",
+  "bloom": "gid://shopify/ProductVariant/44826097221811",
+  "bloom-hair-scalp-serum-longform": "gid://shopify/ProductVariant/44826097221811",
   "micro-roller": "gid://shopify/ProductVariant/44138710597811",
   "detangling-comb": "gid://shopify/ProductVariant/45032094597299",
   "vegan-biotin": "gid://shopify/ProductVariant/45032903278771",
@@ -45,7 +45,7 @@ const SKU_TO_VARIANT: Record<string, string> = {
   "silk-pillow": "gid://shopify/ProductVariant/45033276080307",
 
   // Legacy mappings (keep for backward compatibility)
-  "fleur-serum": "gid://shopify/ProductVariant/44138306273459", // Same as bloom
+  "fleur-serum": "gid://shopify/ProductVariant/44826097221811", // Same as bloom
   "fleur-derma-stamp": "gid://shopify/ProductVariant/44138710597811", // Same as micro-roller
   "fleur-shampoo": "gid://shopify/ProductVariant/45032954888371", // Same as shampoo
   "fleur-conditioner": "gid://shopify/ProductVariant/45033047720115", // Same as conditioner
