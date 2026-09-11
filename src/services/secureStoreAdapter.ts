@@ -18,9 +18,58 @@ import * as SecureStore from "expo-secure-store";
  * … with a `<key>` manifest recording the chunk count.
  */
 
-/** Conservative chunk size; SecureStore's Android limit is 2048 bytes. */
-const CHUNK_SIZE = 1800;
+/**
+ * Conservative chunk size in *bytes*; SecureStore's Android limit is 2048.
+ *
+ * The limit is measured in UTF-8 bytes, not characters. Splitting on
+ * `value.length` let a chunk of 1800 characters carrying non-ASCII content
+ * (a display name, an email with an accent, a provider field) exceed 2048
+ * bytes — expo-secure-store warned and Android could silently drop the write,
+ * which is the same session-loss failure the chunking exists to prevent.
+ */
+const CHUNK_BYTES = 1500;
 const MANIFEST_PREFIX = "__chunked__:";
+
+/** UTF-8 byte length of a single code point. */
+function codePointBytes(codePoint: number): number {
+  if (codePoint < 0x80) return 1;
+  if (codePoint < 0x800) return 2;
+  if (codePoint < 0x10000) return 3;
+  return 4;
+}
+
+/**
+ * Split `value` so every part is at most `CHUNK_BYTES` UTF-8 bytes.
+ *
+ * Iterating code points (rather than UTF-16 units) keeps surrogate pairs
+ * intact; a chunk boundary that bisected one would corrupt the rejoined value.
+ */
+function splitByBytes(value: string): string[] {
+  const chunks: string[] = [];
+  let current = "";
+  let bytes = 0;
+
+  for (const char of value) {
+    const size = codePointBytes(char.codePointAt(0)!);
+    if (bytes + size > CHUNK_BYTES && current !== "") {
+      chunks.push(current);
+      current = "";
+      bytes = 0;
+    }
+    current += char;
+    bytes += size;
+  }
+
+  if (current !== "") chunks.push(current);
+  return chunks;
+}
+
+/** UTF-8 byte length of a string. */
+function byteLength(value: string): number {
+  let bytes = 0;
+  for (const char of value) bytes += codePointBytes(char.codePointAt(0)!);
+  return bytes;
+}
 
 function chunkKey(key: string, index: number): string {
   return `${key}.${index}`;
@@ -76,15 +125,12 @@ export const SecureStoreAdapter = {
       const previousChunks = parseManifest(existing);
       if (previousChunks !== null) await clearChunks(key, previousChunks);
 
-      if (value.length <= CHUNK_SIZE) {
+      if (byteLength(value) <= CHUNK_BYTES) {
         await SecureStore.setItemAsync(key, value);
         return;
       }
 
-      const chunks: string[] = [];
-      for (let i = 0; i < value.length; i += CHUNK_SIZE) {
-        chunks.push(value.slice(i, i + CHUNK_SIZE));
-      }
+      const chunks = splitByBytes(value);
 
       // Write the parts first, then the manifest, so a crash mid-write leaves
       // the key looking absent rather than pointing at partial data.
