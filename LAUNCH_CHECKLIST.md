@@ -99,6 +99,27 @@ Play rejects outright.
 - [ ] Screenshots at required sizes
 - [ ] Support contact
 
+### Apple — account
+
+Enrolled and active, so there is no D-U-N-S or enrollment wait:
+
+| | |
+|---|---|
+| Entity | Big Brand Group Inc |
+| Enrolled as | Organization |
+| Team ID | `N6NZVZRK2K` (pre-filled in `eas.json` -> `submit.production.ios`) |
+| Your role | Account Holder — full App Store Connect permissions |
+| Renews | April 22, 2027 |
+
+- [ ] Create the app record in App Store Connect for bundle id `com.tryfleur.app`,
+      then put its numeric id into `ascAppId` in `eas.json`
+- [ ] Put the Account Holder Apple ID into `appleId` in `eas.json`
+- [ ] Check the seller name shown on the listing. An Organization account
+      displays the **legal entity name** — "Big Brand Group Inc", not "Fleur".
+      If the brand name should appear instead, that is a *Doing Business As*
+      request to Apple Developer Support, with supporting documentation, and it
+      is worth starting early because it is a manual review.
+
 ### Apple — likely rejection points, now addressed in code
 - [ ] **Account deletion** (5.1.1(v)) — in Profile, for every account type
 - [ ] **UGC moderation** (1.2) — report and block are in the post menu; you must

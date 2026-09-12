@@ -53,3 +53,6 @@ yarn-error.*
 *.swo
 *~
 .*.swp
+
+# Play Console service account key — never commit
+play-service-account.json
