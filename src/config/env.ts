@@ -17,6 +17,30 @@ const DEFAULT_LOCAL =
 
 const missing: string[] = [];
 
+/**
+ * Read the first of `names` that is set.
+ *
+ * Supabase replaced the legacy `anon` / `service_role` JWTs with publishable
+ * and secret keys. Accepting either lets the project migrate without a flag
+ * day — which matters here because this value is inlined into the app bundle
+ * at build time, so a released build is stuck with whatever key it shipped
+ * with until the user updates.
+ */
+function readEnvAny(names: string[], devFallback?: string): string {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value) return value;
+  }
+
+  if (__DEV__ && devFallback) {
+    console.warn(`[env] none of ${names.join(", ")} set; falling back to ${devFallback}`);
+    return devFallback;
+  }
+
+  missing.push(names[0]);
+  return "";
+}
+
 function readEnv(name: string, devFallback?: string): string {
   const value = process.env[name]?.trim();
   if (value) return value;
@@ -32,7 +56,17 @@ function readEnv(name: string, devFallback?: string): string {
 
 export const API_BASE = readEnv("EXPO_PUBLIC_API_BASE", DEFAULT_LOCAL).replace(/\/+$/, "");
 export const SUPABASE_URL = readEnv("EXPO_PUBLIC_SUPABASE_URL");
-export const SUPABASE_ANON_KEY = readEnv("EXPO_PUBLIC_SUPABASE_ANON_KEY");
+/**
+ * The browser-safe key: `sb_publishable_…`, or the legacy `anon` JWT.
+ *
+ * Both are safe to ship in the bundle — they are what row level security is
+ * designed to sit in front of. The name is kept as SUPABASE_ANON_KEY at the
+ * call sites so the swap is a one-line env change.
+ */
+export const SUPABASE_ANON_KEY = readEnvAny([
+  "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+  "EXPO_PUBLIC_SUPABASE_ANON_KEY",
+]);
 
 /** Optional — the shop degrades to the server-proxied catalog without these. */
 export const SHOPIFY_STORE_DOMAIN =

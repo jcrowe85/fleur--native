@@ -59,14 +59,19 @@ app.use(
 /** Fail fast at boot rather than 500ing on the first real request. */
 const REQUIRED_ENV = [
   "EXPO_PUBLIC_SUPABASE_URL",
-  "SUPABASE_SERVICE_ROLE_KEY",
+  // Either key form satisfies this one; see services/supabase.ts.
+  ["SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY"],
   "SHOPIFY_STORE_DOMAIN",
   "SHOPIFY_ADMIN_ACCESS_TOKEN",
   "SHOPIFY_STOREFRONT_ACCESS_TOKEN",
   "OPENAI_API_KEY",
 ];
 
-const missing = REQUIRED_ENV.filter((name) => !process.env[name]);
+const missing = REQUIRED_ENV.filter((entry) =>
+  Array.isArray(entry)
+    ? entry.every((name) => !process.env[name])
+    : !process.env[entry]
+).map((entry) => (Array.isArray(entry) ? entry.join(" or ") : entry));
 if (missing.length) {
   console.error(`[server] Missing required environment variables: ${missing.join(", ")}`);
   if (process.env.NODE_ENV === "production") process.exit(1);

@@ -2,7 +2,10 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+// `sb_secret_…` (current) or the legacy `service_role` JWT. Accepting both
+// lets the key be migrated without redeploying everything at once.
+const supabaseServiceKey =
+  process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 
 if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('Missing Supabase environment variables');
@@ -25,7 +28,10 @@ export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
  * a configuration one. Token verification needs no elevated privileges.
  */
 const supabaseAnonKey =
-  process.env.SUPABASE_ANON_KEY ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+  process.env.SUPABASE_PUBLISHABLE_KEY ??
+  process.env.SUPABASE_ANON_KEY ??
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
+  '';
 
 export const supabaseAuth = supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey, {

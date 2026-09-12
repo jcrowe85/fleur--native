@@ -3,20 +3,55 @@
 Everything below is work that has to happen outside the codebase. The code
 changes are done; these are the operational steps.
 
-## 1. Rotate leaked credentials — do this first
+## 1. Retire the leaked Supabase key — do this first, and before launch
 
-A Supabase **service_role** key was committed in plaintext (`check_user_data.sh`,
-`test_email_sync_complete.sh`) and is in the git history. That key bypasses all
-row level security.
+The **service_role** JWT was committed in plaintext (`check_user_data.sh`,
+`test_email_sync_complete.sh`, commits `a0a0f0d` and `39027ec`) and the GitHub
+repo is **public**. The committed key is byte-identical to the one still in
+`server/.env`. It bypasses row level security entirely — anyone holding it can
+read or modify every row in the project directly, with no app and no login.
 
-- [ ] Supabase → Settings → API → **roll the service_role key**
-- [ ] Roll the anon key too (it was committed alongside)
-- [ ] Update the key in Railway, Supabase Edge Function secrets, and any local `.env`
-- [ ] Rotate the **Slack incoming-webhook URL** — it shipped inside the app bundle
-      via `EXPO_PUBLIC_SLACK_WEBHOOK_URL` and is extractable from any released build
-- [ ] Consider rotating the Shopify Admin API token if the server repo was ever public
+Do **not** mint a replacement legacy key. Rotating a legacy `service_role`
+means rolling the project JWT secret, which also signs user access tokens and
+so signs out every existing session. Migrate to the current key system instead;
+the leaked key then dies for good when legacy keys are disabled.
 
-The scripts now read these from the environment, so nothing new is committed.
+| Legacy | Replacement | Consumed by |
+|---|---|---|
+| `anon` JWT | `sb_publishable_…` | the app bundle |
+| `service_role` JWT | `sb_secret_…` | API server, Railway, 5 edge functions |
+
+The code accepts either form, so this can be done one component at a time:
+
+- client — `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, else `EXPO_PUBLIC_SUPABASE_ANON_KEY`
+- server — `SUPABASE_SECRET_KEY`, else `SUPABASE_SERVICE_ROLE_KEY`
+- edge functions — `SB_SECRET_KEY`, else the platform-injected `SUPABASE_SERVICE_ROLE_KEY`
+
+Steps:
+
+- [ ] Supabase → Settings → API Keys → **New secret key**, named for the API server
+- [ ] Set `SUPABASE_SECRET_KEY` in `server/.env` and in Railway
+- [ ] Set `SB_SECRET_KEY` as a secret on all five edge functions
+- [ ] Set `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` locally and as an EAS secret
+- [ ] Verify: guest creation, email link, a point redemption, the community feed
+- [ ] **Then** Settings → API Keys → Legacy tab → **Disable JWT-based API keys**.
+      This is what actually neutralises the copy in the public git history.
+- [ ] Make the GitHub repo private — it also carries the Shopify store domain
+      and the whole server implementation
+
+**Order matters.** `EXPO_PUBLIC_*` values are inlined into the bundle at build
+time, so a released build is pinned to whatever key it shipped with. Disabling
+legacy keys after the app is in the stores breaks every installed copy until
+the user updates. Pre-launch there are no installs, so this costs nothing.
+
+The **anon key** leaked in the same commits and does *not* need replacing on
+security grounds — it is browser-safe by design and is what RLS sits in front
+of. Swap it only as part of retiring the legacy system.
+
+The **Slack webhook** is not in the git history (checked: no `hooks.slack.com`
+in any commit) and the app was never publicly released, so it was never
+exposed. It still needs to move server-side before launch, but that is a
+design change, not an incident.
 
 ## 2. Server environment (Railway)
 
